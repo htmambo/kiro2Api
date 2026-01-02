@@ -2,7 +2,7 @@ import { promises as fs } from 'fs';
 import * as path from 'path';
 import * as http from 'http'; // Add http for IncomingMessage and ServerResponse types
 import * as crypto from 'crypto'; // Import crypto for MD5 hashing
-import { ApiServiceAdapter } from './adapter.js'; // Import ApiServiceAdapter
+import { KiroService } from './claude/claude-kiro.js'; // Import KiroService
 import { ProviderStrategyFactory } from './provider-strategies.js';
 
 export const API_ACTIONS = {
@@ -298,7 +298,7 @@ export async function handleUnaryRequest(res, service, model, requestBody, fromP
  * logging, and dispatching to the appropriate stream or unary handler.
  * @param {http.IncomingMessage} req The HTTP request object.
  * @param {http.ServerResponse} res The HTTP response object.
- * @param {ApiServiceAdapter} service The API service adapter.
+ * @param {KiroService} service The API service adapter.
  * @param {string} endpointType The type of endpoint being called (e.g., CLAUDE_MESSAGE).
  * @param {Object} CONFIG - The server configuration object.
  * @param {string} PROMPT_LOG_FILENAME - The prompt log filename.
@@ -315,7 +315,8 @@ export async function handleContentGenerationRequest(req, res, service, endpoint
 
     const fromProvider = clientProviderMap[endpointType];
     const toProvider = CONFIG.MODEL_PROVIDER;
-    
+    console.warn(`[Content Generation] fromProvider: ${fromProvider}, toProvider: ${toProvider}`);
+
     if (!fromProvider) {
         throw new Error(`Unsupported endpoint type for content generation: ${endpointType}`);
     }
@@ -329,7 +330,7 @@ export async function handleContentGenerationRequest(req, res, service, endpoint
     if (!model) {
         throw new Error("Could not determine the model from the request.");
     }
-    console.log(`[Content Generation] Model: ${model}, Stream: ${isStream}`);
+    console.warn(`[Content Generation] Model: ${model}, Stream: ${isStream}`);
 
     // 2.5. 如果使用了提供商池，根据模型重新选择提供商
     // 注意：这里使用 skipUsageCount: true，因为初次选择时已经增加了 usageCount
@@ -434,7 +435,7 @@ export async function _manageSystemPrompt(requestBody, provider) {
     await strategy.manageSystemPrompt(requestBody);
 }
 
-// Helper functions for content extraction and conversion (from convert.js, but needed here)
+// Helper functions for content extraction and conversion
 export function extractResponseText(response, provider) {
     const strategy = ProviderStrategyFactory.getStrategy(getProtocolPrefix(provider));
     return strategy.extractResponseText(response);

@@ -2,7 +2,6 @@ import {
     handleContentGenerationRequest,
     ENDPOINT_TYPE
 } from './common.js';
-import { getProviderPoolManager } from './service-manager.js';
 
 /**
  * Handle API authentication and routing
@@ -43,16 +42,9 @@ export function initializeAPIManagement(services) {
         for (const providerKey in services) {
             const serviceAdapter = services[providerKey];
             try {
-                // For pooled providers, refreshToken should be handled by individual instances
-                // For single instances, this remains relevant
-                await serviceAdapter.refreshToken();
-                // console.log(`[Token Refresh] Refreshed token for ${providerKey}`);
+                await serviceAdapter.checkToken();
             } catch (error) {
                 console.error(`[Token Refresh Error] Failed to refresh token for ${providerKey}: ${error.message}`);
-                // 如果是号池中的某个实例刷新失败，这里需要捕获并更新其状态
-                // 现有的 serviceInstances 存储的是每个配置对应的单例，而非池中的成员
-                // 这意味着如果一个池成员的 token 刷新失败，需要找到它并更新其在 poolManager 中的状态
-                // 暂时通过捕获错误日志来发现问题，更精细的控制需要在 refreshToken 中抛出更多信息
             }
         }
     };

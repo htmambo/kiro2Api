@@ -6,7 +6,7 @@ import crypto from 'crypto';
 import { getRequestBody } from './common.js';
 import { getAllProviderModels, getProviderModels } from './provider-models.js';
 import { CONFIG } from './config-manager.js';
-import { serviceInstances, getServiceAdapter } from './adapter.js';
+import { serviceInstances, getServiceAdapter } from './claude/claude-kiro.js';
 import { initApiService, getProviderPoolManager, isSQLiteMode } from './service-manager.js';
 import { sqliteDB } from './sqlite-db.js';
 import { handleKiroOAuth } from './oauth-handlers.js';
@@ -3225,11 +3225,11 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
             console.log(`[AWS SSO] Client ID: ${clientId.substring(0, 10)}...`);
             console.log(`[AWS SSO] Client expires at: ${new Date(clientSecretExpiresAt * 1000).toISOString()}`);
 
-            // 动态导入 KiroApiService
-            const { KiroApiService } = await import('./claude/claude-kiro.js');
+            // 动态导入 KiroService
+            const { KiroService } = await import('./claude/claude-kiro.js');
 
             // 创建临时实例用于设备授权
-            const kiroService = new KiroApiService(currentConfig);
+            const kiroService = new KiroService(currentConfig);
             kiroService.clientId = clientId;
             kiroService.clientSecret = clientSecret;
             kiroService.region = region;
@@ -4015,9 +4015,6 @@ async function getAdapterUsage(adapter, providerType) {
     if (providerType === 'claude-kiro-oauth') {
         if (typeof adapter.getUsageLimits === 'function') {
             const rawUsage = await adapter.getUsageLimits();
-            return formatKiroUsage(rawUsage);
-        } else if (adapter.kiroApiService && typeof adapter.kiroApiService.getUsageLimits === 'function') {
-            const rawUsage = await adapter.kiroApiService.getUsageLimits();
             return formatKiroUsage(rawUsage);
         }
         throw new Error('该适配器不支持用量查询');

@@ -34,4 +34,3 @@ out/
 configs/kiro
 configs/*.json
 configs/*.txt
-frontend/
