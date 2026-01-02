@@ -1,7 +1,5 @@
 import * as fs from 'fs'; // Import fs module
-import { getServiceAdapter } from './adapter.js';
-import { MODEL_PROVIDER } from './common.js';
-import axios from 'axios';
+import { getServiceAdapter } from './claude/claude-kiro.js';
 
 /**
  * Manages a pool of API service providers, handling their health and selection.

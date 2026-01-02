@@ -1,4 +1,4 @@
-import { getServiceAdapter, serviceInstances } from './adapter.js';
+import { getServiceAdapter, serviceInstances } from './claude/claude-kiro.js';
 import { ProviderPoolManager } from './provider-pool-manager.js';
 import { SQLiteProviderPoolManager } from './sqlite-provider-pool-manager.js';
 import deepmerge from 'deepmerge';

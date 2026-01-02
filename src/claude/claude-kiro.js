@@ -786,7 +786,7 @@ function deduplicateToolCalls(toolCalls) {
     return uniqueToolCalls;
 }
 
-export class KiroApiService {
+export class KiroService {
     constructor(config = {}) {
         this.isInitialized = false;
         this.config = config;
@@ -818,6 +818,14 @@ export class KiroApiService {
         this.axiosInstance = null; // Initialize later in async method
     }
  
+    async checkToken() {
+        if (this.isExpiryDateNear() === true) {
+            console.log(`[Kiro] Expiry date is near, refreshing token...`);
+            return this.initializeAuth(true);
+        }
+        return Promise.resolve();
+    }
+
     async initialize(skipAuthCheck = false) {
         if (this.isInitialized) return;
         console.log('[Kiro] Initializing Kiro API Service...');
@@ -5576,4 +5584,30 @@ ${conversationData}`;
             throw error;
         }
     }
+}
+
+
+// 用于存储服务适配器单例的映射
+export const serviceInstances = {};
+
+// 服务适配器工厂 - 简化为仅支持 Kiro OAuth
+export function getServiceAdapter(config) {
+    console.log(`[Adapter] Config: `, config);
+    console.log(`[Adapter] getServiceAdapter, provider: ${config.MODEL_PROVIDER}, uuid: ${config.uuid}`);
+    const provider = config.MODEL_PROVIDER;
+    const providerKey = config.uuid ? provider + config.uuid : provider;
+
+    if (!serviceInstances[providerKey]) {
+        if (provider === MODEL_PROVIDER.KIRO_API || provider === 'claude-kiro-oauth') {
+            serviceInstances[providerKey] = new KiroService(config);
+        } else {
+            // Default to Kiro adapter for any provider
+            console.warn(`[Adapter] Unknown provider ${provider}, defaulting to Kiro adapter`);
+            serviceInstances[providerKey] = new KiroService(config);
+        }
+    } else {
+        // 更新缓存实例的 config（确保 ENABLE_THINKING_BY_DEFAULT 等配置被正确传递）
+        serviceInstances[providerKey].KiroService.config = config;
+    }
+    return serviceInstances[providerKey];
 }
