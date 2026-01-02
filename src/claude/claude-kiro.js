@@ -9,7 +9,7 @@ import * as http from 'http';
 import * as https from 'https';
 import { getProviderModels } from '../provider-models.js';
 import { countTokens } from '@anthropic-ai/tokenizer';
-import { json } from 'stream/consumers';
+import { MODEL_PROVIDER } from '../common.js';
 // 导入公共摘要模块
 import {
     buildMessagesWithSummary,
