@@ -1,0 +1,255 @@
+/**
+ * 用量查询服务
+ * 用于处理各个提供商的授权文件用量查询
+ */
+
+import { getProviderPoolManager } from './service-manager.js';
+import { serviceInstances } from './adapter.js';
+import { MODEL_PROVIDER } from './common.js';
+
+/**
+ * 用量查询服务类
+ * 提供统一的接口来查询各提供商的用量信息
+ */
+export class UsageService {
+    constructor() {
+        this.providerHandlers = {
+            [MODEL_PROVIDER.KIRO_API]: this.getKiroUsage.bind(this),
+        };
+    }
+
+    /**
+     * 获取指定提供商的用量信息
+     * @param {string} providerType - 提供商类型
+     * @param {string} [uuid] - 可选的提供商实例 UUID
+     * @returns {Promise<Object>} 用量信息
+     */
+    async getUsage(providerType, uuid = null) {
+        const handler = this.providerHandlers[providerType];
+        if (!handler) {
+            throw new Error(`不支持的提供商类型: ${providerType}`);
+        }
+        return handler(uuid);
+    }
+
+    /**
+     * 获取所有提供商的用量信息
+     * @returns {Promise<Object>} 所有提供商的用量信息
+     */
+    async getAllUsage() {
+        const results = {};
+        const poolManager = getProviderPoolManager();
+        
+        for (const [providerType, handler] of Object.entries(this.providerHandlers)) {
+            try {
+                // 检查是否有号池配置
+                if (poolManager) {
+                    const pools = poolManager.getProviderPools(providerType);
+                    if (pools && pools.length > 0) {
+                        results[providerType] = [];
+                        for (const pool of pools) {
+                            try {
+                                const usage = await handler(pool.uuid);
+                                results[providerType].push({
+                                    uuid: pool.uuid,
+                                    usage
+                                });
+                            } catch (error) {
+                                results[providerType].push({
+                                    uuid: pool.uuid,
+                                    error: error.message
+                                });
+                            }
+                        }
+                    }
+                }
+                
+                // 如果没有号池配置，尝试获取单个实例的用量
+                if (!results[providerType] || results[providerType].length === 0) {
+                    const usage = await handler(null);
+                    results[providerType] = [{ uuid: 'default', usage }];
+                }
+            } catch (error) {
+                results[providerType] = [{ uuid: 'default', error: error.message }];
+            }
+        }
+        
+        return results;
+    }
+
+    /**
+     * 获取 Kiro 提供商的用量信息
+     * @param {string} [uuid] - 可选的提供商实例 UUID
+     * @returns {Promise<Object>} Kiro 用量信息
+     */
+    async getKiroUsage(uuid = null) {
+        const providerKey = uuid ? MODEL_PROVIDER.KIRO_API + uuid : MODEL_PROVIDER.KIRO_API;
+        const adapter = serviceInstances[providerKey];
+        
+        if (!adapter) {
+            throw new Error(`Kiro 服务实例未找到: ${providerKey}`);
+        }
+        
+        // 使用适配器的 getUsageLimits 方法
+        if (typeof adapter.getUsageLimits === 'function') {
+            return adapter.getUsageLimits();
+        }
+        
+        // 兼容直接访问 kiroApiService 的情况
+        if (adapter.kiroApiService && typeof adapter.kiroApiService.getUsageLimits === 'function') {
+            return adapter.kiroApiService.getUsageLimits();
+        }
+        
+        throw new Error(`Kiro 服务实例不支持用量查询: ${providerKey}`);
+    }
+
+    /**
+     * 获取支持用量查询的提供商列表
+     * @returns {Array<string>} 支持的提供商类型列表
+     */
+    getSupportedProviders() {
+        return Object.keys(this.providerHandlers);
+    }
+}
+
+// 导出单例实例
+export const usageService = new UsageService();
+
+/**
+ * 格式化 Kiro 用量信息为易读格式
+ * @param {Object} usageData - 原始用量数据
+ * @returns {Object} 格式化后的用量信息
+ */
+export function formatKiroUsage(usageData) {
+    if (!usageData) {
+        return null;
+    }
+
+    const result = {
+        // 基本信息
+        daysUntilReset: usageData.daysUntilReset,
+        nextDateReset: usageData.nextDateReset ? new Date(usageData.nextDateReset * 1000).toISOString() : null,
+        
+        // 订阅信息
+        subscription: null,
+        
+        // 用户信息
+        user: null,
+        
+        // 用量明细
+        usageBreakdown: []
+    };
+
+    // 解析订阅信息
+    if (usageData.subscriptionInfo) {
+        result.subscription = {
+            title: usageData.subscriptionInfo.subscriptionTitle,
+            type: usageData.subscriptionInfo.type,
+            upgradeCapability: usageData.subscriptionInfo.upgradeCapability,
+            overageCapability: usageData.subscriptionInfo.overageCapability
+        };
+    }
+
+    // 解析用户信息
+    if (usageData.userInfo) {
+        result.user = {
+            email: usageData.userInfo.email,
+            userId: usageData.userInfo.userId
+        };
+    }
+
+    // 解析用量明细
+    if (usageData.usageBreakdownList && Array.isArray(usageData.usageBreakdownList)) {
+        for (const breakdown of usageData.usageBreakdownList) {
+            const item = {
+                resourceType: breakdown.resourceType,
+                displayName: breakdown.displayName,
+                displayNamePlural: breakdown.displayNamePlural,
+                unit: breakdown.unit,
+                currency: breakdown.currency,
+                
+                // 当前用量
+                currentUsage: breakdown.currentUsageWithPrecision ?? breakdown.currentUsage,
+                usageLimit: breakdown.usageLimitWithPrecision ?? breakdown.usageLimit,
+                
+                // 超额信息
+                currentOverages: breakdown.currentOveragesWithPrecision ?? breakdown.currentOverages,
+                overageCap: breakdown.overageCapWithPrecision ?? breakdown.overageCap,
+                overageRate: breakdown.overageRate,
+                overageCharges: breakdown.overageCharges,
+                
+                // 下次重置时间
+                nextDateReset: breakdown.nextDateReset ? new Date(breakdown.nextDateReset * 1000).toISOString() : null,
+                
+                // 免费试用信息
+                freeTrial: null,
+                
+                // 奖励信息
+                bonuses: []
+            };
+
+            // 解析免费试用信息
+            if (breakdown.freeTrialInfo) {
+                item.freeTrial = {
+                    status: breakdown.freeTrialInfo.freeTrialStatus,
+                    currentUsage: breakdown.freeTrialInfo.currentUsageWithPrecision ?? breakdown.freeTrialInfo.currentUsage,
+                    usageLimit: breakdown.freeTrialInfo.usageLimitWithPrecision ?? breakdown.freeTrialInfo.usageLimit,
+                    expiresAt: breakdown.freeTrialInfo.freeTrialExpiry 
+                        ? new Date(breakdown.freeTrialInfo.freeTrialExpiry * 1000).toISOString() 
+                        : null
+                };
+            }
+
+            // 解析奖励信息
+            if (breakdown.bonuses && Array.isArray(breakdown.bonuses)) {
+                for (const bonus of breakdown.bonuses) {
+                    item.bonuses.push({
+                        code: bonus.bonusCode,
+                        displayName: bonus.displayName,
+                        description: bonus.description,
+                        status: bonus.status,
+                        currentUsage: bonus.currentUsage,
+                        usageLimit: bonus.usageLimit,
+                        redeemedAt: bonus.redeemedAt ? new Date(bonus.redeemedAt * 1000).toISOString() : null,
+                        expiresAt: bonus.expiresAt ? new Date(bonus.expiresAt * 1000).toISOString() : null
+                    });
+                }
+            }
+
+            result.usageBreakdown.push(item);
+        }
+    }
+
+    // 计算汇总的 limits 数据（合并所有 breakdown 包括免费试用）
+    if (result.usageBreakdown.length > 0) {
+        let totalUsed = 0;
+        let totalLimit = 0;
+
+        for (const breakdown of result.usageBreakdown) {
+            // 添加基础额度
+            totalUsed += breakdown.currentUsage || 0;
+            totalLimit += breakdown.usageLimit || 0;
+
+            // 添加免费试用额度
+            if (breakdown.freeTrial) {
+                totalUsed += breakdown.freeTrial.currentUsage || 0;
+                totalLimit += breakdown.freeTrial.usageLimit || 0;
+            }
+        }
+
+        const remaining = totalLimit - totalUsed;
+        const percentUsed = totalLimit > 0 ? (totalUsed / totalLimit) * 100 : 0;
+
+        result.limits = {
+            used: totalUsed,
+            remaining: remaining,
+            total: totalLimit,
+            percentUsed: percentUsed,
+            unit: result.usageBreakdown[0]?.unit || 'tokens'
+        };
+    } else {
+        result.limits = null;
+    }
+
+    return result;
+}

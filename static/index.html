@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="zh-CN" id="html-root">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+    <meta name="theme-color" content="#059669">
+    <meta name="description" content="Kiro2API Management Console - Unified management of AI service providers" data-i18n="header.description">
+    <title data-i18n="header.title">Kiro2API - 管理控制台</title>
+    <link rel="stylesheet" href="app/styles.css">
+    <link rel="stylesheet" href="app/mobile.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <h1><i class="fas fa-robot"></i> <span class="header-title" data-i18n="header.title">Kiro2API 管理控制台</span></h1>
+                <div class="header-controls">
+                    <span class="status-badge" id="serverStatus">
+                        <i class="fas fa-circle"></i> <span class="status-text" data-i18n="header.status.connecting">连接中...</span>
+                    </span>
+                    <button id="logoutBtn" class="logout-btn" data-i18n="header.logout" title="Logout" data-i18n-title="header.logout">
+                        <i class="fas fa-sign-out-alt"></i> <span data-i18n="header.logout">登出</span>
+                    </button>
+                    </span>
+                    <button id="refreshBtn" class="logout-btn" aria-label="Refresh Data" data-i18n-aria-label="header.refresh">
+                        <i class="fas fa-sync-alt"></i> <span class="btn-text" data-i18n="header.refresh">重载</span>
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <!-- Sidebar -->
+            <aside class="sidebar" role="navigation" aria-label="Main Navigation" data-i18n-aria-label="nav.main">
+                <nav class="sidebar-nav">
+                    <a href="#dashboard" class="nav-item active" data-section="dashboard" aria-label="Dashboard" data-i18n-aria-label="nav.dashboard">
+                        <i class="fas fa-tachometer-alt" aria-hidden="true"></i> <span data-i18n="nav.dashboard">仪表盘</span>
+                    </a>
+                    <a href="#config" class="nav-item" data-section="config" aria-label="Config Management" data-i18n-aria-label="nav.config">
+                        <i class="fas fa-cog" aria-hidden="true"></i> <span data-i18n="nav.config">系统配置</span>
+                    </a>
+                    <a href="#providers" class="nav-item" data-section="providers" aria-label="Provider Pool Management" data-i18n-aria-label="nav.providers">
+                        <i class="fas fa-file-invoice-dollar" aria-hidden="true"></i> <span data-i18n="nav.providers">号池管理</span>
+                    </a>
+                    <a href="#upload-config" class="nav-item" data-section="upload-config" aria-label="Upload Config Management" data-i18n-aria-label="nav.upload">
+                        <i class="fas fa-upload" aria-hidden="true"></i> <span data-i18n="nav.upload">配置管理</span>
+                    </a>
+                    <a href="#usage" class="nav-item" data-section="usage" aria-label="Usage Query" data-i18n-aria-label="nav.usage">
+                        <i class="fas fa-chart-bar" aria-hidden="true"></i> <span data-i18n="nav.usage">用量查询</span>
+                    </a>
+                    <a href="#logs" class="nav-item" data-section="logs" aria-label="Real-time Logs" data-i18n-aria-label="nav.logs">
+                        <i class="fas fa-file-alt" aria-hidden="true"></i> <span data-i18n="nav.logs">实时日志</span>
+                    </a>
+                </nav>
+            </aside>
+
+            <!-- Content Area -->
+            <main class="content" role="main">
+                <!-- Dashboard Section -->
+                <section id="dashboard" class="section active" aria-labelledby="dashboard-title">
+                    <h2 id="dashboard-title" data-i18n="dashboard.title">系统概览</h2>
+                    <div class="dashboard-top-row">
+                        <div class="stats-grid">
+                            <div class="stat-card">
+                                <div class="stat-icon">
+                                    <i class="fas fa-clock"></i>
+                                </div>
+                                <div class="stat-info">
+                                    <h3 id="uptime">--</h3>
+                                    <p data-i18n="dashboard.uptime">运行时间</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- System Information Panel -->
+                    <div class="system-info-panel">
+                        <div class="system-info-header">
+                            <h3 data-i18n="dashboard.systemInfo">系统信息</h3>
+                            <div class="update-controls">
+                                <button id="checkUpdateBtn" class="btn btn-outline btn-sm" data-i18n-title="dashboard.update.checkTitle" title="检查更新">
+                                    <i class="fas fa-sync-alt"></i> <span data-i18n="dashboard.update.check">检查更新</span>
+                                </button>
+                                <button id="performUpdateBtn" class="btn btn-primary btn-sm" style="display: none;" data-i18n-title="dashboard.update.performTitle" title="执行更新">
+                                    <i class="fas fa-download"></i> <span data-i18n="dashboard.update.perform">立即更新</span>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="info-grid">
+                            <div class="info-item">
+                                <span class="info-label">
+                                    <i class="fas fa-tag"></i> <span data-i18n="dashboard.version">版本号</span>
+                                </span>
+                                <div class="version-display-wrapper">
+                                    <span class="info-value" id="appVersion">--</span>
+                                    <span class="update-badge" id="updateBadge" style="display: none;">
+                                        <i class="fas fa-arrow-up"></i> <span id="latestVersionText">--</span>
+                                    </span>
+                                </div>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">
+                                    <i class="fas fa-code"></i> <span data-i18n="dashboard.nodeVersion">Node.js版本</span>
+                                </span>
+                                <div class="version-display-wrapper">
+                                <span class="info-value" id="nodeVersion">--</span>
+                                </div>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">
+                                    <i class="fas fa-clock"></i> <span data-i18n="dashboard.serverTime">服务器时间</span>
+                                </span>
+                                <div class="version-display-wrapper">
+                                <span class="info-value" id="serverTime">--</span>
+                                </div>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">
+                                    <i class="fas fa-desktop"></i> <span data-i18n="dashboard.platform">操作系统</span>
+                                </span>
+                                <div class="version-display-wrapper">
+                                <span class="info-value" id="platformInfo">--</span>
+                                </div>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">
+                                    <i class="fas fa-memory"></i> <span data-i18n="dashboard.memoryUsage">内存使用</span>
+                                </span>
+                                <div class="version-display-wrapper">
+                                <span class="info-value" id="memoryUsage">--</span>
+                                </div>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">
+                                    <i class="fas fa-microchip"></i> <span data-i18n="dashboard.cpuUsage">CPU 使用</span>
+                                </span>
+                                <div class="version-display-wrapper">
+                                <span class="info-value" id="cpuUsage">--</span>
+                                </div>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">
+                                    <i class="fas fa-cogs"></i> <span data-i18n="dashboard.serviceMode">运行模式</span>
+                                </span>
+                                <div class="version-display-wrapper">
+                                <span class="info-value" id="serviceMode">--</span>
+                                </div>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">
+                                    <i class="fas fa-microchip"></i> <span data-i18n="dashboard.processPid">进程 PID</span>
+                                </span>
+                                <div class="version-display-wrapper">
+                                <span class="info-value" id="processPid">--</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Path Routing Examples Panel -->
+                    <div class="routing-examples-panel">
+                        <div class="routing-examples-grid">
+                            <div class="routing-example-card" data-provider="claude-kiro-oauth-card">
+                                <div class="routing-card-header">
+                                    <i class="fas fa-robot"></i>
+                                    <h4 data-i18n="dashboard.routing.title"></h4>
+                                    <span class="provider-badge oauth" data-i18n="dashboard.routing.free">突破限制/免费使用</span>
+                                </div>
+                                <div class="routing-card-content">
+                                    <!-- Claude协议示例 -->
+                                    <div class="protocol-content active" data-protocol="claude">
+                                        <div class="endpoint-info">
+                                            <label data-i18n="dashboard.routing.endpoint">端点路径:</label>
+                                            <code class="endpoint-path">/claude-kiro-oauth/v1/messages</code>
+                                        </div>
+                                        <div class="usage-example">
+                                            <label data-i18n="dashboard.routing.exampleClaude">使用示例 (Claude格式):</label>
+                                            <pre><code>curl http://localhost:3000/claude-kiro-oauth/v1/messages \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -d '{
+    "model": "claude-3-5-sonnet-20241022",
+    "max_tokens": 1000,
+    "messages": [{"role": "user", "content": "Hello!"}]
+  }'</code></pre>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+
+                        </div>
+                    </div>
+                    
+                </section>
+
+                <!-- Configuration Section -->
+                <section id="config" class="section" aria-labelledby="config-title">
+                    <h2 id="config-title" data-i18n="config.title">系统配置</h2>
+                    <div class="config-panel">
+                        <div class="config-form">
+                            <div class="form-group password-input-group">
+                                <label for="apiKey" data-i18n="config.apiKey">API密钥</label>
+                                <div class="password-input-wrapper">
+                                    <input type="password" id="apiKey" class="form-control" data-i18n="config.apiKeyPlaceholder" placeholder="请输入API密钥" autocomplete="off">
+                                    <button type="button" class="password-toggle" data-target="apiKey" aria-label="显示/隐藏密码">
+                                        <i class="fas fa-eye" aria-hidden="true"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="host" data-i18n="config.host">监听地址</label>
+                                    <input type="text" id="host" class="form-control" value="127.0.0.1">
+                                </div>
+                                <div class="form-group">
+                                    <label for="port" data-i18n="config.port">端口</label>
+                                    <input type="number" id="port" class="form-control" value="3000">
+                                </div>
+                            </div>
+                            
+                            
+                            <!-- Claude Kiro OAuth 配置 -->
+                            <div class="provider-config" data-provider="claude-kiro-oauth">
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="kiroBaseUrl"><span data-i18n="config.kiro.baseUrl">Base URL</span> <span class="optional-tag" data-i18n="config.optional">(选填)</span></label>
+                                        <input type="text" id="kiroBaseUrl" class="form-control" data-i18n-placeholder="config.kiro.baseUrlPlaceholder" placeholder="https://codewhisperer.{{region}}.amazonaws.com/generateAssistantResponse">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="kiroRefreshUrl"><span data-i18n="config.kiro.refreshUrl">Refresh URL</span> <span class="optional-tag" data-i18n="config.optional">(选填)</span></label>
+                                        <input type="text" id="kiroRefreshUrl" class="form-control" data-i18n-placeholder="config.kiro.refreshUrlPlaceholder" placeholder="https://prod.{{region}}.auth.desktop.kiro.dev/refreshToken">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="kiroRefreshIdcUrl"><span data-i18n="config.kiro.refreshIdcUrl">Refresh IDC URL</span> <span class="optional-tag" data-i18n="config.optional">(选填)</span></label>
+                                        <input type="text" id="kiroRefreshIdcUrl" class="form-control" data-i18n-placeholder="config.kiro.refreshIdcUrlPlaceholder" placeholder="https://oidc.{{region}}.amazonaws.com/token">
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <label data-i18n="config.oauthCreds">OAuth凭据</label>
+                                    <div class="radio-group">
+                                        <label class="radio-label">
+                                            <input type="radio" name="kiroCredsType" value="file" checked>
+                                            <span data-i18n="config.credsType.file">文件路径</span>
+                                        </label>
+                                        <label class="radio-label">
+                                            <input type="radio" name="kiroCredsType" value="base64">
+                                            <span data-i18n="config.credsType.base64">Base64编码</span>
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="form-group" id="kiroCredsBase64Group">
+                                    <label for="kiroOauthCredsBase64" data-i18n="config.credsBase64">OAuth凭据 (Base64)</label>
+                                    <textarea id="kiroOauthCredsBase64" class="form-control" rows="3" data-i18n-placeholder="config.credsBase64Placeholder" placeholder="请输入Base64编码的OAuth凭据"></textarea>
+                                </div>
+                                <div class="form-group" id="kiroCredsFileGroup" style="display: none;">
+                                    <label for="kiroOauthCredsFilePath" data-i18n="config.kiro.credsFilePath">OAuth凭据文件路径</label>
+                                    <div class="file-input-group">
+                                        <input type="text" id="kiroOauthCredsFilePath" class="form-control" data-i18n-placeholder="config.kiro.credsFilePathPlaceholder" placeholder="例如: ~/.aws/sso/cache/kiro-auth-token.json">
+                                        <button type="button" class="btn btn-outline upload-btn" data-target="kiroOauthCredsFilePath" data-i18n-title="common.upload" title="上传文件" aria-label="上传文件" data-i18n-aria-label="common.upload">
+                                            <i class="fas fa-upload"></i>
+                                        </button>
+                                        <button type="button" class="btn btn-outline generate-creds-btn" data-target="kiroOauthCredsFilePath" data-provider="claude-kiro-oauth" data-i18n-title="common.generate" title="生成凭据文件">
+                                            <i class="fas fa-magic"></i>
+                                        </button>
+                                    </div>
+                                    <small class="form-text">
+                                        <i class="fas fa-info-circle"></i>
+                                        <span data-i18n="config.kiro.note">使用 AWS 登录方式时，请确保授权文件中包含 clientId 和 clientSecret 字段</span>
+                                    </small>
+                                </div>
+                            </div>
+
+                            <!-- 高级配置区域 -->
+                            <div class="advanced-config-section">
+                                <h3 data-i18n="config.advanced.title"><i class="fas fa-cogs"></i> 高级配置</h3>
+                                
+                                <div class="config-row">
+                                    <div class="form-group">
+                                        <label for="systemPromptFilePath" data-i18n="config.advanced.systemPromptFile">系统提示文件路径</label>
+                                        <input type="text" id="systemPromptFilePath" class="form-control" value="configs/input_system_prompt.txt" data-i18n-placeholder="config.advanced.systemPromptFilePlaceholder" placeholder="例如: configs/input_system_prompt.txt">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="systemPromptMode" data-i18n="config.advanced.systemPromptMode">系统提示模式</label>
+                                        <select id="systemPromptMode" class="form-control">
+                                            <option value="append" selected data-i18n="config.advanced.systemPromptMode.append">追加 (append)</option>
+                                            <option value="overwrite" data-i18n="config.advanced.systemPromptMode.overwrite">覆盖 (overwrite)</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                
+                                <div class="config-row">
+                                    <div class="form-group">
+                                        <label for="promptLogBaseName" data-i18n="config.advanced.promptLogBaseName">提示日志基础名称</label>
+                                        <input type="text" id="promptLogBaseName" class="form-control" data-i18n-placeholder="config.advanced.promptLogBaseNamePlaceholder" placeholder="例如: prompt_log">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="promptLogMode" data-i18n="config.advanced.promptLogMode">提示日志模式</label>
+                                        <select id="promptLogMode" class="form-control">
+                                            <option value="none" data-i18n="config.advanced.promptLogMode.none">无 (none)</option>
+                                            <option value="console" data-i18n="config.advanced.promptLogMode.console">控制台 (console)</option>
+                                            <option value="file" data-i18n="config.advanced.promptLogMode.file">文件 (file)</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                
+                                <div class="config-row">
+                                    <div class="form-group">
+                                        <label for="requestMaxRetries" data-i18n="config.advanced.maxRetries">最大重试次数</label>
+                                        <input type="number" id="requestMaxRetries" class="form-control" min="0" max="10" value="3">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="requestBaseDelay" data-i18n="config.advanced.baseDelay">重试基础延迟(毫秒)</label>
+                                        <input type="number" id="requestBaseDelay" class="form-control" min="0" step="100" value="1000">
+                                    </div>
+                                </div>
+                                
+                                <div class="config-row">
+                                    <div class="form-group">
+                                        <label for="cronNearMinutes" data-i18n="config.advanced.cronInterval">OAuth令牌刷新间隔(分钟)</label>
+                                        <input type="number" id="cronNearMinutes" class="form-control" min="1" max="60" value="1">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="cronNearMinutes" data-i18n="config.advanced.cronEnabled">启用OAuth令牌自动刷新(需重启服务)</label>
+                                        <label class="toggle-switch">
+                                            <input type="checkbox" id="cronRefreshToken">
+                                            <span class="toggle-slider"></span>
+                                        </label>
+                                    </div>
+                                </div>
+                                
+                                <div class="form-group pool-section">
+                                    <label for="providerPoolsFilePath" data-i18n="config.advanced.poolFilePath">提供商池配置文件路径(不能为空)</label>
+                                    <input type="text" id="providerPoolsFilePath" class="form-control" value="" data-i18n-placeholder="config.advanced.poolFilePathPlaceholder" placeholder="默认: configs/provider_pools.json">
+                                    <small class="form-text" data-i18n="config.advanced.poolNote">配置了提供商池后，默认使用提供商池的配置，提供商池配置失效降级到默认配置</small>
+                                </div>
+                                
+                                <div class="form-group pool-section">
+                                    <label for="maxErrorCount" data-i18n="config.advanced.maxErrorCount">提供商最大错误次数</label>
+                                    <input type="number" id="maxErrorCount" class="form-control" value="3" min="1" max="10" data-i18n-placeholder="config.advanced.maxErrorCountPlaceholder" placeholder="默认: 3">
+                                    <small class="form-text" data-i18n="config.advanced.maxErrorCountNote">提供商连续错误达到此次数后将被标记为不健康，默认为 3 次</small>
+                                </div>
+                                
+                                <div class="form-group pool-section">
+                                    <label for="providerFallbackChain" data-i18n="config.advanced.fallbackChain">跨类型 Fallback 链配置</label>
+                                    <textarea id="providerFallbackChain" class="form-control" rows="6" data-i18n-placeholder="config.advanced.fallbackChainPlaceholder" placeholder='例如:
+{
+  "claude-kiro-oauth": ["claude-custom"],
+  "claude-custom": ["claude-kiro-oauth"]
+}'></textarea>
+                                    <small class="form-text" data-i18n="config.advanced.fallbackChainNote">当某一 Provider Type 所有账号都不健康时，自动切换到配置的 Fallback 类型。JSON 格式，键为主类型，值为 Fallback 类型数组（按优先级排序）</small>
+                                </div>
+                                
+                                <!-- 系统提示配置移到最下面 -->
+                                <div class="form-group system-prompt-section">
+                                    <label for="systemPrompt" data-i18n="config.advanced.systemPrompt">系统提示</label>
+                                    <textarea id="systemPrompt" class="form-control" rows="4" data-i18n-placeholder="config.advanced.systemPromptPlaceholder" placeholder="输入系统提示..."></textarea>
+                                </div>
+                                
+                                <!-- 后台登录密码配置 -->
+                                <div class="form-group pool-section">
+                                    <label for="adminPassword" data-i18n="config.advanced.adminPassword">后台登录密码</label>
+                                    <div class="password-input-wrapper">
+                                        <input type="password" id="adminPassword" class="form-control" data-i18n-placeholder="config.advanced.adminPasswordPlaceholder" placeholder="设置后台登录密码（留空则不修改）" autocomplete="new-password">
+                                        <button type="button" class="password-toggle" data-target="adminPassword" aria-label="显示/隐藏密码" data-i18n-aria-label="common.togglePassword">
+                                            <i class="fas fa-eye" aria-hidden="true"></i>
+                                        </button>
+                                    </div>
+                                    <small class="form-text" data-i18n="config.advanced.adminPasswordNote">用于保护管理控制台的访问，修改后需要重新登录</small>
+                                </div>
+                            </div>
+                            
+                            <div class="form-actions">
+                                <button class="btn btn-success" id="saveConfig">
+                                    <i class="fas fa-save"></i> <span data-i18n="config.save">保存配置</span>
+                                </button>
+                                <button class="btn btn-secondary" id="resetConfig">
+                                    <i class="fas fa-undo"></i> <span data-i18n="config.reset">重置</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Upload Configuration Section -->
+                <section id="upload-config" class="section" aria-labelledby="upload-config-title">
+                    <h2 id="upload-config-title" data-i18n="upload.title">配置管理</h2>
+                    <div class="upload-config-panel">
+                        <!-- 搜索和过滤区域 -->
+                        <div class="config-search-panel">
+                            <div class="search-controls">
+                                <div class="form-group">
+                                    <label for="configSearch" data-i18n="upload.search">搜索配置</label>
+                                    <div class="search-input-group">
+                                        <input type="text" id="configSearch" class="form-control" data-i18n-placeholder="upload.searchPlaceholder" placeholder="输入文件名">
+                                        <button type="button" class="btn btn-outline" id="searchConfigBtn" data-i18n-title="common.search" aria-label="搜索配置" data-i18n-aria-label="common.search">
+                                            <i class="fas fa-search"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <label for="configStatusFilter" data-i18n="upload.statusFilter">关联状态</label>
+                                    <select id="configStatusFilter" class="form-control">
+                                        <option value="" data-i18n="upload.statusFilter.all">全部状态</option>
+                                        <option value="used" data-i18n="upload.statusFilter.used">已关联</option>
+                                        <option value="unused" data-i18n="upload.statusFilter.unused">未关联</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label>&nbsp;</label>
+                                    <div class="config-actions">
+                                        <button class="btn btn-outline" id="refreshConfigList" aria-label="Refresh Config List" data-i18n-aria-label="upload.refresh">
+                                            <i class="fas fa-sync-alt"></i> <span data-i18n="upload.refresh">刷新</span>
+                                        </button>
+                                        <button class="btn btn-outline" id="downloadAllConfigs" aria-label="Download All Configs" data-i18n-aria-label="upload.downloadAll">
+                                            <i class="fas fa-file-archive"></i> <span data-i18n="upload.downloadAll">打包下载</span>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 配置列表 -->
+                        <div class="config-list-container">
+                            <div class="config-list-header">
+                                <h3 data-i18n="upload.listTitle">配置文件列表</h3>
+                                <div class="config-stats">
+                                    <span id="configCount" data-i18n="upload.count" data-i18n-params='{"count":"0"}'>共 0 个配置文件</span>
+                                    <span id="usedConfigCount" class="status-used" data-i18n="upload.usedCount" data-i18n-params='{"count":"0"}'>已关联: 0</span>
+                                    <span id="unusedConfigCount" class="status-unused" data-i18n="upload.unusedCount" data-i18n-params='{"count":"0"}'>未关联: 0</span>
+                                    <button id="batchLinkKiroBtn" class="btn-batch-link" data-i18n-title="upload.batchLink" title="批量关联 configs/ 下的未关联配置">
+                                        <i class="fas fa-link"></i> <span data-i18n="upload.batchLink">自动关联oauth</span>
+                                    </button>
+                                </div>
+                            </div>
+                            <div id="configList" class="config-list">
+                                <!-- 配置文件列表将在这里动态生成 -->
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Provider Pools Section -->
+                <section id="providers" class="section" aria-labelledby="providers-title">
+                    <h2 id="providers-title" data-i18n="providers.title">号池管理</h2>
+                    <div class="provider-summary">
+                        <div class="provider-summary-actions">
+                            <button class="btn btn-success" onclick="window.showAddProviderForm('claude-kiro-oauth')" data-i18n="modal.provider.add" title="添加新提供商">
+                                <i class="fas fa-plus"></i> <span data-i18n="modal.provider.add">添加新提供商</span>
+                            </button>
+                            <button class="btn btn-warning" onclick="window.resetAllProvidersHealth('claude-kiro-oauth')" data-i18n="modal.provider.resetHealth" title="将所有节点的健康状态重置为健康">
+                                <i class="fas fa-heartbeat"></i> 重置为健康
+                            </button>
+                            <button class="btn btn-info" onclick="window.performHealthCheck('claude-kiro-oauth')" data-i18n="modal.provider.healthCheck" title="对所有节点执行健康检测">
+                                <i class="fas fa-stethoscope"></i> 健康检测
+                            </button>
+                            <button class="btn btn-danger generate-auth-btn" title="生成OAuth授权链接">
+                                <i class="fas fa-key"></i>
+                                <span data-i18n="providers.auth.generate">生成授权</span>
+                            </button>
+
+                        </div>
+                    </div>
+                    <!-- Provider Pool Stats -->
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-icon">
+                                <i class="fas fa-server"></i>
+                            </div>
+                            <div class="stat-info">
+                                <h3 id="activeConnections">0</h3>
+                                <p data-i18n="providers.activeConnections">活动连接</p>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon">
+                                <i class="fas fa-file-invoice-dollar"></i>
+                            </div>
+                            <div class="stat-info">
+                                <h3 id="totalAccounts">0</h3>
+                                <p data-i18n="providers.totalAccounts">总账户数</p>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon">
+                                <i class="fas fa-check-circle"></i>
+                            </div>
+                            <div class="stat-info">
+                                <h3 id="healthyProviders">0</h3>
+                                <p data-i18n="providers.healthyProviders">健康账户</p>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon">
+                                <i class="fas fa-thumbs-up"></i>
+                            </div>
+                            <div class="stat-info">
+                                <h3 id="totalUsage">0</h3>
+                                <p data-i18n="providers.stat.usageCount">使用次数</p>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon">
+                                <i class="fas fa-bomb"></i>
+                            </div>
+                            <div class="stat-info">
+                                <h3 id="totalErrors">0</h3>
+                                <p data-i18n="providers.stat.errorCount">错误次数</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="providers-container">
+                        <!-- Inline provider details (auto-render first provider) -->
+                        <div id="providerDetails" class="provider-details" aria-live="polite">
+                            <!-- Provider details will be loaded here -->
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Usage Section -->
+                <section id="usage" class="section" aria-labelledby="usage-title">
+                    <h2 id="usage-title" data-i18n="usage.title">用量查询</h2>
+                    <div class="usage-panel">
+                        <div class="usage-controls">
+                            <button class="btn btn-primary" id="refreshUsageBtn" aria-label="Refresh Usage" data-i18n-aria-label="usage.refresh">
+                                <i class="fas fa-sync-alt"></i> <span data-i18n="usage.refresh">刷新用量</span>
+                            </button>
+                            <div class="auto-refresh-toggle">
+                                <input type="checkbox" id="autoRefreshUsage">
+                                <label for="autoRefreshUsage" class="toggle-slider"></label>
+                                <span class="toggle-label" data-i18n="usage.autoRefresh">自动刷新</span>
+                            </div>
+                            <span class="usage-last-update" id="usageLastUpdate" data-i18n="usage.lastUpdate" data-i18n-params='{"time":"--"}'>上次更新: --</span>
+                        </div>
+                        
+                        <div class="usage-error" id="usageError" style="display: none;">
+                            <i class="fas fa-exclamation-triangle"></i>
+                            <span id="usageErrorMessage"></span>
+                        </div>
+                        
+                        <div class="usage-content" id="usageContent">
+                            <!-- 用量数据将在这里动态生成 -->
+                            <div class="usage-empty" id="usageEmpty">
+                                <i class="fas fa-chart-bar"></i>
+                                <p data-i18n="usage.empty">点击"刷新用量"按钮获取授权文件用量信息</p>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Logs Section -->
+                <section id="logs" class="section" aria-labelledby="logs-title">
+                    <h2 id="logs-title" data-i18n="logs.title">实时日志</h2>
+                    <div class="logs-controls">
+                        <button class="btn btn-danger" id="clearLogs" aria-label="Clear All Logs" data-i18n-aria-label="logs.clear">
+                            <i class="fas fa-trash" aria-hidden="true"></i> <span data-i18n="logs.clear">清空日志</span>
+                        </button>
+                        <button class="btn btn-primary" id="toggleAutoScroll" data-enabled="true" aria-label="Toggle Auto-scroll" data-i18n-aria-label="logs.autoScroll">
+                            <i class="fas fa-arrow-down" aria-hidden="true"></i> <span data-i18n="logs.autoScroll.on">自动滚动: 开</span>
+                        </button>
+                    </div>
+                    <div class="logs-container" id="logsContainer" role="log" aria-live="polite" aria-atomic="false">
+                        <!-- Logs will appear here -->
+                    </div>
+                </section>
+
+            </main>
+        </div>
+    </div>
+
+    <!-- Toast Notifications -->
+    <div id="toastContainer" class="toast-container"></div>
+
+    <!-- Scripts -->
+    <script type="module" src="app/i18n.js"></script>
+    <script type="module" src="app/language-switcher.js"></script>
+    <script type="module" src="app/auth.js"></script>
+    <script type="module">
+        // 导入多语言和认证函数
+        import { initI18n, t } from './app/i18n.js';
+        import { initLanguageSwitcher } from './app/language-switcher.js';
+        import { initAuth, logout } from './app/auth.js';
+        
+        // 初始化多语言
+        initI18n();
+        
+        // 页面加载时检查登录状态
+        (async function() {
+            const isAuthenticated = await initAuth();
+            if (!isAuthenticated) {
+                // 如果未认证，initAuth会自动重定向到登录页面
+                return;
+            }
+            // 认证成功，继续加载页面
+            console.log('用户已认证');
+            
+            // 初始化语言切换器
+            initLanguageSwitcher();
+            
+            // 显示登出按钮（如果配置了密码保护）
+            const logoutBtn = document.getElementById('logoutBtn');
+            if (logoutBtn && localStorage.getItem('authToken')) {
+                logoutBtn.style.display = 'inline-block';
+                logoutBtn.addEventListener('click', async () => {
+                    if (confirm(t('common.confirm') + ' ' + t('header.logout') + '?')) {
+                        await logout();
+                    }
+                });
+            }
+
+            // 更新路径路由示例中的URL前缀
+            updateRoutingExamplesURLs();
+        })();
+
+        // 更新路径路由示例中的URL前缀
+        function updateRoutingExamplesURLs() {
+            // 获取当前页面的基础URL（去掉index.html和锚点）
+            let currentURL = window.location.href;
+            // 先删除锚点
+            currentURL = currentURL.replace(/#.*$/, '');
+            const baseURL = currentURL.replace(/\/index\.html$/, '');
+            
+            // 更新所有端点路径
+            const endpointPaths = document.querySelectorAll('.endpoint-path');
+            endpointPaths.forEach(element => {
+                const originalPath = element.textContent;
+                if (!originalPath.startsWith(baseURL)) {
+                    // 确保baseURL不以斜杠结尾，然后正确拼接路径
+                    const cleanBaseURL = baseURL.replace(/\/$/, '');
+                    const cleanPath = originalPath.startsWith('/') ? originalPath : '/' + originalPath;
+                    element.textContent = cleanBaseURL + cleanPath;
+                }
+            });
+
+            // 更新curl命令中的URL
+            const curlCodes = document.querySelectorAll('.usage-example pre code');
+            curlCodes.forEach(element => {
+                const curlCommand = element.textContent;
+                // 替换curl命令中的http://localhost:3000部分
+                // 确保baseURL不以斜杠结尾，然后正确拼接路径
+                const cleanBaseURL = baseURL.replace(/\/$/, '');
+                const updatedCommand = curlCommand.replace(/curl http:\/\/localhost:3000/g, `curl ${cleanBaseURL}`);
+                element.textContent = updatedCommand;
+            });
+        }
+        
+        // 导出到 window 供其他脚本使用
+        window.initAuth = initAuth;
+        window.logout = logout;
+    </script>
+    <script type="module" src="app/app.js"></script>
+</body>
+</html>

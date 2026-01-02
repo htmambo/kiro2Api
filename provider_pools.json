@@ -1,0 +1,124 @@
+{
+  "claude-kiro-oauth": [
+    {
+      "KIRO_OAUTH_CREDS_FILE_PATH": "./configs/kiro/kiro-auth-token-1.json",
+      "uuid": "65ab064e-6e77-42f2-9216-7e4d79c0fd22",
+      "checkModelName": "claude-haiku-4-5",
+      "checkHealth": true,
+      "isHealthy": true,
+      "isDisabled": false,
+      "lastUsed": "2026-01-02T17:51:26.107Z",
+      "usageCount": 8,
+      "errorCount": 0,
+      "lastErrorTime": null,
+      "lastHealthCheckTime": "2026-01-02T17:51:26.107Z",
+      "lastHealthCheckModel": "claude-haiku-4-5",
+      "lastErrorMessage": null,
+      "cachedEmail": "anaash2@uz8.net",
+      "cachedAt": "2026-01-01T07:08:37.779Z",
+      "cachedUserId": "d-9067642ac7.c4f8a478-1091-70e7-f318-308afe41ba3a",
+      "errorStatus": {
+        "status": "正常",
+        "message": "",
+        "statusType": "ok"
+      },
+      "poolType": "healthy"
+    },
+    {
+      "KIRO_OAUTH_CREDS_FILE_PATH": "./configs/kiro/kiro-auth-token-2.json",
+      "uuid": "e650c160-8080-42da-b3a3-0aa004abbead",
+      "checkModelName": "claude-haiku-4-5",
+      "checkHealth": true,
+      "isHealthy": true,
+      "isDisabled": false,
+      "lastUsed": "2026-01-02T17:51:28.002Z",
+      "usageCount": 3,
+      "errorCount": 0,
+      "lastErrorTime": null,
+      "lastHealthCheckTime": "2026-01-02T17:51:28.002Z",
+      "lastHealthCheckModel": "claude-haiku-4-5",
+      "lastErrorMessage": null,
+      "cachedEmail": "avatntix@deepmails.org",
+      "cachedAt": "2026-01-01T07:08:37.791Z",
+      "cachedUserId": "d-9067642ac7.b4484468-6051-7036-e91a-031b54978c86",
+      "errorStatus": {
+        "status": "正常",
+        "message": "",
+        "statusType": "ok"
+      },
+      "poolType": "healthy"
+    },
+    {
+      "KIRO_OAUTH_CREDS_FILE_PATH": "./configs/kiro/kiro-auth-token-4.json",
+      "uuid": "81059db0-2a11-45be-b928-6d1d482292ce",
+      "checkModelName": "claude-haiku-4-5",
+      "checkHealth": true,
+      "isHealthy": true,
+      "isDisabled": false,
+      "lastUsed": "2026-01-02T17:51:29.926Z",
+      "usageCount": 2,
+      "errorCount": 0,
+      "lastErrorTime": null,
+      "lastHealthCheckTime": "2026-01-02T17:51:29.926Z",
+      "lastHealthCheckModel": "claude-haiku-4-5",
+      "lastErrorMessage": null,
+      "cachedEmail": "julioserna3@decep.com",
+      "cachedAt": "2026-01-01T07:10:37.805Z",
+      "cachedUserId": "d-9067642ac7.14980478-e031-7014-fa5a-e4b2ffb90556",
+      "errorStatus": {
+        "status": "正常",
+        "message": "",
+        "statusType": "ok"
+      },
+      "poolType": "healthy"
+    },
+    {
+      "KIRO_OAUTH_CREDS_FILE_PATH": "./configs/kiro/kiro-auth-token-5.json",
+      "uuid": "cc0df809-0eee-4181-ba6f-6bf036af777e",
+      "checkModelName": "claude-haiku-4-5",
+      "checkHealth": true,
+      "isHealthy": true,
+      "isDisabled": false,
+      "lastUsed": "2026-01-02T17:51:32.004Z",
+      "usageCount": 2,
+      "errorCount": 0,
+      "lastErrorTime": null,
+      "lastHealthCheckTime": "2026-01-02T17:51:32.004Z",
+      "lastHealthCheckModel": "claude-haiku-4-5",
+      "lastErrorMessage": null,
+      "cachedEmail": "manojkvn4@fudier.com",
+      "cachedAt": "2026-01-01T07:08:37.798Z",
+      "cachedUserId": "d-9067642ac7.b4a8e428-2041-70ba-677a-86f3a61b8590",
+      "errorStatus": {
+        "status": "正常",
+        "message": "",
+        "statusType": "ok"
+      },
+      "poolType": "healthy"
+    },
+    {
+      "KIRO_OAUTH_CREDS_FILE_PATH": "./configs/kiro/1767373053311_kiro-auth-token.json",
+      "uuid": "e17c1839-b02f-4064-ad1d-61bd7328ebce",
+      "checkModelName": "claude-haiku-4-5",
+      "checkHealth": true,
+      "isHealthy": true,
+      "isDisabled": false,
+      "lastUsed": "2026-01-02T17:51:34.904Z",
+      "usageCount": 1,
+      "errorCount": 0,
+      "lastErrorTime": null,
+      "lastHealthCheckTime": "2026-01-02T17:51:34.904Z",
+      "lastHealthCheckModel": "claude-haiku-4-5",
+      "lastErrorMessage": null,
+      "errorStatus": {
+        "status": "正常",
+        "message": "",
+        "statusType": "ok"
+      },
+      "poolType": "healthy",
+      "cachedUserId": "d-9067642ac7.34e8e428-60e1-70b2-e5fa-ccc4e3bc1278",
+      "cachedEmail": "michaelbrade4@48dz.com",
+      "cachedAt": "2026-01-02T17:51:00.843Z"
+    }
+  ]
+}
