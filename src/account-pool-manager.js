@@ -1,369 +1,453 @@
+import * as fs from 'fs';
+import * as path from 'path';
+import { getServiceAdapter } from './core/claude-kiro.js';
+
 /**
- * Account Pool Manager - 账号池管理系统
+ * Account Pool Manager - 单一账号池管理器（移除 providerType 概念）
  *
- * 三个池的设计：
- * 1. 健康池 (Healthy Pool): 正常可用的账号
- * 2. 检查池 (Checking Pool): 需要健康检查的账号
- * 3. 异常池 (Banned Pool): 被封禁或有严重问题的账号
- *
- * 状态转换流程：
- * 健康池 -> (出现错误) -> 检查池 -> (检查通过) -> 健康池
- *                                  -> (检查失败) -> 异常池
- * 异常池 -> (定期重试) -> 检查池 -> (检查通过) -> 健康池
+ * 兼容字段（与旧 providerPools 中单个 providerConfig 保持一致）：
+ * - uuid
+ * - isHealthy / isDisabled
+ * - usageCount / errorCount / lastUsed
+ * - notSupportedModels（数组）等
  */
+export class AccountPoolManager {
+    // 默认健康检查模型配置（目前主要用于 Kiro OAuth）
+    static DEFAULT_HEALTH_CHECK_MODEL = 'claude-sonnet-4-20250514';
 
-// 错误类型分类
-const ERROR_TYPES = {
-    // 临时性错误（可恢复）
-    TEMPORARY: {
-        RATE_LIMIT: 429,           // 限流
-        SERVER_ERROR: 500,         // 服务器错误
-        TIMEOUT: 'TIMEOUT',        // 超时
-        NETWORK: 'NETWORK'         // 网络错误
-    },
-    // 永久性错误（需要人工处理）
-    PERMANENT: {
-        SUSPENDED: 403,            // 账号被封禁
-        INVALID_TOKEN: 401,        // Token 无效
-        QUOTA_EXCEEDED: 402        // 配额用尽
+    constructor(accountPool = { accounts: [] }, options = {}) {
+        this.accountPool = accountPool && typeof accountPool === 'object'
+            ? accountPool
+            : { accounts: [] };
+
+        if (!Array.isArray(this.accountPool.accounts)) {
+            this.accountPool.accounts = [];
+        }
+
+        this.globalConfig = options.globalConfig || {};
+        this.modelProvider = options.modelProvider || this.globalConfig.MODEL_PROVIDER || 'claude-kiro-oauth';
+        this.maxErrorCount = options.maxErrorCount ?? 3;
+        this.healthCheckInterval = options.healthCheckInterval ?? 10 * 60 * 1000;
+        this.logLevel = options.logLevel || 'info';
+
+        // 保存与防抖
+        this.accountPoolFilePath = options.accountPoolFilePath ||
+            this.globalConfig.ACCOUNT_POOL_FILE_PATH ||
+            'configs/account_pool.json';
+        this.saveDebounceTime = options.saveDebounceTime || 1000;
+        this.saveTimer = null;
+
+        // 轮询索引（按 requestedModel 区分）
+        this.roundRobinIndex = {};
+
+        this._initializeAccountDefaults();
     }
-};
 
-// 池状态
-const POOL_STATUS = {
-    HEALTHY: 'healthy',      // 健康池
-    CHECKING: 'checking',    // 检查池
-    BANNED: 'banned'         // 异常池
-};
+    _log(level, message) {
+        const levels = { debug: 0, info: 1, warn: 2, error: 3 };
+        if (levels[level] >= levels[this.logLevel]) {
+            const logMethod = level === 'debug' ? 'log' : level;
+            console[logMethod](`[AccountPoolManager] ${message}`);
+        }
+    }
 
-// 配置
-const CONFIG = {
-    // 错误阈值：连续失败多少次后移入检查池
-    ERROR_THRESHOLD: 3,
-
-    // 检查池重试间隔（毫秒）
-    CHECKING_RETRY_INTERVAL: 5 * 60 * 1000,  // 5 分钟
-
-    // 异常池重试间隔（毫秒）
-    BANNED_RETRY_INTERVAL: 60 * 60 * 1000,   // 1 小时
-
-    // 健康检查超时（毫秒）
-    HEALTH_CHECK_TIMEOUT: 10000,             // 10 秒
-
-    // 自动恢复检查间隔（毫秒）
-    AUTO_RECOVERY_INTERVAL: 10 * 60 * 1000,  // 10 分钟
-
-};
-
-class AccountPoolManager {
-    constructor(config = {}) {
-        this.config = { ...CONFIG, ...config };
-
-        // 内存中的池状态（用于快速访问）
-        this.pools = {
-            [POOL_STATUS.HEALTHY]: new Map(),   // providerId -> account info
-            [POOL_STATUS.CHECKING]: new Map(),
-            [POOL_STATUS.BANNED]: new Map()
-        };
-
-        // 错误计数器
-        this.errorCounts = new Map();  // providerId -> count
-
-        // 最后检查时间
-        this.lastCheckTime = new Map();  // providerId -> timestamp
-
-        // 缓存统计
-        this.cacheStats = {
-            hits: 0,
-            misses: 0,
-            total: 0
-        };
-
-        // 自动恢复定时器
-        this.recoveryTimer = null;
+    _initializeAccountDefaults() {
+        for (const account of this.accountPool.accounts) {
+            if (!account || typeof account !== 'object') continue;
+            account.isHealthy = account.isHealthy !== undefined ? account.isHealthy : true;
+            account.isDisabled = account.isDisabled !== undefined ? account.isDisabled : false;
+            account.lastUsed = account.lastUsed !== undefined ? account.lastUsed : null;
+            account.usageCount = account.usageCount !== undefined ? account.usageCount : 0;
+            account.errorCount = account.errorCount !== undefined ? account.errorCount : 0;
+            account.lastErrorTime = account.lastErrorTime instanceof Date
+                ? account.lastErrorTime.toISOString()
+                : (account.lastErrorTime || null);
+            account.lastHealthCheckTime = account.lastHealthCheckTime || null;
+            account.lastHealthCheckModel = account.lastHealthCheckModel || null;
+            account.lastErrorMessage = account.lastErrorMessage || null;
+        }
+        this._log('info', `Initialized account pool: ${this.accountPool.accounts.length} account(s) (maxErrorCount: ${this.maxErrorCount})`);
     }
 
     /**
-     * 初始化账号池管理器
+     * 替换账号池数据（用于配置热更新 / 初始化延迟）
+     * @param {Object} accountPool - { accounts: [] }
      */
-    async initialize(providers) {
-        console.log('[AccountPool] Initializing account pool manager...');
+    setAccountPool(accountPool) {
+        const nextPool = accountPool && typeof accountPool === 'object'
+            ? accountPool
+            : { accounts: [] };
 
-        for (const provider of providers) {
-            this.pools[POOL_STATUS.HEALTHY].set(provider.id, {
-                id: provider.id,
-                type: provider.type,
-                config: provider.config,
-                addedAt: Date.now()
+        if (!Array.isArray(nextPool.accounts)) {
+            nextPool.accounts = [];
+        }
+
+        this.accountPool = nextPool;
+        this._initializeAccountDefaults();
+        this._debouncedSave();
+    }
+
+    _findAccount(uuid) {
+        if (!uuid) return null;
+        return this.accountPool.accounts.find((acc) => acc && acc.uuid === uuid) || null;
+    }
+
+    _debouncedSave() {
+        if (this.saveTimer) {
+            clearTimeout(this.saveTimer);
+        }
+        this.saveTimer = setTimeout(() => {
+            try {
+                const dirName = path.dirname(this.accountPoolFilePath);
+                if (dirName && dirName !== '.' && !fs.existsSync(dirName)) {
+                    fs.mkdirSync(dirName, { recursive: true });
+                }
+                fs.writeFileSync(this.accountPoolFilePath, JSON.stringify(this.accountPool, null, 2), 'utf8');
+                this._log('debug', `Saved account pool to ${this.accountPoolFilePath}`);
+            } catch (error) {
+                this._log('error', `Failed to save account pool: ${error.message}`);
+            }
+        }, this.saveDebounceTime);
+    }
+
+    listAccounts() {
+        return this.accountPool.accounts;
+    }
+
+    /**
+     * 选择一个健康账号（轮询）
+     * @param {string|null} requestedModel
+     * @param {Object} options
+     * @param {boolean} options.skipUsageCount
+     */
+    selectAccount(requestedModel = null, options = {}) {
+        const availableAndHealthyAccounts = this.accountPool.accounts
+            .filter((acc) => acc && acc.uuid)
+            .filter((acc) => acc.isHealthy && !acc.isDisabled)
+            .filter((acc) => {
+                if (!requestedModel) return true;
+                if (!Array.isArray(acc.notSupportedModels)) return true;
+                return !acc.notSupportedModels.includes(requestedModel);
             });
-        }
-            
-        // 启动自动恢复检查
-        this._startAutoRecovery();
 
-        console.log(`[AccountPool] Initialized with ${this.pools[POOL_STATUS.HEALTHY].size} healthy accounts`);
-        console.log(`[AccountPool] Checking pool: ${this.pools[POOL_STATUS.CHECKING].size} accounts`);
-        console.log(`[AccountPool] Banned pool: ${this.pools[POOL_STATUS.BANNED].size} accounts`);
-    }
-
-    /**
-     * 记录账号错误
-     */
-    async recordError(providerId, error) {
-        const errorType = this._classifyError(error);
-        const currentCount = this.errorCounts.get(providerId) || 0;
-        const newCount = currentCount + 1;
-
-        this.errorCounts.set(providerId, newCount);
-
-        console.log(`[AccountPool] Error recorded for ${providerId}: ${errorType} (count: ${newCount})`);
-
-        // 根据错误类型决定处理方式
-        if (errorType === 'PERMANENT') {
-            // 永久性错误：直接移入异常池
-            await this._moveToPool(providerId, POOL_STATUS.BANNED, error);
-            console.log(`[AccountPool] ⚠️ Account ${providerId} moved to BANNED pool (permanent error)`);
-        } else if (newCount >= this.config.ERROR_THRESHOLD) {
-            // 临时性错误但超过阈值：移入检查池
-            await this._moveToPool(providerId, POOL_STATUS.CHECKING, error);
-            console.log(`[AccountPool] ⚠️ Account ${providerId} moved to CHECKING pool (error threshold reached)`);
-        }
-    }
-
-    /**
-     * 记录账号成功
-     */
-    async recordSuccess(providerId) {
-        // 重置错误计数
-        this.errorCounts.set(providerId, 0);
-
-        // 如果账号在检查池，移回健康池
-        if (this.pools[POOL_STATUS.CHECKING].has(providerId)) {
-            await this._moveToPool(providerId, POOL_STATUS.HEALTHY);
-            console.log(`[AccountPool] ✅ Account ${providerId} recovered to HEALTHY pool`);
-        }
-    }
-
-    /**
-     * 获取可用账号（从健康池）
-     */
-    async getHealthyAccount(type) {
-        const healthyAccounts = Array.from(this.pools[POOL_STATUS.HEALTHY].values())
-            .filter(acc => acc.type === type);
-
-        if (healthyAccounts.length === 0) {
-            console.log(`[AccountPool] ⚠️ No healthy accounts available for type: ${type}`);
+        if (availableAndHealthyAccounts.length === 0) {
+            this._log('warn', `No healthy accounts available${requestedModel ? ` supporting model: ${requestedModel}` : ''}`);
             return null;
         }
 
-        // 简单的轮询策略（可以改进为更复杂的负载均衡）
-        const account = healthyAccounts[Math.floor(Math.random() * healthyAccounts.length)];
+        const indexKey = requestedModel ? `model:${requestedModel}` : 'default';
+        const currentIndex = this.roundRobinIndex[indexKey] || 0;
+        const selectedIndex = currentIndex % availableAndHealthyAccounts.length;
+        const selected = availableAndHealthyAccounts[selectedIndex];
+        this.roundRobinIndex[indexKey] = (currentIndex + 1) % availableAndHealthyAccounts.length;
 
-        console.log(`[AccountPool] Selected healthy account: ${account.id} (${healthyAccounts.length} available)`);
-        return account;
+        if (!options.skipUsageCount) {
+            selected.lastUsed = new Date().toISOString();
+            selected.usageCount = (selected.usageCount || 0) + 1;
+            this._debouncedSave();
+        }
+
+        this._log('debug', `Selected account: ${selected.uuid}${requestedModel ? ` (model: ${requestedModel})` : ''}${options.skipUsageCount ? ' (skip usage count)' : ''}`);
+        return selected;
     }
 
-    /**
-     * 获取池状态统计
-     */
-    getPoolStats() {
-        const stats = {
-            healthy: this.pools[POOL_STATUS.HEALTHY].size,
-            checking: this.pools[POOL_STATUS.CHECKING].size,
-            banned: this.pools[POOL_STATUS.BANNED].size,
-            total: this.pools[POOL_STATUS.HEALTHY].size +
-                   this.pools[POOL_STATUS.CHECKING].size +
-                   this.pools[POOL_STATUS.BANNED].size,
-            cacheHitRate: this.cacheStats.total > 0
-                ? (this.cacheStats.hits / this.cacheStats.total * 100).toFixed(2) + '%'
-                : '0%',
-            cacheStats: { ...this.cacheStats }
-        };
-
-        return stats;
-    }
-
-    /**
-     * 获取详细的池信息
-     */
-    getPoolDetails() {
-        const details = {};
-
-        for (const [status, pool] of Object.entries(this.pools)) {
-            details[status] = Array.from(pool.values()).map(acc => ({
-                id: acc.id,
-                type: acc.type,
-                addedAt: acc.addedAt,
-                lastError: acc.lastError,
-                errorCount: this.errorCounts.get(acc.id) || 0,
-                lastCheckTime: this.lastCheckTime.get(acc.id)
-            }));
-        }
-
-        return details;
-    }
-
-    /**
-     * 分类错误类型
-     */
-    _classifyError(error) {
-        const status = error.response?.status;
-        const message = error.message?.toLowerCase() || '';
-
-        // 检查永久性错误
-        if (status === ERROR_TYPES.PERMANENT.SUSPENDED) {
-            if (message.includes('suspended') || message.includes('locked')) {
-                return 'PERMANENT';
-            }
-        }
-
-        if (status === ERROR_TYPES.PERMANENT.QUOTA_EXCEEDED) {
-            if (message.includes('limit') || message.includes('quota')) {
-                return 'PERMANENT';
-            }
-        }
-
-        if (status === ERROR_TYPES.PERMANENT.INVALID_TOKEN) {
-            return 'PERMANENT';
-        }
-
-        // 其他都视为临时性错误
-        return 'TEMPORARY';
-    }
-
-    /**
-     * 移动账号到指定池
-     */
-    async _moveToPool(providerId, targetStatus, error = null) {
-        let account = null;
-
-        // 从所有池中查找并移除
-        for (const pool of Object.values(this.pools)) {
-            if (pool.has(providerId)) {
-                account = pool.get(providerId);
-                pool.delete(providerId);
-                break;
-            }
-        }
-
+    markAccountUnhealthy(uuid, errorOrMessage = null) {
+        const account = this._findAccount(uuid);
         if (!account) {
-            console.warn(`[AccountPool] Account ${providerId} not found in any pool`);
+            this._log('warn', `Account not found in markAccountUnhealthy: ${uuid}`);
             return;
         }
 
-        // 更新账号信息
-        account.lastError = error ? {
-            message: error.message,
-            status: error.response?.status,
-            time: Date.now()
-        } : null;
+        let isRetryableError = false;
+        let isFatalError = false;
+        let errorMessage = null;
 
-        // 添加到目标池
-        this.pools[targetStatus].set(providerId, account);
-        this.lastCheckTime.set(providerId, Date.now());
-    }
-
-    /**
-     * 健康检查（用于检查池和异常池的账号恢复）
-     */
-    async _performHealthCheck(providerId, account) {
-        console.log(`[AccountPool] Performing health check for ${providerId}...`);
-
-        try {
-            // 这里需要调用实际的健康检查逻辑
-            // 暂时返回 true，实际应该调用 provider 的健康检查方法
-            // TODO: 集成实际的健康检查逻辑
-
-            return true;
-        } catch (error) {
-            console.error(`[AccountPool] Health check failed for ${providerId}:`, error.message);
-            return false;
+        if (typeof errorOrMessage === 'object' && errorOrMessage !== null) {
+            isRetryableError = errorOrMessage.isRateLimitError === true || errorOrMessage.retryable === true;
+            errorMessage = errorOrMessage.message || String(errorOrMessage);
+        } else if (typeof errorOrMessage === 'string') {
+            errorMessage = errorOrMessage;
+            isRetryableError = errorMessage && (
+                errorMessage.includes('RATE_LIMIT_EXCEEDED') ||
+                errorMessage.includes('429') ||
+                errorMessage.includes('Too Many Requests') ||
+                errorMessage.includes('Rate Limit')
+            );
         }
+
+        // 400 错误是请求格式问题，不是账号问题，不计入健康度
+        const isClientRequestError = errorMessage && (
+            errorMessage.includes('400') ||
+            errorMessage.includes('Bad Request')
+        );
+        if (isClientRequestError) {
+            this._log('info', `Client request error (400) for ${uuid}, not counting against account health`);
+            return;
+        }
+
+        if (errorMessage) {
+            const msg = errorMessage.toLowerCase();
+            isFatalError =
+                (msg.includes('400') && msg.includes('token refresh')) ||
+                msg.includes('402') ||
+                msg.includes('403') ||
+                msg.includes('forbidden') ||
+                msg.includes('suspended') ||
+                msg.includes('locked') ||
+                msg.includes('quota') ||
+                msg.includes('payment required') ||
+                (msg.includes('401') && !msg.includes('rate')) ||
+                msg.includes('token is expired') ||
+                msg.includes('invalid token') ||
+                msg.includes('unauthorized');
+        }
+
+        if (!isRetryableError) {
+            account.errorCount = (account.errorCount || 0) + 1;
+            account.lastErrorTime = new Date().toISOString();
+            if (errorMessage) {
+                account.lastErrorMessage = errorMessage;
+            }
+
+            if (isFatalError) {
+                account.isHealthy = false;
+                this._log('warn', `Marked account as unhealthy (fatal error): ${uuid}. Error: ${errorMessage}`);
+            } else if (account.errorCount >= this.maxErrorCount) {
+                account.isHealthy = false;
+                this._log('warn', `Marked account as unhealthy: ${uuid}. Total errors: ${account.errorCount}`);
+            } else {
+                this._log('warn', `Account ${uuid} error count: ${account.errorCount}/${this.maxErrorCount}. Still healthy.`);
+            }
+        } else {
+            this._log('info', `Rate limit/retryable error for ${uuid}, not counting as fatal error. Error: ${errorMessage}`);
+            if (errorMessage) {
+                account.lastRetryableError = errorMessage;
+                account.lastRetryableErrorTime = new Date().toISOString();
+            }
+        }
+
+        this._debouncedSave();
     }
 
-    /**
-     * 自动恢复检查
-     */
-    async _autoRecoveryCheck() {
+    markAccountHealthy(uuid, options = {}) {
+        const account = this._findAccount(uuid);
+        if (!account) {
+            this._log('warn', `Account not found in markAccountHealthy: ${uuid}`);
+            return;
+        }
+
+        const {
+            resetUsageCount = false,
+            healthCheckModel = null,
+            userInfo = null
+        } = options;
+
+        account.isHealthy = true;
+        account.errorCount = 0;
+        account.lastErrorTime = null;
+        account.lastErrorMessage = null;
+        account.lastHealthCheckTime = new Date().toISOString();
+        if (healthCheckModel) {
+            account.lastHealthCheckModel = healthCheckModel;
+        }
+
+        if (userInfo) {
+            if (userInfo.email && account.cachedEmail !== userInfo.email) {
+                account.cachedEmail = userInfo.email;
+                account.cachedAt = new Date().toISOString();
+            }
+            if (userInfo.userId && account.cachedUserId !== userInfo.userId) {
+                account.cachedUserId = userInfo.userId;
+            }
+        }
+
+        if (resetUsageCount) {
+            account.usageCount = 0;
+        } else {
+            account.usageCount = (account.usageCount || 0) + 1;
+            account.lastUsed = new Date().toISOString();
+        }
+
+        this._log('info', `Marked account as healthy: ${uuid}${resetUsageCount ? ' (usage count reset)' : ''}`);
+        this._debouncedSave();
+    }
+
+    disableAccount(uuid) {
+        const account = this._findAccount(uuid);
+        if (!account) {
+            this._log('warn', `Account not found in disableAccount: ${uuid}`);
+            return;
+        }
+        account.isDisabled = true;
+        this._log('info', `Disabled account: ${uuid}`);
+        this._debouncedSave();
+    }
+
+    enableAccount(uuid) {
+        const account = this._findAccount(uuid);
+        if (!account) {
+            this._log('warn', `Account not found in enableAccount: ${uuid}`);
+            return;
+        }
+        account.isDisabled = false;
+        this._log('info', `Enabled account: ${uuid}`);
+        this._debouncedSave();
+    }
+
+    getPoolStats() {
+        const accounts = this.accountPool.accounts;
+        return {
+            total: accounts.length,
+            healthy: accounts.filter((a) => a && a.isHealthy && !a.isDisabled).length,
+            unhealthy: accounts.filter((a) => a && !a.isHealthy).length,
+            disabled: accounts.filter((a) => a && a.isDisabled).length,
+            totalUsage: accounts.reduce((sum, a) => sum + (a?.usageCount || 0), 0),
+            totalErrors: accounts.reduce((sum, a) => sum + (a?.errorCount || 0), 0)
+        };
+    }
+
+    getPoolDetails() {
+        return {
+            accounts: this.accountPool.accounts.map((a) => ({
+                uuid: a.uuid,
+                isHealthy: a.isHealthy,
+                isDisabled: a.isDisabled,
+                usageCount: a.usageCount,
+                errorCount: a.errorCount,
+                lastUsed: a.lastUsed,
+                lastErrorTime: a.lastErrorTime,
+                lastErrorMessage: a.lastErrorMessage,
+                lastHealthCheckTime: a.lastHealthCheckTime,
+                lastHealthCheckModel: a.lastHealthCheckModel,
+                cachedEmail: a.cachedEmail,
+                cachedUserId: a.cachedUserId
+            }))
+        };
+    }
+
+    async performHealthChecks(isInit = false) {
+        const accounts = this.accountPool.accounts.filter((a) => a && a.uuid);
+        if (accounts.length === 0) return;
+
         const now = Date.now();
 
-        // 检查"检查池"中的账号
-        for (const [providerId, account] of this.pools[POOL_STATUS.CHECKING].entries()) {
-            const lastCheck = this.lastCheckTime.get(providerId) || 0;
+        for (const account of accounts) {
+            if (account.isDisabled) continue;
 
-            if (now - lastCheck >= this.config.CHECKING_RETRY_INTERVAL) {
-                console.log(`[AccountPool] Auto-recovery check for ${providerId} (checking pool)`);
-
-                const isHealthy = await this._performHealthCheck(providerId, account);
-
-                if (isHealthy) {
-                    await this._moveToPool(providerId, POOL_STATUS.HEALTHY);
-                    console.log(`[AccountPool] ✅ Account ${providerId} recovered to healthy pool`);
-                } else {
-                    // 检查失败，移入异常池
-                    await this._moveToPool(providerId, POOL_STATUS.BANNED);
-                    console.log(`[AccountPool] ❌ Account ${providerId} moved to banned pool`);
+            if (!isInit && account.lastHealthCheckTime) {
+                const last = Date.parse(account.lastHealthCheckTime);
+                if (!Number.isNaN(last) && (now - last) < this.healthCheckInterval) {
+                    continue;
                 }
             }
-        }
 
-        // 检查"异常池"中的账号（更长的重试间隔）
-        for (const [providerId, account] of this.pools[POOL_STATUS.BANNED].entries()) {
-            const lastCheck = this.lastCheckTime.get(providerId) || 0;
-
-            if (now - lastCheck >= this.config.BANNED_RETRY_INTERVAL) {
-                console.log(`[AccountPool] Auto-recovery check for ${providerId} (banned pool)`);
-
-                const isHealthy = await this._performHealthCheck(providerId, account);
-
-                if (isHealthy) {
-                    await this._moveToPool(providerId, POOL_STATUS.HEALTHY);
-                    console.log(`[AccountPool] ✅ Account ${providerId} recovered from banned pool!`);
-                } else {
-                    // 更新最后检查时间，继续留在异常池
-                    this.lastCheckTime.set(providerId, now);
-                }
-            }
+            await this._performSingleHealthCheck(account);
         }
     }
 
-    /**
-     * 启动自动恢复定时器
-     */
-    _startAutoRecovery() {
-        if (this.recoveryTimer) {
-            clearInterval(this.recoveryTimer);
-        }
-
-        this.recoveryTimer = setInterval(
-            () => this._autoRecoveryCheck(),
-            this.config.AUTO_RECOVERY_INTERVAL
-        );
-
-        console.log(`[AccountPool] Auto-recovery started (interval: ${this.config.AUTO_RECOVERY_INTERVAL / 1000}s)`);
+    _buildHealthCheckRequests(modelName) {
+        const baseMessage = { role: 'user', content: 'Hi' };
+        return [
+            {
+                messages: [baseMessage],
+                model: modelName,
+                max_tokens: 1
+            },
+            {
+                contents: [{
+                    role: 'user',
+                    parts: [{ text: baseMessage.content }]
+                }],
+                max_tokens: 1
+            }
+        ];
     }
 
-    /**
-     * 停止自动恢复
-     */
-    stop() {
-        if (this.recoveryTimer) {
-            clearInterval(this.recoveryTimer);
-            this.recoveryTimer = null;
-            console.log('[AccountPool] Auto-recovery stopped');
+    async _checkAccountHealth(accountConfig, forceCheck = false) {
+        const modelName = accountConfig.checkModelName || AccountPoolManager.DEFAULT_HEALTH_CHECK_MODEL;
+        if (!accountConfig.checkHealth && !forceCheck) {
+            return null;
+        }
+
+        const tempConfig = {
+            ...this.globalConfig,
+            ...accountConfig,
+            MODEL_PROVIDER: this.modelProvider
+        };
+
+        const adapter = getServiceAdapter(tempConfig);
+
+        const requests = this._buildHealthCheckRequests(modelName);
+        let lastError = null;
+
+        for (const req of requests) {
+            try {
+                // 复用 messages 接口做最小请求
+                if (typeof adapter?.generateContent !== 'function') {
+                    return { success: false, modelName, errorMessage: 'Service adapter does not support generateContent()' };
+                }
+                await adapter.generateContent(modelName, req);
+                return { success: true, modelName, errorMessage: null, userInfo: null };
+            } catch (error) {
+                lastError = error;
+            }
+        }
+
+        return {
+            success: false,
+            modelName,
+            errorMessage: lastError?.message || 'Health check failed'
+        };
+    }
+
+    async _performSingleHealthCheck(accountConfig) {
+        try {
+            const healthResult = await this._checkAccountHealth(accountConfig);
+            if (healthResult === null) {
+                this._log('debug', `Health check skipped for ${accountConfig.uuid}`);
+                return;
+            }
+
+            if (healthResult.success) {
+                this.markAccountHealthy(accountConfig.uuid, {
+                    resetUsageCount: true,
+                    healthCheckModel: healthResult.modelName,
+                    userInfo: healthResult.userInfo
+                });
+                this._log('debug', `Health check ok for ${accountConfig.uuid}`);
+            } else {
+                this._log('warn', `Health check failed for ${accountConfig.uuid}: ${healthResult.errorMessage || 'unknown error'}`);
+                accountConfig.lastHealthCheckTime = new Date().toISOString();
+                if (healthResult.modelName) {
+                    accountConfig.lastHealthCheckModel = healthResult.modelName;
+                }
+                this.markAccountUnhealthy(accountConfig.uuid, healthResult.errorMessage);
+            }
+        } catch (error) {
+            this._log('error', `Health check error for ${accountConfig.uuid}: ${error.message}`);
+            this.markAccountUnhealthy(accountConfig.uuid, error.message);
         }
     }
 }
 
-// 导出单例
 let accountPoolManagerInstance = null;
 
-export function getAccountPoolManager(config = {}) {
+/**
+ * 获取 AccountPoolManager 单例（与现有调用点兼容）
+ * @param {Object} options
+ * @param {Object} options.accountPool - { accounts: [] }
+ * @param {Object} options.globalConfig - 全局 config（用于 health check / file path）
+ * @param {number} options.maxErrorCount
+ * @param {string} options.accountPoolFilePath
+ */
+export function getAccountPoolManager(options = {}) {
     if (!accountPoolManagerInstance) {
-        accountPoolManagerInstance = new AccountPoolManager(config);
+        const accountPool = options.accountPool || { accounts: [] };
+        accountPoolManagerInstance = new AccountPoolManager(accountPool, options);
+    } else if (options.accountPool) {
+        accountPoolManagerInstance.setAccountPool(options.accountPool);
     }
     return accountPoolManagerInstance;
 }
 
 export default AccountPoolManager;
-export { POOL_STATUS, ERROR_TYPES };

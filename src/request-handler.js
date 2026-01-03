@@ -3,17 +3,17 @@ import { handleError, isAuthorized } from './common.js';
 import { handleUIApiRequests, serveStaticFiles } from './ui-manager.js';
 import { handleAPIRequests } from './api-manager.js';
 import { getApiService } from './service-manager.js';
-import { getProviderPoolManager } from './service-manager.js';
+import { getActivePoolManager } from './service-manager.js';
 import { MODEL_PROVIDER } from './common.js';
 import { PROMPT_LOG_FILENAME } from './config-manager.js';
 /**
  * Main request handler. It authenticates the request, determines the endpoint type,
  * and delegates to the appropriate specialized handler function.
  * @param {Object} config - The server configuration
- * @param {Object} providerPoolManager - The provider pool manager instance
+ * @param {Object} poolManager - Pool manager instance (provider/account)
  * @returns {Function} - The request handler function
  */
-export function createRequestHandler(config, providerPoolManager) {
+export function createRequestHandler(config, poolManager) {
     return async function requestHandler(req, res) {
         // Deep copy the config for each request to allow dynamic modification
         const currentConfig = deepmerge({}, config);
@@ -37,7 +37,7 @@ export function createRequestHandler(config, providerPoolManager) {
             if (served) return;
         }
 
-        const uiHandled = await handleUIApiRequests(method, path, req, res, currentConfig, providerPoolManager);
+        const uiHandled = await handleUIApiRequests(method, path, req, res, currentConfig, poolManager);
         if (uiHandled) return;
 
         console.log(`\n${new Date().toLocaleString()}`);
@@ -126,12 +126,14 @@ export function createRequestHandler(config, providerPoolManager) {
             apiService = await getApiService(currentConfig);
         } catch (error) {
             handleError(res, { statusCode: 500, message: `Failed to get API service: ${error.message}` });
-            const poolManager = getProviderPoolManager();
-            if (poolManager && currentConfig.uuid) {
-                // 传递完整的 error 对象,让 health check 识别限流错误
-                poolManager.markProviderUnhealthy(currentConfig.MODEL_PROVIDER, {
-                    uuid: currentConfig.uuid
-                }, error);
+            const activePoolManager = poolManager || getActivePoolManager();
+            if (activePoolManager && currentConfig.uuid) {
+                if (typeof activePoolManager.markAccountUnhealthy === 'function') {
+                    activePoolManager.markAccountUnhealthy(currentConfig.uuid, error);
+                } else if (typeof activePoolManager.markProviderUnhealthy === 'function') {
+                    // 传递完整的 error 对象,让 health check 识别限流错误
+                    activePoolManager.markProviderUnhealthy(currentConfig.MODEL_PROVIDER, { uuid: currentConfig.uuid }, error);
+                }
             }
             return;
         }
@@ -148,7 +150,7 @@ export function createRequestHandler(config, providerPoolManager) {
 
         try {
             // Handle API requests
-            const apiHandled = await handleAPIRequests(method, path, req, res, currentConfig, apiService, providerPoolManager, PROMPT_LOG_FILENAME);
+            const apiHandled = await handleAPIRequests(method, path, req, res, currentConfig, apiService, poolManager, PROMPT_LOG_FILENAME);
             if (apiHandled) return;
 
             // Fallback for unmatched routes

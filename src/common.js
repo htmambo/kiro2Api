@@ -146,7 +146,44 @@ export async function handleUnifiedResponse(res, responsePayload, isStream) {
     }
 }
 
-export async function handleStreamRequest(res, service, model, requestBody, fromProvider, toProvider, PROMPT_LOG_MODE, PROMPT_LOG_FILENAME, providerPoolManager, pooluuid) {
+function _canUsePool(config, poolManager) {
+    return Boolean(poolManager);
+}
+
+function _markPoolHealthy(toProvider, poolManager, uuid) {
+    if (!poolManager || !uuid) return;
+    if (typeof poolManager.markAccountHealthy === 'function') {
+        poolManager.markAccountHealthy(uuid);
+        return;
+    }
+    if (typeof poolManager.markProviderHealthy === 'function') {
+        poolManager.markProviderHealthy(toProvider, { uuid });
+    }
+}
+
+function _markPoolUnhealthy(toProvider, poolManager, uuid, error) {
+    if (!poolManager || !uuid) return;
+    if (typeof poolManager.markAccountUnhealthy === 'function') {
+        poolManager.markAccountUnhealthy(uuid, error);
+        return;
+    }
+    if (typeof poolManager.markProviderUnhealthy === 'function') {
+        poolManager.markProviderUnhealthy(toProvider, { uuid }, error);
+    }
+}
+
+function _countAvailablePoolItems(config, poolManager) {
+    if (!_canUsePool(config, poolManager)) return 1;
+
+    if (typeof poolManager.listAccounts === 'function') {
+        const available = poolManager.listAccounts().filter((a) => a && a.isHealthy && !a.isDisabled).length;
+        return available > 0 ? available : 1;
+    }
+
+    return 1;
+}
+
+export async function handleStreamRequest(res, service, model, requestBody, fromProvider, toProvider, PROMPT_LOG_MODE, PROMPT_LOG_FILENAME, poolManager, pooluuid) {
     let fullResponseText = '';
     let fullResponseJson = '';
     let fullOldResponseJson = '';
@@ -206,11 +243,9 @@ export async function handleStreamRequest(res, service, model, requestBody, from
         }
 
         // 流式请求成功完成，统计使用次数，错误次数重置为0
-        if (providerPoolManager && pooluuid) {
-            console.log(`[Provider Pool] Increasing usage count for ${toProvider} (${pooluuid}) after successful stream request`);
-            providerPoolManager.markProviderHealthy(toProvider, {
-                uuid: pooluuid
-            });
+        if (poolManager && pooluuid) {
+            console.log(`[Pool] Increasing usage count for ${toProvider} (${pooluuid}) after successful stream request`);
+            _markPoolHealthy(toProvider, poolManager, pooluuid);
         }
 
     }  catch (error) {
@@ -218,9 +253,9 @@ export async function handleStreamRequest(res, service, model, requestBody, from
 
         // 如果stream已经开始传输数据，则无法重试，直接返回错误
         if (streamStarted) {
-            if (providerPoolManager && pooluuid) {
-                console.log(`[Provider Pool] Marking ${toProvider} as unhealthy due to stream error`);
-                providerPoolManager.markProviderUnhealthy(toProvider, { uuid: pooluuid }, error);
+            if (poolManager && pooluuid) {
+                console.log(`[Pool] Marking ${toProvider} (${pooluuid}) as unhealthy due to stream error`);
+                _markPoolUnhealthy(toProvider, poolManager, pooluuid, error);
             }
 
             // 使用新方法创建符合 fromProvider 格式的流式错误响应
@@ -243,7 +278,7 @@ export async function handleStreamRequest(res, service, model, requestBody, from
 }
 
 
-export async function handleUnaryRequest(res, service, model, requestBody, fromProvider, toProvider, PROMPT_LOG_MODE, PROMPT_LOG_FILENAME, providerPoolManager, pooluuid) {
+export async function handleUnaryRequest(res, service, model, requestBody, fromProvider, toProvider, PROMPT_LOG_MODE, PROMPT_LOG_FILENAME, poolManager, pooluuid) {
     let responseWritten = false;
     try{
         requestBody.model = model;
@@ -261,20 +296,18 @@ export async function handleUnaryRequest(res, service, model, requestBody, fromP
         // fs.writeFile('oldResponse'+Date.now()+'.json', JSON.stringify(clientResponse));
 
         // 一元请求成功完成，统计使用次数，错误次数重置为0
-        if (providerPoolManager && pooluuid) {
-            console.log(`[Provider Pool] Increasing usage count for ${toProvider} (${pooluuid}) after successful unary request`);
-            providerPoolManager.markProviderHealthy(toProvider, {
-                uuid: pooluuid
-            });
+        if (poolManager && pooluuid) {
+            console.log(`[Pool] Increasing usage count for ${toProvider} (${pooluuid}) after successful unary request`);
+            _markPoolHealthy(toProvider, poolManager, pooluuid);
         }
     } catch (error) {
         console.error('\n[Server] Error during unary processing:', error.stack);
 
         // 如果响应已经写入，无法重试，直接返回错误
         if (responseWritten) {
-            if (providerPoolManager && pooluuid) {
-                console.log(`[Provider Pool] Marking ${toProvider} as unhealthy due to unary error`);
-                providerPoolManager.markProviderUnhealthy(toProvider, { uuid: pooluuid }, error);
+            if (poolManager && pooluuid) {
+                console.log(`[Pool] Marking ${toProvider} (${pooluuid}) as unhealthy due to unary error`);
+                _markPoolUnhealthy(toProvider, poolManager, pooluuid, error);
             }
 
             // 使用新方法创建符合 fromProvider 格式的错误响应
@@ -328,7 +361,7 @@ export async function handleContentGenerationRequest(req, res, service, endpoint
 
     // 2.5. 如果使用了提供商池，根据模型重新选择提供商
     // 注意：这里使用 skipUsageCount: true，因为初次选择时已经增加了 usageCount
-    if (providerPoolManager && CONFIG.providerPools && CONFIG.providerPools[CONFIG.MODEL_PROVIDER]) {
+    if (_canUsePool(CONFIG, providerPoolManager)) {
         const { getApiService } = await import('./service-manager.js');
         service = await getApiService(CONFIG, model);
         console.log(`[Content Generation] Re-selected service adapter based on model: ${model}`);
@@ -344,9 +377,7 @@ export async function handleContentGenerationRequest(req, res, service, endpoint
 
     // 5. 添加重试逻辑：如果使用了提供商池，当请求失败时自动切换到下一个健康的provider
     // 限制最多重试3次，避免把所有provider都试一遍
-    const availableProviders = providerPoolManager && CONFIG.providerPools && CONFIG.providerPools[CONFIG.MODEL_PROVIDER]
-        ? CONFIG.providerPools[CONFIG.MODEL_PROVIDER].filter(p => p.isHealthy && !p.isDisabled).length
-        : 1;
+    const availableProviders = _countAvailablePoolItems(CONFIG, providerPoolManager);
     const maxRetries = Math.min(3, availableProviders);
 
     let lastError = null;
@@ -383,18 +414,18 @@ export async function handleContentGenerationRequest(req, res, service, endpoint
 
             // 标记当前provider为unhealthy
             if (providerPoolManager && pooluuid) {
-                console.log(`[Provider Retry] Request failed with provider ${pooluuid}, attempt ${retryCount}/${maxRetries}`);
-                providerPoolManager.markProviderUnhealthy(toProvider, { uuid: pooluuid }, error);
+                console.log(`[Pool Retry] Request failed with ${pooluuid}, attempt ${retryCount}/${maxRetries}`);
+                _markPoolUnhealthy(toProvider, providerPoolManager, pooluuid, error);
             }
 
             // 如果还有重试机会，选择下一个健康的provider
-            if (retryCount < maxRetries && providerPoolManager && CONFIG.providerPools && CONFIG.providerPools[CONFIG.MODEL_PROVIDER]) {
-                console.log(`[Provider Retry] Selecting next healthy provider...`);
+            if (retryCount < maxRetries && _canUsePool(CONFIG, providerPoolManager)) {
+                console.log('[Pool Retry] Selecting next healthy account/provider...');
                 const { getApiService } = await import('./service-manager.js');
                 const newConfig = { ...CONFIG };
                 service = await getApiService(newConfig, model);
                 pooluuid = newConfig.uuid;
-                console.log(`[Provider Retry] Switched to provider: ${pooluuid}`);
+                console.log(`[Pool Retry] Switched to: ${pooluuid}`);
             } else {
                 // 没有重试机会了，抛出最后的错误
                 break;
@@ -403,8 +434,8 @@ export async function handleContentGenerationRequest(req, res, service, endpoint
     }
 
     // 所有重试都失败，抛出最后一个错误
-    console.error(`[Provider Retry] All ${maxRetries} providers failed. Last error:`, lastError?.message);
-    throw lastError || new Error('All providers failed');
+    console.error(`[Pool Retry] All ${maxRetries} attempts failed. Last error:`, lastError?.message);
+    throw lastError || new Error('All accounts/providers failed');
 }
 
 /**

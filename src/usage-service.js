@@ -3,7 +3,7 @@
  * 用于处理各个提供商的授权文件用量查询
  */
 
-import { getProviderPoolManager } from './service-manager.js';
+import { getAccountPoolManager } from './service-manager.js';
 import { serviceInstances } from './core/claude-kiro.js';
 import { MODEL_PROVIDER } from './common.js';
 
@@ -38,25 +38,25 @@ export class UsageService {
      */
     async getAllUsage() {
         const results = {};
-        const poolManager = getProviderPoolManager();
+        const poolManager = getAccountPoolManager();
         
         for (const [providerType, handler] of Object.entries(this.providerHandlers)) {
             try {
-                // 检查是否有号池配置
-                if (poolManager) {
-                    const pools = poolManager.getProviderPools(providerType);
-                    if (pools && pools.length > 0) {
+                // 检查是否有账号池配置
+                if (poolManager && typeof poolManager.listAccounts === 'function') {
+                    const accounts = poolManager.listAccounts();
+                    if (Array.isArray(accounts) && accounts.length > 0) {
                         results[providerType] = [];
-                        for (const pool of pools) {
+                        for (const account of accounts) {
                             try {
-                                const usage = await handler(pool.uuid);
+                                const usage = await handler(account.uuid);
                                 results[providerType].push({
-                                    uuid: pool.uuid,
+                                    uuid: account.uuid,
                                     usage
                                 });
                             } catch (error) {
                                 results[providerType].push({
-                                    uuid: pool.uuid,
+                                    uuid: account.uuid,
                                     error: error.message
                                 });
                             }

@@ -158,7 +158,7 @@ export default function DashboardPage() {
       const token = localStorage.getItem('authToken');
       const [systemRes, providersRes, usageRes] = await Promise.all([
         fetch('/api/system', { headers: { 'Authorization': `Bearer ${token}` } }),
-        fetch('/api/providers', { headers: { 'Authorization': `Bearer ${token}` } }),
+        fetch('/api/accounts', { headers: { 'Authorization': `Bearer ${token}` } }),
         fetch('/api/usage', { headers: { 'Authorization': `Bearer ${token}` } })
       ]);
 

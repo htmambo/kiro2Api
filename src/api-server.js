@@ -6,7 +6,7 @@ import { initializeAPIManagement } from './api-manager.js';
 import { createRequestHandler } from './request-handler.js';
 
 import 'dotenv/config'; // Import dotenv and configure it
-import { getProviderPoolManager } from './service-manager.js';
+import { getActivePoolManager } from './service-manager.js';
 
 // --- Server Initialization ---
 async function startServer() {
@@ -23,7 +23,7 @@ async function startServer() {
     const heartbeatAndRefreshToken = initializeAPIManagement(services);
     
     // Create request handler
-    const requestHandlerInstance = createRequestHandler(CONFIG, getProviderPoolManager());
+    const requestHandlerInstance = createRequestHandler(CONFIG, getActivePoolManager());
 
     const server = http.createServer(requestHandlerInstance);
     server.listen(CONFIG.SERVER_PORT, CONFIG.HOST, async () => {
@@ -78,10 +78,12 @@ async function startServer() {
             setInterval(heartbeatAndRefreshToken, CONFIG.CRON_NEAR_MINUTES * 60 * 1000);
         }
         // 服务器完全启动后,执行初始健康检查
-        const poolManager = getProviderPoolManager();
+        const poolManager = getActivePoolManager();
         if (poolManager) {
-            console.log('[Initialization] Performing initial health checks for provider pools...');
-            poolManager.performHealthChecks(true);
+            console.log('[Initialization] Performing initial health checks for account pool...');
+            if (typeof poolManager.performHealthChecks === 'function') {
+                poolManager.performHealthChecks(true);
+            }
         }
     });
     return server; // Return the server instance for testing purposes

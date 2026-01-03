@@ -11,15 +11,15 @@ import {
  * @param {http.ServerResponse} res - The HTTP response object
  * @param {Object} currentConfig - The current configuration object
  * @param {KiroService} apiService - The API service instance
- * @param {Object} providerPoolManager - The provider pool manager instance
+ * @param {Object} poolManager - Pool manager instance (provider/account)
  * @param {string} promptLogFilename - The prompt log filename
  * @returns {Promise<boolean>} - True if the request was handled by API
  */
-export async function handleAPIRequests(method, path, req, res, currentConfig, apiService, providerPoolManager, promptLogFilename) {
+export async function handleAPIRequests(method, path, req, res, currentConfig, apiService, poolManager, promptLogFilename) {
     // Route content generation requests
     if (method === 'POST') {
         if (path === '/v1/messages') {
-            await handleContentGenerationRequest(req, res, apiService, ENDPOINT_TYPE.CLAUDE_MESSAGE, currentConfig, promptLogFilename, providerPoolManager, currentConfig.uuid);
+            await handleContentGenerationRequest(req, res, apiService, ENDPOINT_TYPE.CLAUDE_MESSAGE, currentConfig, promptLogFilename, poolManager, currentConfig.uuid);
             return true;
         }
     }

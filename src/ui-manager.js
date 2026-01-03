@@ -6,7 +6,7 @@ import crypto from 'crypto';
 import { getRequestBody } from './common.js';
 import { CONFIG } from './config-manager.js';
 import { serviceInstances, getServiceAdapter } from './core/claude-kiro.js';
-import { initApiService, getProviderPoolManager, isSQLiteMode } from './service-manager.js';
+import { initApiService, getActivePoolManager, isSQLiteMode } from './service-manager.js';
 import { sqliteDB } from './sqlite-db.js';
 import { handleKiroOAuth } from './oauth-handlers.js';
 import {
@@ -21,7 +21,7 @@ import {
     addToUsedPaths,
     formatSystemPath,
     findDuplicateUserId
-} from './provider-utils.js';
+} from './account-utils.js';
 import { formatKiroUsage } from './usage-service.js';
 import { KIRO_MODELS } from './core/constants.js';
 
@@ -30,6 +30,100 @@ const TOKEN_STORE_FILE = './configs/token-store.json';
 
 // 用量缓存文件路径
 const USAGE_CACHE_FILE = './configs/usage-cache.json';
+const ACCOUNT_POOL_FILE = './configs/account_pool.json';
+const DEFAULT_PROVIDER_TYPE_FOR_ACCOUNTS = 'claude-kiro-oauth';
+
+function isAccountMode(config) {
+    return config && config.ACCOUNT_POOL_MODE === 'account';
+}
+
+function readAccountsFromStorage(currentConfig, poolManager = null) {
+    const accountMode = isAccountMode(currentConfig);
+    if (accountMode) {
+        const filePath = currentConfig.ACCOUNT_POOL_FILE_PATH || ACCOUNT_POOL_FILE;
+        let accountPool = { accounts: [] };
+
+        // 尽量优先使用内存池（带运行时字段）
+        if (poolManager && typeof poolManager.listAccounts === 'function') {
+            accountPool = { accounts: poolManager.listAccounts() };
+        } else if (filePath && existsSync(filePath)) {
+            try {
+                const parsed = JSON.parse(readFileSync(filePath, 'utf-8'));
+                if (parsed && typeof parsed === 'object' && Array.isArray(parsed.accounts)) {
+                    accountPool = parsed;
+                }
+            } catch (error) {
+                console.warn('[UI API] Failed to read account pool:', error.message);
+            }
+        }
+
+        return { accountMode: true, filePath, accountPool };
+    }
+
+    // legacy：从 provider_pools.json 中读取默认 providerType 的账号列表
+    const filePath = currentConfig.PROVIDER_POOLS_FILE_PATH || PROVIDER_POOLS_FILE;
+    let providerPools = {};
+    if (poolManager && typeof poolManager.exportToJson === 'function' && isSQLiteMode()) {
+        try {
+            providerPools = poolManager.exportToJson();
+        } catch (error) {
+            console.warn('[UI API] Failed to export providers from SQLite:', error.message);
+        }
+    }
+
+    if (Object.keys(providerPools).length === 0 && filePath && existsSync(filePath)) {
+        try {
+            providerPools = JSON.parse(readFileSync(filePath, 'utf-8'));
+        } catch (error) {
+            console.warn('[UI API] Failed to read provider pools:', error.message);
+        }
+    }
+
+    const accounts = Array.isArray(providerPools[DEFAULT_PROVIDER_TYPE_FOR_ACCOUNTS])
+        ? providerPools[DEFAULT_PROVIDER_TYPE_FOR_ACCOUNTS]
+        : [];
+
+    return {
+        accountMode: false,
+        filePath,
+        providerPools,
+        accountPool: { accounts }
+    };
+}
+
+function writeAccountsToStorage(currentConfig, accountPool, legacyProviderPools = null) {
+    if (isAccountMode(currentConfig)) {
+        const filePath = currentConfig.ACCOUNT_POOL_FILE_PATH || ACCOUNT_POOL_FILE;
+        writeFileSync(filePath, JSON.stringify(accountPool, null, 2), 'utf8');
+        return filePath;
+    }
+
+    const filePath = currentConfig.PROVIDER_POOLS_FILE_PATH || PROVIDER_POOLS_FILE;
+    const providerPools = legacyProviderPools && typeof legacyProviderPools === 'object'
+        ? legacyProviderPools
+        : {};
+    providerPools[DEFAULT_PROVIDER_TYPE_FOR_ACCOUNTS] = accountPool.accounts;
+    writeFileSync(filePath, JSON.stringify(providerPools, null, 2), 'utf8');
+    return filePath;
+}
+
+async function syncPoolManagerAfterAccountsChange(currentConfig, poolManager, accountPool, legacyProviderPools = null) {
+    if (!poolManager) return;
+
+    if (typeof poolManager.setAccountPool === 'function') {
+        poolManager.setAccountPool(accountPool);
+        return;
+    }
+
+    if (!isAccountMode(currentConfig) && typeof poolManager.initializeProviderStatus === 'function') {
+        const providerPools = legacyProviderPools && typeof legacyProviderPools === 'object'
+            ? legacyProviderPools
+            : {};
+        providerPools[DEFAULT_PROVIDER_TYPE_FOR_ACCOUNTS] = accountPool.accounts;
+        poolManager.providerPools = providerPools;
+        poolManager.initializeProviderStatus();
+    }
+}
 
 /**
  * 生成不缓存的响应头
@@ -868,7 +962,7 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
     }
 
     // Handle UI management API requests (需要token验证，除了登录接口、健康检查、Events接口、Logs接口、OAuth相关和清理重复接口)
-    if (pathParam.startsWith('/api/') && pathParam !== '/api/login' && pathParam !== '/api/health' && pathParam !== '/api/events' && pathParam !== '/api/logs' && pathParam !== '/api/kiro/oauth/callback' && pathParam !== '/api/kiro/oauth/manual-import' && pathParam !== '/api/kiro/oauth/aws-sso/start' && pathParam !== '/api/providers/cleanup-duplicates' && pathParam !== '/api/providers') {
+    if (pathParam.startsWith('/api/') && pathParam !== '/api/login' && pathParam !== '/api/health' && pathParam !== '/api/events' && pathParam !== '/api/logs' && pathParam !== '/api/kiro/oauth/callback' && pathParam !== '/api/kiro/oauth/manual-import' && pathParam !== '/api/kiro/oauth/aws-sso/start' && pathParam !== '/api/providers/cleanup-duplicates' && pathParam !== '/api/providers' && pathParam !== '/api/accounts/cleanup-duplicates' && pathParam !== '/api/accounts') {
         // 检查token验证
         const isAuth = await checkAuth(req);
         if (!isAuth) {
@@ -1162,6 +1256,530 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
         return true;
     }
 
+    // Get accounts summary (providerType removed)
+    if (method === 'GET' && pathParam === '/api/accounts') {
+        const { accountPool, filePath } = readAccountsFromStorage(currentConfig, providerPoolManager);
+
+        // 兼容旧 Providers UI：补充 errorStatus/poolType 并计算统计
+        let healthyCount = 0;
+        let checkingCount = 0;
+        let bannedCount = 0;
+        let totalUsageCount = 0;
+        let totalErrorCount = 0;
+
+        for (const account of accountPool.accounts) {
+            totalUsageCount += account.usageCount || 0;
+            totalErrorCount += account.errorCount || 0;
+
+            if (account.lastErrorMessage) {
+                account.errorStatus = parseErrorMessage(account.lastErrorMessage);
+            } else {
+                account.errorStatus = { status: '正常', message: '', statusType: 'ok' };
+            }
+
+            if (account.isDisabled) {
+                account.poolType = 'disabled';
+                bannedCount++;
+            } else if (!account.isHealthy) {
+                account.poolType = 'banned';
+                bannedCount++;
+            } else if (account.errorCount > 0 && account.isHealthy) {
+                account.poolType = 'checking';
+                checkingCount++;
+            } else {
+                account.poolType = 'healthy';
+                healthyCount++;
+            }
+        }
+
+        const stats = {
+            healthy: healthyCount,
+            checking: checkingCount,
+            banned: bannedCount,
+            total: healthyCount + checkingCount + bannedCount,
+            totalUsageCount,
+            totalErrorCount,
+            cacheHitRate: '0%'
+        };
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+            accounts: accountPool.accounts,
+            _accountPoolStats: stats,
+            _filePath: filePath
+        }));
+        return true;
+    }
+
+    // Add new account configuration
+    if (method === 'POST' && pathParam === '/api/accounts') {
+        try {
+            const body = await getRequestBody(req);
+            const accountConfig = body?.accountConfig || body;
+
+            if (!accountConfig || typeof accountConfig !== 'object') {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: { message: 'accountConfig is required' } }));
+                return true;
+            }
+
+            if (!accountConfig.uuid) {
+                accountConfig.uuid = generateUUID();
+            }
+
+            accountConfig.isHealthy = accountConfig.isHealthy !== undefined ? accountConfig.isHealthy : true;
+            accountConfig.lastUsed = accountConfig.lastUsed || null;
+            accountConfig.usageCount = accountConfig.usageCount || 0;
+            accountConfig.errorCount = accountConfig.errorCount || 0;
+            accountConfig.lastErrorTime = accountConfig.lastErrorTime || null;
+            accountConfig.isDisabled = accountConfig.isDisabled !== undefined ? accountConfig.isDisabled : false;
+            accountConfig.notSupportedModels = Array.isArray(accountConfig.notSupportedModels) ? accountConfig.notSupportedModels : [];
+
+            const { accountPool, providerPools } = readAccountsFromStorage(currentConfig, providerPoolManager);
+            accountPool.accounts.push(accountConfig);
+
+            const filePath = writeAccountsToStorage(currentConfig, accountPool, providerPools);
+            await syncPoolManagerAfterAccountsChange(currentConfig, providerPoolManager, accountPool, providerPools);
+
+            broadcastEvent('config_update', {
+                action: 'add',
+                filePath,
+                uuid: accountConfig.uuid,
+                timestamp: new Date().toISOString()
+            });
+            broadcastEvent('account_update', {
+                action: 'add',
+                uuid: accountConfig.uuid,
+                accountConfig,
+                timestamp: new Date().toISOString()
+            });
+
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: true, account: accountConfig }));
+            return true;
+        } catch (error) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: { message: error.message } }));
+            return true;
+        }
+    }
+
+    // Delete account
+    const deleteAccountMatch = pathParam.match(/^\/api\/accounts\/([^\/]+)$/);
+    if (method === 'DELETE' && deleteAccountMatch) {
+        const uuid = decodeURIComponent(deleteAccountMatch[1]);
+        try {
+            const { accountPool, providerPools } = readAccountsFromStorage(currentConfig, providerPoolManager);
+            const before = accountPool.accounts.length;
+            accountPool.accounts = accountPool.accounts.filter(a => a.uuid !== uuid);
+
+            if (accountPool.accounts.length === before) {
+                res.writeHead(404, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: { message: 'Account not found' } }));
+                return true;
+            }
+
+            const filePath = writeAccountsToStorage(currentConfig, accountPool, providerPools);
+            await syncPoolManagerAfterAccountsChange(currentConfig, providerPoolManager, accountPool, providerPools);
+
+            broadcastEvent('account_update', { action: 'delete', uuid, timestamp: new Date().toISOString() });
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: true }));
+            return true;
+        } catch (error) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: { message: error.message } }));
+            return true;
+        }
+    }
+
+    // Toggle account enable/disable
+    const toggleAccountMatch = pathParam.match(/^\/api\/accounts\/([^\/]+)\/toggle$/);
+    if (method === 'POST' && toggleAccountMatch) {
+        const uuid = decodeURIComponent(toggleAccountMatch[1]);
+        try {
+            const { accountPool, providerPools } = readAccountsFromStorage(currentConfig, providerPoolManager);
+            const account = accountPool.accounts.find(a => a.uuid === uuid);
+            if (!account) {
+                res.writeHead(404, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: { message: 'Account not found' } }));
+                return true;
+            }
+
+            account.isDisabled = !account.isDisabled;
+            const filePath = writeAccountsToStorage(currentConfig, accountPool, providerPools);
+            await syncPoolManagerAfterAccountsChange(currentConfig, providerPoolManager, accountPool, providerPools);
+
+            broadcastEvent('account_update', {
+                action: 'toggle',
+                uuid,
+                isDisabled: account.isDisabled,
+                timestamp: new Date().toISOString()
+            });
+
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: true, account }));
+            return true;
+        } catch (error) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: { message: error.message } }));
+            return true;
+        }
+    }
+
+    // Batch delete accounts
+    if (method === 'POST' && pathParam === '/api/accounts/batch-delete') {
+        try {
+            const body = await getRequestBody(req);
+            const uuids = Array.isArray(body?.uuids) ? body.uuids : [];
+            const deleteByStatus = Array.isArray(body?.deleteByStatus) ? body.deleteByStatus : [];
+
+            if (uuids.length === 0 && deleteByStatus.length === 0) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: { message: 'uuids or deleteByStatus is required' } }));
+                return true;
+            }
+
+            const { accountPool, providerPools } = readAccountsFromStorage(currentConfig, providerPoolManager);
+            let targetUuids = uuids;
+
+            if (deleteByStatus.length > 0) {
+                const selected = new Set();
+                for (const account of accountPool.accounts) {
+                    const errorStatus = account.lastErrorMessage
+                        ? parseErrorMessage(account.lastErrorMessage)
+                        : { statusType: 'ok' };
+
+                    if (deleteByStatus.includes(errorStatus.statusType)) {
+                        selected.add(account.uuid);
+                        continue;
+                    }
+
+                    // banned: 禁用或不健康
+                    if (deleteByStatus.includes('banned') && (account.isDisabled || !account.isHealthy)) {
+                        selected.add(account.uuid);
+                    }
+                }
+                targetUuids = Array.from(selected);
+            }
+
+            const before = accountPool.accounts.length;
+            accountPool.accounts = accountPool.accounts.filter(a => !targetUuids.includes(a.uuid));
+            const removed = before - accountPool.accounts.length;
+
+            const filePath = writeAccountsToStorage(currentConfig, accountPool, providerPools);
+            await syncPoolManagerAfterAccountsChange(currentConfig, providerPoolManager, accountPool, providerPools);
+
+            broadcastEvent('account_update', {
+                action: 'batch_delete',
+                uuids: targetUuids,
+                removed,
+                timestamp: new Date().toISOString()
+            });
+
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: true, removed, filePath, message: `已删除 ${removed} 个账号` }));
+            return true;
+        } catch (error) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: { message: error.message } }));
+            return true;
+        }
+    }
+
+    // Reset all accounts health status
+    if (method === 'POST' && pathParam === '/api/accounts/reset-health') {
+        try {
+            const { accountPool, providerPools } = readAccountsFromStorage(currentConfig, providerPoolManager);
+            let resetCount = 0;
+            for (const acc of accountPool.accounts) {
+                if (!acc.isHealthy) {
+                    acc.isHealthy = true;
+                    acc.errorCount = 0;
+                    acc.lastErrorTime = null;
+                    acc.lastErrorMessage = null;
+                    resetCount++;
+                }
+            }
+
+            const filePath = writeAccountsToStorage(currentConfig, accountPool, providerPools);
+            await syncPoolManagerAfterAccountsChange(currentConfig, providerPoolManager, accountPool, providerPools);
+
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: true, resetCount, filePath }));
+            return true;
+        } catch (error) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: { message: error.message } }));
+            return true;
+        }
+    }
+
+    // Health check all accounts (force)
+    if (method === 'POST' && pathParam === '/api/accounts/health-check') {
+        try {
+            const { accountPool, providerPools } = readAccountsFromStorage(currentConfig, providerPoolManager);
+            const results = [];
+
+            for (const acc of accountPool.accounts) {
+                if (acc.isDisabled) continue;
+                try {
+                    if (typeof providerPoolManager?._checkAccountHealth === 'function' && typeof providerPoolManager.markAccountHealthy === 'function') {
+                        const healthResult = await providerPoolManager._checkAccountHealth(acc, true);
+                        if (healthResult && healthResult.success) {
+                            providerPoolManager.markAccountHealthy(acc.uuid, {
+                                resetUsageCount: true,
+                                healthCheckModel: healthResult.modelName,
+                                userInfo: healthResult.userInfo
+                            });
+                            results.push({ uuid: acc.uuid, success: true, modelName: healthResult.modelName });
+                        } else {
+                            providerPoolManager.markAccountUnhealthy(acc.uuid, healthResult?.errorMessage || '检测失败');
+                            results.push({ uuid: acc.uuid, success: false, modelName: healthResult?.modelName, message: healthResult?.errorMessage || '检测失败' });
+                        }
+                    } else if (typeof providerPoolManager?._checkProviderHealth === 'function') {
+                        const providerType = DEFAULT_PROVIDER_TYPE_FOR_ACCOUNTS;
+                        const healthResult = await providerPoolManager._checkProviderHealth(providerType, acc, true);
+                        if (healthResult && healthResult.success) {
+                            providerPoolManager.markProviderHealthy(providerType, acc, false, healthResult.modelName, healthResult.userInfo);
+                            results.push({ uuid: acc.uuid, success: true, modelName: healthResult.modelName });
+                        } else {
+                            providerPoolManager.markProviderUnhealthy(providerType, acc, healthResult?.errorMessage || '检测失败');
+                            results.push({ uuid: acc.uuid, success: false, modelName: healthResult?.modelName, message: healthResult?.errorMessage || '检测失败' });
+                        }
+                    } else {
+                        results.push({ uuid: acc.uuid, success: null, message: 'No pool manager available' });
+                    }
+                } catch (error) {
+                    if (typeof providerPoolManager?.markAccountUnhealthy === 'function') {
+                        providerPoolManager.markAccountUnhealthy(acc.uuid, error.message);
+                    } else if (typeof providerPoolManager?.markProviderUnhealthy === 'function') {
+                        providerPoolManager.markProviderUnhealthy(DEFAULT_PROVIDER_TYPE_FOR_ACCOUNTS, acc, error.message);
+                    }
+                    results.push({ uuid: acc.uuid, success: false, message: error.message });
+                }
+            }
+
+            const filePath = writeAccountsToStorage(currentConfig, accountPool, providerPools);
+            await syncPoolManagerAfterAccountsChange(currentConfig, providerPoolManager, accountPool, providerPools);
+
+            const successCount = results.filter(r => r.success === true).length;
+            const failCount = results.filter(r => r.success === false).length;
+
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+                success: true,
+                message: `健康检测完成: ${successCount} 个健康, ${failCount} 个异常`,
+                successCount,
+                failCount,
+                totalCount: accountPool.accounts.length,
+                results,
+                filePath
+            }));
+            return true;
+        } catch (error) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: { message: error.message } }));
+            return true;
+        }
+    }
+
+    // Health check single account (force)
+    const accountHealthCheckMatch = pathParam.match(/^\/api\/accounts\/([^\/]+)\/health-check$/);
+    if (method === 'POST' && accountHealthCheckMatch) {
+        const uuid = decodeURIComponent(accountHealthCheckMatch[1]);
+        try {
+            const { accountPool, providerPools } = readAccountsFromStorage(currentConfig, providerPoolManager);
+            const acc = accountPool.accounts.find(a => a.uuid === uuid);
+            if (!acc) {
+                res.writeHead(404, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: { message: 'Account not found' } }));
+                return true;
+            }
+
+            if (typeof providerPoolManager?._checkAccountHealth === 'function' && typeof providerPoolManager.markAccountHealthy === 'function') {
+                const healthResult = await providerPoolManager._checkAccountHealth(acc, true);
+                if (healthResult && healthResult.success) {
+                    providerPoolManager.markAccountHealthy(acc.uuid, { resetUsageCount: true, healthCheckModel: healthResult.modelName, userInfo: healthResult.userInfo });
+                } else {
+                    providerPoolManager.markAccountUnhealthy(acc.uuid, healthResult?.errorMessage || '检测失败');
+                }
+            } else if (typeof providerPoolManager?._checkProviderHealth === 'function') {
+                const providerType = DEFAULT_PROVIDER_TYPE_FOR_ACCOUNTS;
+                const healthResult = await providerPoolManager._checkProviderHealth(providerType, acc, true);
+                if (healthResult && healthResult.success) {
+                    providerPoolManager.markProviderHealthy(providerType, acc, false, healthResult.modelName, healthResult.userInfo);
+                } else {
+                    providerPoolManager.markProviderUnhealthy(providerType, acc, healthResult?.errorMessage || '检测失败');
+                }
+            }
+
+            const filePath = writeAccountsToStorage(currentConfig, accountPool, providerPools);
+            await syncPoolManagerAfterAccountsChange(currentConfig, providerPoolManager, accountPool, providerPools);
+
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: true, uuid, filePath }));
+            return true;
+        } catch (error) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: { message: error.message } }));
+            return true;
+        }
+    }
+
+    // Reset single account health status
+    const accountResetHealthMatch = pathParam.match(/^\/api\/accounts\/([^\/]+)\/reset-health$/);
+    if (method === 'POST' && accountResetHealthMatch) {
+        const uuid = decodeURIComponent(accountResetHealthMatch[1]);
+        try {
+            const { accountPool, providerPools } = readAccountsFromStorage(currentConfig, providerPoolManager);
+            const acc = accountPool.accounts.find(a => a.uuid === uuid);
+            if (!acc) {
+                res.writeHead(404, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: { message: 'Account not found' } }));
+                return true;
+            }
+
+            acc.isHealthy = true;
+            acc.errorCount = 0;
+            acc.lastErrorTime = null;
+            acc.lastErrorMessage = null;
+
+            const filePath = writeAccountsToStorage(currentConfig, accountPool, providerPools);
+            await syncPoolManagerAfterAccountsChange(currentConfig, providerPoolManager, accountPool, providerPools);
+
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: true, uuid, filePath }));
+            return true;
+        } catch (error) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: { message: error.message } }));
+            return true;
+        }
+    }
+
+    // Test single account (minimal request)
+    const accountTestMatch = pathParam.match(/^\/api\/accounts\/([^\/]+)\/test$/);
+    if (method === 'POST' && accountTestMatch) {
+        const uuid = decodeURIComponent(accountTestMatch[1]);
+        try {
+            const { accountPool } = readAccountsFromStorage(currentConfig, providerPoolManager);
+            const acc = accountPool.accounts.find(a => a.uuid === uuid);
+            if (!acc) {
+                res.writeHead(404, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: { message: 'Account not found' } }));
+                return true;
+            }
+
+            const adapter = getServiceAdapter({ ...currentConfig, ...acc, MODEL_PROVIDER: currentConfig.MODEL_PROVIDER });
+            await adapter.generateContent('claude-sonnet-4-20250514', {
+                messages: [{ role: 'user', content: 'Hi' }],
+                model: 'claude-sonnet-4-20250514',
+                max_tokens: 1
+            });
+
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: true, uuid }));
+            return true;
+        } catch (error) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: { message: error.message } }));
+            return true;
+        }
+    }
+
+    // Generate OAuth authorization URL for accounts (Kiro only)
+    if (method === 'POST' && pathParam === '/api/accounts/generate-auth-url') {
+        try {
+            const result = await handleKiroOAuth(currentConfig, providerPoolManager);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: true, authUrl: result.authUrl, authInfo: result.authInfo }));
+            return true;
+        } catch (error) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: { message: `生成授权链接失败: ${error.message}` } }));
+            return true;
+        }
+    }
+
+    // Cleanup duplicate accounts (same cachedUserId)
+    if (method === 'POST' && pathParam === '/api/accounts/cleanup-duplicates') {
+        try {
+            const body = await parseRequestBody(req);
+            const { dryRun = true } = body;
+
+            const { accountPool, providerPools } = readAccountsFromStorage(currentConfig, providerPoolManager);
+            const accounts = accountPool.accounts;
+
+            const userIdGroups = {};
+            const noUserIdAccounts = [];
+
+            for (const account of accounts) {
+                if (account.cachedUserId) {
+                    if (!userIdGroups[account.cachedUserId]) {
+                        userIdGroups[account.cachedUserId] = [];
+                    }
+                    userIdGroups[account.cachedUserId].push(account);
+                } else {
+                    noUserIdAccounts.push(account);
+                }
+            }
+
+            const duplicates = [];
+            const toKeep = [];
+            const toRemove = [];
+
+            for (const [userId, group] of Object.entries(userIdGroups)) {
+                if (group.length > 1) {
+                    toKeep.push(group[0]);
+                    for (let i = 1; i < group.length; i++) {
+                        duplicates.push({
+                            uuid: group[i].uuid,
+                            path: group[i].KIRO_OAUTH_CREDS_FILE_PATH,
+                            email: group[i].cachedEmail,
+                            userId,
+                            duplicateOf: group[0].KIRO_OAUTH_CREDS_FILE_PATH
+                        });
+                        toRemove.push(group[i]);
+                    }
+                } else {
+                    toKeep.push(group[0]);
+                }
+            }
+
+            let removedCount = 0;
+            if (!dryRun && toRemove.length > 0) {
+                const removeUuids = new Set(toRemove.map(a => a.uuid));
+                accountPool.accounts = accounts.filter(a => !removeUuids.has(a.uuid));
+                removedCount = toRemove.length;
+                const filePath = writeAccountsToStorage(currentConfig, accountPool, providerPools);
+                await syncPoolManagerAfterAccountsChange(currentConfig, providerPoolManager, accountPool, providerPools);
+                broadcastEvent('account_update', { action: 'cleanup_duplicates', removedCount, timestamp: new Date().toISOString() });
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ success: true, dryRun: false, removedCount, duplicates, filePath }));
+                return true;
+            }
+
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+                success: true,
+                dryRun: true,
+                duplicates,
+                summary: {
+                    totalAccounts: accounts.length,
+                    accountsWithUserId: Object.values(userIdGroups).reduce((sum, g) => sum + g.length, 0),
+                    accountsWithoutUserId: noUserIdAccounts.length,
+                    duplicateCount: duplicates.length
+                }
+            }));
+            return true;
+        } catch (error) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: { message: error.message } }));
+            return true;
+        }
+    }
+
     // Get provider pools summary
     if (method === 'GET' && pathParam === '/api/providers') {
         let providerPools = {};
@@ -1383,7 +2001,7 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
             console.log(`[UI API] Added new provider to ${providerType}: ${providerConfig.uuid}`);
 
             // Update provider pool manager if available
-            const providerPoolManager = getProviderPoolManager();
+            const providerPoolManager = getActivePoolManager();
             if (providerPoolManager) {
                 if (isSQLiteMode()) {
                     // SQLite 模式：直接插入到数据库
@@ -1601,7 +2219,7 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
             console.log(`[UI API] Deleted provider ${providerUuid} from ${providerType}`);
 
             // Update provider pool manager if available
-            const providerPoolManager = getProviderPoolManager();
+            const providerPoolManager = getActivePoolManager();
             if (providerPoolManager) {
                 if (isSQLiteMode()) {
                     // SQLite 模式：从数据库中删除
@@ -1747,7 +2365,7 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
             console.log(`[Batch Delete] Deleted ${deleteResults.success.length} providers from ${providerType}`);
 
             // 更新 provider pool manager
-            const providerPoolManager = getProviderPoolManager();
+            const providerPoolManager = getActivePoolManager();
             if (providerPoolManager) {
                 if (isSQLiteMode()) {
                     // SQLite 模式：从数据库中删除
@@ -2741,10 +3359,15 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
         }
     }
 
-    // Get usage limits for a specific provider type
-    const usageProviderMatch = pathParam.match(/^\/api\/usage\/([^\/]+)$/);
-    if (method === 'GET' && usageProviderMatch) {
-        const providerType = decodeURIComponent(usageProviderMatch[1]);
+    // Get usage:
+    // - legacy: /api/usage/:providerType
+    // - new:    /api/usage/:uuid
+    const usageSingleSegmentMatch = pathParam.match(/^\/api\/usage\/([^\/]+)$/);
+    if (method === 'GET' && usageSingleSegmentMatch) {
+        const segment = decodeURIComponent(usageSingleSegmentMatch[1]);
+        const isProviderType = segment === DEFAULT_PROVIDER_TYPE_FOR_ACCOUNTS ||
+            (currentConfig.providerPools && currentConfig.providerPools[segment]);
+
         try {
             // 解析查询参数，检查是否需要强制刷新
             const url = new URL(req.url, `http://${req.headers.host}`);
@@ -2752,32 +3375,49 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
             
             let usageResults;
             
-            if (!refresh) {
-                // 优先读取缓存
-                const cachedData = await readProviderUsageCache(providerType);
-                if (cachedData) {
-                    console.log(`[Usage API] Returning cached usage data for ${providerType}`);
-                    usageResults = cachedData;
+            if (isProviderType) {
+                const providerType = segment;
+                if (!refresh) {
+                    const cachedData = await readProviderUsageCache(providerType);
+                    if (cachedData) {
+                        console.log(`[Usage API] Returning cached usage data for ${providerType}`);
+                        usageResults = cachedData;
+                    }
                 }
+                if (!usageResults) {
+                    console.log(`[Usage API] Fetching fresh usage data for ${providerType}`);
+                    usageResults = await getProviderTypeUsage(providerType, currentConfig, providerPoolManager);
+                    await updateProviderUsageCache(providerType, usageResults);
+                }
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify(usageResults));
+                return true;
             }
-            
-            if (!usageResults) {
-                // 缓存不存在或需要刷新，重新查询
-                console.log(`[Usage API] Fetching fresh usage data for ${providerType}`);
-                usageResults = await getProviderTypeUsage(providerType, currentConfig, providerPoolManager);
-                // 更新缓存
-                await updateProviderUsageCache(providerType, usageResults);
+
+            // 视为 uuid：默认 providerType 取 claude-kiro-oauth
+            const uuid = segment;
+            const providerType = DEFAULT_PROVIDER_TYPE_FOR_ACCOUNTS;
+            console.log(`[Usage API] Fetching usage data for ${uuid} (providerType: ${providerType}, refresh: ${refresh})`);
+
+            const providerUsage = await getProviderTypeUsage(providerType, currentConfig, providerPoolManager);
+            const accountUsage = providerUsage?.instances?.find(i => i.uuid === uuid);
+
+            if (accountUsage) {
+                await updateProviderUsageCache(providerType, providerUsage);
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ success: true, account: accountUsage, timestamp: new Date().toISOString() }));
+                return true;
             }
-            
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify(usageResults));
+
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: { message: `未找到账号 ${uuid}` } }));
             return true;
         } catch (error) {
-            console.error(`[UI API] Failed to get usage for ${providerType}:`, error);
+            console.error(`[UI API] Failed to get usage for ${segment}:`, error);
             res.writeHead(500, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
                 error: {
-                    message: `获取 ${providerType} 用量信息失败: ` + error.message
+                    message: `获取用量信息失败: ` + error.message
                 }
             }));
             return true;
