@@ -18,6 +18,7 @@ import {
 } from '@tabler/icons-react';
 import { Badge } from '@/components/ui/badge';
 import { PageLoadingSkeleton } from '@/components/ui/skeleton';
+import { fetchWithAuth, isUnauthorizedError } from '@/lib/apiClient';
 
 interface ConfigData {
   REQUIRED_API_KEY: string;
@@ -185,16 +186,19 @@ export default function ConfigPage() {
   const loadConfig = async () => {
     setRefreshing(true);
     try {
-      const token = localStorage.getItem('authToken');
-      const response = await fetch('/api/config', {
-        headers: { 'Authorization': `Bearer ${token}` },
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setConfig(data);
-        if (data.KIRO_OAUTH_CREDS_BASE64) setKiroCredsType('base64');
+      const response = await fetchWithAuth('/api/config');
+
+      if (!response.ok) {
+        throw new Error('加载配置失败');
       }
+
+      const data = await response.json();
+      setConfig(data);
+      if (data.KIRO_OAUTH_CREDS_BASE64) setKiroCredsType('base64');
     } catch (error) {
+      if (isUnauthorizedError(error)) {
+        return;
+      }
       console.error('Failed to load config:', error);
     } finally {
       setLoading(false);
@@ -215,24 +219,27 @@ export default function ConfigPage() {
         }
       }
 
-      const token = localStorage.getItem('authToken');
-      const response = await fetch('/api/config', {
+      const response = await fetchWithAuth('/api/config', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify(saveData),
       });
 
-      if (response.ok) {
-        await fetch('/api/reload-config', {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${token}` },
-        });
-        alert('配置已保存！');
+      if (!response.ok) {
+        throw new Error('保存配置失败');
       }
+
+      await fetchWithAuth('/api/reload-config', {
+        method: 'POST',
+      });
+
+      alert('配置已保存！');
     } catch (error) {
+      if (isUnauthorizedError(error)) {
+        return;
+      }
       console.error('Failed to save config:', error);
       alert('保存配置失败');
     } finally {

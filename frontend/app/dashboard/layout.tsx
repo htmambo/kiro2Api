@@ -14,7 +14,8 @@ import {
   IconLogout,
   IconBolt,
 } from '@tabler/icons-react';
-import { ToastProvider } from '@/components/ui/toast';
+import { ToastProvider, useToast } from '@/components/ui/toast';
+import { registerUnauthorizedHandler } from '@/lib/apiClient';
 
 const navItems = [
   { href: '/dashboard', icon: IconChartPie, label: '仪表盘' },
@@ -25,6 +26,22 @@ const navItems = [
   { href: '/dashboard/logs', icon: IconTerminal, label: '运行日志' },
 ];
 
+/**
+ * 内部组件：注册全局未授权处理器
+ */
+function UnauthorizedHandlerRegistration() {
+  const toast = useToast();
+
+  useEffect(() => {
+    const cleanup = registerUnauthorizedHandler(() => {
+      toast.error('登录已过期，请重新登录');
+    });
+    return cleanup;
+  }, [toast]);
+
+  return null;
+}
+
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -33,15 +50,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   useEffect(() => {
     const token = localStorage.getItem('authToken');
     if (!token) {
-      window.location.href = '/login.html';
+      router.push('/login');
     } else {
       setIsAuthenticated(true);
     }
-  }, []);
+  }, [router]);
 
   const handleLogout = () => {
     localStorage.removeItem('authToken');
-    window.location.href = '/login.html';
+    router.push('/login');
   };
 
   if (!isAuthenticated) {
@@ -50,6 +67,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <ToastProvider>
+      <UnauthorizedHandlerRegistration />
       <div className="min-h-screen text-white" style={{ backgroundColor: 'var(--fitness-bg)' }}>
         {/* Header - 固定在顶部 */}
         <header className="border-b sticky top-0 z-50" style={{ borderColor: 'var(--fitness-border)', backgroundColor: 'var(--fitness-bg)' }}>

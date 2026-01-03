@@ -3,7 +3,7 @@ import { extractSystemPromptFromRequestBody } from '../utils/common.js';
 /**
  * Claude provider strategy implementation.
  */
-class ClaudeStrategy {
+class KiroStrategy {
     extractModelAndStreamInfo(req, requestBody) {
         const model = requestBody.model;
         const isStream = requestBody.stream === true;
@@ -62,41 +62,6 @@ class ClaudeStrategy {
 
         return requestBody;
     }
-
-    async manageSystemPrompt(requestBody) {
-        const incomingSystemText = extractSystemPromptFromRequestBody(requestBody, 'claude');
-        await this._updateSystemPromptFile(incomingSystemText, 'claude');
-    }
-
-    /**
-     * Updates the system prompt file.
-     * @param {string} incomingSystemText - Incoming system prompt text.
-     * @param {string} providerName - Provider name (for logging).
-     * @returns {Promise<void>}
-     */
-    async _updateSystemPromptFile(incomingSystemText, providerName) {
-        let currentSystemText = '';
-        try {
-            currentSystemText = await fs.readFile(FETCH_SYSTEM_PROMPT_FILE, 'utf8');
-        } catch (error) {
-            if (error.code !== 'ENOENT') {
-                console.error(`[System Prompt Manager] Error reading system prompt file: ${error.message}`);
-            }
-        }
-
-        try {
-            if (incomingSystemText && incomingSystemText !== currentSystemText) {
-                await fs.writeFile(FETCH_SYSTEM_PROMPT_FILE, incomingSystemText);
-                console.log(`[System Prompt Manager] System prompt updated in file for provider '${providerName}'.`);
-            } else if (!incomingSystemText && currentSystemText) {
-                await fs.writeFile(FETCH_SYSTEM_PROMPT_FILE, '');
-                console.log('[System Prompt Manager] System prompt cleared from file.');
-            }
-        } catch (error) {
-            console.error(`[System Prompt Manager] Failed to manage system prompt file: ${error.message}`);
-        }
-    }
-
 }
 
-export { ClaudeStrategy };
+export { KiroStrategy };

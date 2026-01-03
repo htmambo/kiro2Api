@@ -20,6 +20,7 @@ import { CardSpotlight } from '@/components/ui/card-spotlight';
 import { Badge } from '@/components/ui/badge';
 import { PageLoadingSkeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
+import { fetchWithAuth, registerUnauthorizedHandler, isUnauthorizedError } from '@/lib/apiClient';
 
 interface UsageBreakdown {
   displayName: string;
@@ -94,6 +95,14 @@ export default function UsagePage() {
   const [refreshingAccount, setRefreshingAccount] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(false);
 
+  // 注册未授权处理器
+  useEffect(() => {
+    const cleanup = registerUnauthorizedHandler(() => {
+      toast.error('请先登录以继续操作');
+    });
+    return cleanup;
+  }, [toast]);
+
   useEffect(() => {
     loadStats(false);
   }, []);
@@ -125,20 +134,20 @@ export default function UsagePage() {
     setError(null);
     const startTime = Date.now();
     try {
-      const token = localStorage.getItem('authToken');
       const url = forceRefresh ? '/api/usage?refresh=true' : '/api/usage';
-      const response = await fetch(url, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setUsageData(data);
-      } else {
-        setError('加载用量数据失败');
+      const response = await fetchWithAuth(url);
+
+      if (!response.ok) {
+        throw new Error('加载用量数据失败');
       }
+
+      const data = await response.json();
+      setUsageData(data);
     } catch (err) {
+      // 未授权错误已被自动处理，无需额外操作
+      if (isUnauthorizedError(err)) {
+        return;
+      }
       console.error('Failed to load usage stats:', err);
       setError('加载用量数据失败');
     } finally {
@@ -157,18 +166,20 @@ export default function UsagePage() {
   const refreshAccountUsage = async (uuid: string) => {
     setRefreshingAccount(uuid);
     try {
-      const token = localStorage.getItem('authToken');
-      const response = await fetch(`/api/usage/${uuid}?refresh=true`, {
-        headers: { 'Authorization': `Bearer ${token}` },
-      });
-      if (response.ok) {
-        // 重新加载所有数据（从缓存，但这个账号的数据会是新的）
-        await loadStats(false);
-        toast.success('刷新成功');
-      } else {
-        toast.error('刷新失败');
+      const response = await fetchWithAuth(`/api/usage/${uuid}?refresh=true`);
+
+      if (!response.ok) {
+        throw new Error('刷新失败');
       }
+
+      // 重新加载所有数据（从缓存，但这个账号的数据会是新的）
+      await loadStats(false);
+      toast.success('刷新成功');
     } catch (err) {
+      // 未授权错误已被自动处理，无需额外操作
+      if (isUnauthorizedError(err)) {
+        return;
+      }
       console.error('Failed to refresh account usage:', err);
       toast.error('刷新失败');
     } finally {
@@ -394,149 +405,140 @@ export default function UsagePage() {
         if (filteredInstances.length === 0) return null;
 
         return (
-          <CardSpotlight key={providerName}>
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-xl font-bold">{providerName}</h3>
-                <Badge variant="secondary">
-                  {filteredInstances.length} / {providerData.instances?.length || 0} 个账户
-                </Badge>
-              </div>
+          <CardSpotlight key={providerName} noBackground noPadding>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {filteredInstances.map((instance, index) => {
+                const pool = getAccountPool(instance);
+                const isRefreshing = refreshingAccount === instance.uuid;
 
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                {filteredInstances.map((instance, index) => {
-                  const pool = getAccountPool(instance);
-                  const isRefreshing = refreshingAccount === instance.uuid;
-
-                  return (
-                    <div key={instance.uuid || index} className="p-4 rounded-lg bg-white/5 border border-white/10">
-                      {/* Header: Email & Health Status */}
-                      <div className="flex items-center justify-between mb-3">
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium text-sm" title={instance.email}>
-                            {instance.email || `账户 ${index + 1}`}
-                          </span>
-                          {pool === 'healthy' ? (
-                            <Badge className="bg-green-500/20 text-green-400 border-green-500/30">健康</Badge>
-                          ) : (
-                            <Badge className="bg-red-500/20 text-red-400 border-red-500/30">异常</Badge>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-2">
-                          {instance.subscription && (
-                            <Badge variant="outline" className="flex items-center gap-1">
-                              <IconCrown className="w-3 h-3" />
-                              {instance.subscription.title}
-                            </Badge>
-                          )}
-                          <button
-                            onClick={() => refreshAccountUsage(instance.uuid)}
-                            disabled={isRefreshing}
-                            className="p-1.5 rounded-lg hover:bg-white/10 transition-colors disabled:opacity-50"
-                            title="刷新此账号用量"
-                          >
-                            {isRefreshing ? (
-                              <IconLoader2 className="w-4 h-4 animate-spin" />
-                            ) : (
-                              <IconRefresh className="w-4 h-4" />
-                            )}
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Credentials Path */}
-                      {instance.credentialsPath && (
-                        <div className="flex items-center gap-2 mb-3 text-xs text-gray-500">
-                          <IconFile className="w-3 h-3" />
-                          <span className="truncate" title={instance.credentialsPath}>
-                            {instance.credentialsPath}
-                          </span>
-                        </div>
-                      )}
-
-                      {/* Total Usage */}
-                      {instance.limits && (
-                        <div className="mb-4 p-3 rounded-lg bg-white/5">
-                          <div className="flex justify-between text-sm mb-2">
-                            <span className="text-gray-400">总用量</span>
-                            <span className="font-medium">
-                              {(instance.limits.used || 0).toFixed(2)} / {(instance.limits.total || 0).toFixed(2)}
-                            </span>
-                          </div>
-                          <div className="h-2 bg-white/10 rounded-full overflow-hidden mb-1">
-                            <div
-                              className={`h-full transition-all ${
-                                (instance.limits.percentUsed || 0) > 90
-                                  ? 'bg-red-500'
-                                  : (instance.limits.percentUsed || 0) > 70
-                                    ? 'bg-orange-500'
-                                    : 'bg-gradient-to-r from-green-500 to-emerald-600'
-                              }`}
-                              style={{ width: `${Math.min(instance.limits.percentUsed || 0, 100)}%` }}
-                            />
-                          </div>
-                          <p className="text-xs text-gray-500 text-right">
-                            {formatPercentage(instance.limits.percentUsed)}
-                          </p>
-                        </div>
-                      )}
-
-                      {/* Usage Breakdown */}
-                      {instance.usageBreakdown && instance.usageBreakdown.length > 0 && (
-                        <div className="space-y-2 mb-3">
-                          {instance.usageBreakdown.map((breakdown, idx) => (
-                            <div key={idx} className="text-sm">
-                              <div className="flex justify-between text-gray-400">
-                                <span>{breakdown.displayName}</span>
-                                <span>
-                                  {(breakdown.currentUsage || 0).toFixed(2)} / {(breakdown.usageLimit || 0).toFixed(2)}
-                                </span>
-                              </div>
-                              {breakdown.freeTrial && (
-                                <div className="mt-1 pl-3 border-l-2 border-purple-500/50">
-                                  <div className="flex justify-between text-xs text-purple-400">
-                                    <span>免费试用</span>
-                                    <span>
-                                      {(breakdown.freeTrial.currentUsage || 0).toFixed(2)} / {(breakdown.freeTrial.usageLimit || 0).toFixed(2)}
-                                    </span>
-                                  </div>
-                                  {breakdown.freeTrial.expiresAt && (
-                                    <p className="text-xs text-gray-500">
-                                      到期: {new Date(breakdown.freeTrial.expiresAt).toLocaleString('zh-CN')}
-                                    </p>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      )}
-
-                      {/* Footer Stats */}
-                      <div className="pt-3 border-t border-white/10 grid grid-cols-2 gap-2 text-xs text-gray-400">
-                        {instance.usageCount !== undefined && (
-                          <div className="flex justify-between">
-                            <span>使用次数:</span>
-                            <span className="text-white">{instance.usageCount}</span>
-                          </div>
+                return (
+                <div key={instance.uuid || index} className="p-4 rounded-lg bg-white/5 border border-white/10">
+                    {/* Header: Email & Health Status */}
+                    <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                        <span className="font-medium text-sm" title={instance.email}>
+                        {instance.email || `账户 ${index + 1}`}
+                        </span>
+                        {pool === 'healthy' ? (
+                        <Badge className="bg-green-500/20 text-green-400 border-green-500/30">健康</Badge>
+                        ) : (
+                        <Badge className="bg-red-500/20 text-red-400 border-red-500/30">异常</Badge>
                         )}
-                        {instance.errorCount !== undefined && instance.errorCount > 0 && (
-                          <div className="flex justify-between">
-                            <span>错误次数:</span>
-                            <span className="text-red-400">{instance.errorCount}</span>
-                          </div>
-                        )}
-                        {instance.daysUntilReset !== undefined && (
-                          <div className="flex justify-between">
-                            <span>重置倒计时:</span>
-                            <span className="text-blue-400">{instance.daysUntilReset} 天</span>
-                          </div>
-                        )}
-                      </div>
                     </div>
-                  );
-                })}
-              </div>
+                    <div className="flex items-center gap-2">
+                        {instance.subscription && (
+                        <Badge variant="outline" className="flex items-center gap-1">
+                            <IconCrown className="w-3 h-3" />
+                            {instance.subscription.title}
+                        </Badge>
+                        )}
+                        <button
+                        onClick={() => refreshAccountUsage(instance.uuid)}
+                        disabled={isRefreshing}
+                        className="p-1.5 rounded-lg hover:bg-white/10 transition-colors disabled:opacity-50"
+                        title="刷新此账号用量"
+                        >
+                        {isRefreshing ? (
+                            <IconLoader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                            <IconRefresh className="w-4 h-4" />
+                        )}
+                        </button>
+                    </div>
+                    </div>
+
+                    {/* Credentials Path */}
+                    {instance.credentialsPath && (
+                    <div className="flex items-center gap-2 mb-3 text-xs text-gray-500">
+                        <IconFile className="w-3 h-3" />
+                        <span className="truncate" title={instance.credentialsPath}>
+                        {instance.credentialsPath}
+                        </span>
+                    </div>
+                    )}
+
+                    {/* Total Usage */}
+                    {instance.limits && (
+                    <div className="mb-4 p-3 rounded-lg bg-white/5">
+                        <div className="flex justify-between text-sm mb-2">
+                        <span className="text-gray-400">总用量</span>
+                        <span className="font-medium">
+                            {(instance.limits.used || 0).toFixed(2)} / {(instance.limits.total || 0).toFixed(2)}
+                        </span>
+                        </div>
+                        <div className="h-2 bg-white/10 rounded-full overflow-hidden mb-1">
+                        <div
+                            className={`h-full transition-all ${
+                            (instance.limits.percentUsed || 0) > 90
+                                ? 'bg-red-500'
+                                : (instance.limits.percentUsed || 0) > 70
+                                ? 'bg-orange-500'
+                                : 'bg-gradient-to-r from-green-500 to-emerald-600'
+                            }`}
+                            style={{ width: `${Math.min(instance.limits.percentUsed || 0, 100)}%` }}
+                        />
+                        </div>
+                        <p className="text-xs text-gray-500 text-right">
+                        {formatPercentage(instance.limits.percentUsed)}
+                        </p>
+                    </div>
+                    )}
+
+                    {/* Usage Breakdown */}
+                    {instance.usageBreakdown && instance.usageBreakdown.length > 0 && (
+                    <div className="space-y-2 mb-3">
+                        {instance.usageBreakdown.map((breakdown, idx) => (
+                        <div key={idx} className="text-sm">
+                            <div className="flex justify-between text-gray-400">
+                            <span>{breakdown.displayName}</span>
+                            <span>
+                                {(breakdown.currentUsage || 0).toFixed(2)} / {(breakdown.usageLimit || 0).toFixed(2)}
+                            </span>
+                            </div>
+                            {breakdown.freeTrial && (
+                            <div className="mt-1 pl-3 border-l-2 border-purple-500/50">
+                                <div className="flex justify-between text-xs text-purple-400">
+                                <span>免费试用</span>
+                                <span>
+                                    {(breakdown.freeTrial.currentUsage || 0).toFixed(2)} / {(breakdown.freeTrial.usageLimit || 0).toFixed(2)}
+                                </span>
+                                </div>
+                                {breakdown.freeTrial.expiresAt && (
+                                <p className="text-xs text-gray-500">
+                                    到期: {new Date(breakdown.freeTrial.expiresAt).toLocaleString('zh-CN')}
+                                </p>
+                                )}
+                            </div>
+                            )}
+                        </div>
+                        ))}
+                    </div>
+                    )}
+
+                    {/* Footer Stats */}
+                    <div className="pt-3 border-t border-white/10 grid grid-cols-2 gap-2 text-xs text-gray-400">
+                    {instance.usageCount !== undefined && (
+                        <div className="flex justify-between">
+                        <span>使用次数:</span>
+                        <span className="text-white">{instance.usageCount}</span>
+                        </div>
+                    )}
+                    {instance.errorCount !== undefined && instance.errorCount > 0 && (
+                        <div className="flex justify-between">
+                        <span>错误次数:</span>
+                        <span className="text-red-400">{instance.errorCount}</span>
+                        </div>
+                    )}
+                    {instance.daysUntilReset !== undefined && (
+                        <div className="flex justify-between">
+                        <span>重置倒计时:</span>
+                        <span className="text-blue-400">{instance.daysUntilReset} 天</span>
+                        </div>
+                    )}
+                    </div>
+                </div>
+                );
+            })}
             </div>
           </CardSpotlight>
         );

@@ -27,6 +27,7 @@ import { Badge } from '@/components/ui/badge';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { useToast } from '@/components/ui/toast';
 import { PageLoadingSkeleton } from '@/components/ui/skeleton';
+import { fetchWithAuth, isUnauthorizedError } from '@/lib/apiClient';
 
 interface ErrorStatus {
   status: string;
@@ -69,6 +70,24 @@ interface AccountPoolStats {
   cacheHitRate: string;
 }
 
+const getApiErrorMessage = async (response: Response, fallback: string) => {
+  try {
+    if (!response) {
+      return fallback;
+    }
+    const payload = await response.clone().json();
+    if (payload?.error?.message) {
+      return payload.error.message;
+    }
+    if (payload?.message) {
+      return payload.message;
+    }
+  } catch {
+    // ignore parsing errors
+  }
+  return fallback;
+};
+
 export default function ProvidersPage() {
   const toast = useToast();
   const [providers, setProviders] = useState<ProviderPools>({});
@@ -93,10 +112,7 @@ export default function ProvidersPage() {
 
     const pollInterval = setInterval(async () => {
       try {
-        const token = localStorage.getItem('authToken');
-        const response = await fetch(`/api/kiro/oauth/check-state?state=${authState}`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
+        const response = await fetchWithAuth(`/api/kiro/oauth/check-state?state=${authState}`);
         if (response.ok) {
           const result = await response.json();
           if (result.completed) {
@@ -107,7 +123,10 @@ export default function ProvidersPage() {
           }
         }
       } catch (e) {
-        // 忽略错误，继续轮询
+        if (isUnauthorizedError(e)) {
+          return;
+        }
+        console.warn('Polling auth state failed:', e);
       }
     }, 2000);  // 每2秒检查一次
 
@@ -124,19 +143,6 @@ export default function ProvidersPage() {
   const [selectedAccounts, setSelectedAccounts] = useState<Set<string>>(new Set());
   const [batchDeleting, setBatchDeleting] = useState(false);
 
-  // 检查 401 错误并跳转到登录页
-  const handleApiError = (response: Response) => {
-    if (response.status === 401) {
-      localStorage.removeItem('authToken');
-      toast.error('登录已过期', '请重新登录');
-      setTimeout(() => {
-        window.location.href = '/login.html';
-      }, 1000);
-      return true;
-    }
-    return false;
-  };
-
   useEffect(() => {
     loadProviders();
   }, []);
@@ -145,35 +151,33 @@ export default function ProvidersPage() {
 	    setRefreshing(true);
 	    const startTime = Date.now();
 	    try {
-	      const token = localStorage.getItem('authToken');
-	      const response = await fetch('/api/accounts', {
-	        headers: {
-	          'Authorization': `Bearer ${token}`,
-	        },
-	      });
-      if (handleApiError(response)) return;
-	      if (response.ok) {
-	        const data = await response.json();
-	        // 提取池统计信息
-	        if (data._accountPoolStats) {
-	          setPoolStats(data._accountPoolStats);
-	        }
-	        const accounts = Array.isArray(data.accounts) ? (data.accounts as ProviderAccount[]) : [];
-	        setProviders({ 'claude-kiro-oauth': accounts });
+	      const response = await fetchWithAuth('/api/accounts');
+	      if (!response.ok) {
+	        const message = await getApiErrorMessage(response, '加载提供商失败');
+	        throw new Error(message);
 	      }
-    } catch (error) {
-      console.error('Failed to load providers:', error);
-    } finally {
-      // 确保动画至少显示 800ms
-      const elapsed = Date.now() - startTime;
-      const minDelay = 800;
-      if (elapsed < minDelay) {
-        await new Promise(resolve => setTimeout(resolve, minDelay - elapsed));
-      }
-      setLoading(false);
-      setRefreshing(false);
-    }
-  };
+	      const data = await response.json();
+	      if (data._accountPoolStats) {
+	        setPoolStats(data._accountPoolStats);
+	      }
+	      const accounts = Array.isArray(data.accounts) ? (data.accounts as ProviderAccount[]) : [];
+	      setProviders({ 'claude-kiro-oauth': accounts });
+	    } catch (error) {
+	      if (isUnauthorizedError(error)) {
+	        return;
+	      }
+	      console.error('Failed to load providers:', error);
+	      toast.error('加载提供商失败', error instanceof Error ? error.message : undefined);
+	    } finally {
+	      const elapsed = Date.now() - startTime;
+	      const minDelay = 800;
+	      if (elapsed < minDelay) {
+	        await new Promise(resolve => setTimeout(resolve, minDelay - elapsed));
+	      }
+	      setLoading(false);
+	      setRefreshing(false);
+	    }
+	  };
 
   // 批量健康检查
   const runBatchHealthCheck = async (poolFilter?: 'healthy' | 'checking' | 'banned') => {
@@ -183,28 +187,29 @@ export default function ProvidersPage() {
       setHealthChecking(true);
     }
     try {
-      const token = localStorage.getItem('authToken');
-	      const response = await fetch(`/api/accounts/health-check`, {
-	        method: 'POST',
-	        headers: {
-	          'Content-Type': 'application/json',
-	          'Authorization': `Bearer ${token}`,
-	        },
-	        body: poolFilter ? JSON.stringify({ pool: poolFilter }) : undefined,
-	      });
+      const response = await fetchWithAuth(`/api/accounts/health-check`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: poolFilter ? JSON.stringify({ pool: poolFilter }) : undefined,
+      });
 
-      if (response.ok) {
-        const result = await response.json();
-        await loadProviders();
-        const poolName = poolFilter === 'banned' ? '异常池' : poolFilter === 'checking' ? '检查池' : '';
-        toast.success(`${poolName}健康检查完成`, `${result.successCount} 个恢复健康, ${result.failCount} 个仍异常`);
-      } else {
-        const error = await response.json();
-        toast.error('健康检查失败', error.error?.message);
+      if (!response.ok) {
+        const message = await getApiErrorMessage(response, '健康检查失败');
+        throw new Error(message);
       }
+
+      const result = await response.json();
+      await loadProviders();
+      const poolName = poolFilter === 'banned' ? '异常池' : poolFilter === 'checking' ? '检查池' : '';
+      toast.success(`${poolName}健康检查完成`, `${result.successCount} 个恢复健康, ${result.failCount} 个仍异常`);
     } catch (error) {
+      if (isUnauthorizedError(error)) {
+        return;
+      }
       console.error('Batch health check failed:', error);
-      toast.error('健康检查失败');
+      toast.error('健康检查失败', error instanceof Error ? error.message : undefined);
     } finally {
       setHealthChecking(false);
       setBannedHealthChecking(false);
@@ -217,24 +222,24 @@ export default function ProvidersPage() {
 
     setResettingHealth(true);
     try {
-      const token = localStorage.getItem('authToken');
-	      const response = await fetch(`/api/accounts/reset-health`, {
-	        method: 'POST',
-	        headers: {
-	          'Authorization': `Bearer ${token}`,
-	        },
-	      });
+      const response = await fetchWithAuth(`/api/accounts/reset-health`, {
+        method: 'POST',
+      });
 
-      if (response.ok) {
-        const result = await response.json();
-        await loadProviders();
-        toast.success('重置成功', result.message || '健康状态已重置');
-      } else {
-        toast.error('重置失败');
+      if (!response.ok) {
+        const message = await getApiErrorMessage(response, '重置失败');
+        throw new Error(message);
       }
+
+      const result = await response.json();
+      await loadProviders();
+      toast.success('重置成功', result.message || '健康状态已重置');
     } catch (error) {
+      if (isUnauthorizedError(error)) {
+        return;
+      }
       console.error('Reset health failed:', error);
-      toast.error('重置失败');
+      toast.error('重置失败', error instanceof Error ? error.message : undefined);
     } finally {
       setResettingHealth(false);
     }
@@ -327,12 +332,10 @@ export default function ProvidersPage() {
 
     setGeneratingAuth(true);
     try {
-      const token = localStorage.getItem('authToken');
-      const response = await fetch('/api/kiro/oauth/manual-import', {
+      const response = await fetchWithAuth('/api/kiro/oauth/manual-import', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify({
           refreshToken: manualRefreshToken,
@@ -341,19 +344,22 @@ export default function ProvidersPage() {
         }),
       });
 
-      if (response.ok) {
-        toast.success('导入成功', 'RefreshToken 已保存');
-        setShowManualImportModal(false);
-        setManualRefreshToken('');
-        setManualProfileArn('');
-        await loadProviders();
-      } else {
-        const error = await response.json();
-        toast.error('导入失败', error.message || '未知错误');
+      if (!response.ok) {
+        const message = await getApiErrorMessage(response, '导入失败');
+        throw new Error(message);
       }
+
+      toast.success('导入成功', 'RefreshToken 已保存');
+      setShowManualImportModal(false);
+      setManualRefreshToken('');
+      setManualProfileArn('');
+      await loadProviders();
     } catch (error) {
+      if (isUnauthorizedError(error)) {
+        return;
+      }
       console.error('Manual import failed:', error);
-      toast.error('导入失败');
+      toast.error('导入失败', error instanceof Error ? error.message : undefined);
     } finally {
       setGeneratingAuth(false);
     }
@@ -364,12 +370,10 @@ export default function ProvidersPage() {
     setGeneratingAuth(true);
     setDeviceAuthResult(null);
     try {
-      const token = localStorage.getItem('authToken');
-      const response = await fetch('/api/kiro/oauth/aws-sso/start', {
+      const response = await fetchWithAuth('/api/kiro/oauth/aws-sso/start', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify({
           accountNumber,
@@ -377,21 +381,24 @@ export default function ProvidersPage() {
         }),
       });
 
-      if (response.ok) {
-        const result = await response.json();
-        if (result.success) {
-          setDeviceAuthResult(result);
-          toast.success('设备授权已启动', '请在浏览器中完成授权');
-        } else {
-          toast.error('启动失败', result.error || '未知错误');
-        }
+      if (!response.ok) {
+        const message = await getApiErrorMessage(response, '启动失败');
+        throw new Error(message);
+      }
+
+      const result = await response.json();
+      if (result.success) {
+        setDeviceAuthResult(result);
+        toast.success('设备授权已启动', '请在浏览器中完成授权');
       } else {
-        const error = await response.json();
-        toast.error('启动失败', error.error?.message || '未知错误');
+        toast.error('启动失败', result.error || '未知错误');
       }
     } catch (error) {
+      if (isUnauthorizedError(error)) {
+        return;
+      }
       console.error('AWS device auth failed:', error);
-      toast.error('启动设备授权失败');
+      toast.error('启动设备授权失败', error instanceof Error ? error.message : undefined);
     } finally {
       setGeneratingAuth(false);
     }
@@ -422,38 +429,42 @@ export default function ProvidersPage() {
 
 	  const toggleAccountStatus = async (providerType: string, uuid: string, currentStatus: boolean) => {
 	    try {
-	      const token = localStorage.getItem('authToken');
-	      const response = await fetch(`/api/accounts/${uuid}/toggle`, {
+	      const response = await fetchWithAuth(`/api/accounts/${uuid}/toggle`, {
 	        method: 'POST',
 	        headers: {
 	          'Content-Type': 'application/json',
-	          'Authorization': `Bearer ${token}`,
 	        },
-	        body: JSON.stringify({ isDisabled: !currentStatus })
+	        body: JSON.stringify({ isDisabled: !currentStatus }),
 	      });
 
-      if (response.ok) {
+        if (!response.ok) {
+          const message = await getApiErrorMessage(response, '更新失败');
+          throw new Error(message);
+        }
+
         await loadProviders();
         toast.success('状态已更新', currentStatus ? '账号已启用' : '账号已禁用');
+      } catch (error) {
+        if (isUnauthorizedError(error)) {
+          return;
+        }
+        console.error('Failed to toggle account:', error);
+        toast.error('更新失败', error instanceof Error ? error.message : undefined);
       }
-    } catch (error) {
-      console.error('Failed to toggle account:', error);
-      toast.error('更新失败');
-    }
   };
 
 	  const runHealthCheck = async (providerType: string, uuid: string) => {
 	    setAccountHealthChecking(uuid);
 	    try {
-	      const token = localStorage.getItem('authToken');
-	      const response = await fetch(`/api/accounts/${uuid}/health-check`, {
+	      const response = await fetchWithAuth(`/api/accounts/${uuid}/health-check`, {
 	        method: 'POST',
-	        headers: {
-	          'Authorization': `Bearer ${token}`,
-	        },
 	      });
 
-      if (response.ok) {
+        if (!response.ok) {
+          const message = await getApiErrorMessage(response, '健康检查失败');
+          throw new Error(message);
+        }
+
         const result = await response.json();
         await loadProviders();
         if (result.isHealthy) {
@@ -461,30 +472,30 @@ export default function ProvidersPage() {
         } else {
           toast.warning('账号异常', result.error || undefined);
         }
-      } else {
-        toast.error('健康检查失败');
+      } catch (error) {
+        if (isUnauthorizedError(error)) {
+          return;
+        }
+        console.error('Health check failed:', error);
+        toast.error('健康检查失败', error instanceof Error ? error.message : undefined);
+      } finally {
+        setAccountHealthChecking(null);
       }
-    } catch (error) {
-      console.error('Health check failed:', error);
-      toast.error('健康检查失败');
-    } finally {
-      setAccountHealthChecking(null);
-    }
   };
 
   // 单个账号测试
 	  const testAccount = async (providerType: string, uuid: string) => {
 	    setAccountTesting(uuid);
 	    try {
-	      const token = localStorage.getItem('authToken');
-	      const response = await fetch(`/api/accounts/${uuid}/test`, {
+	      const response = await fetchWithAuth(`/api/accounts/${uuid}/test`, {
 	        method: 'POST',
-	        headers: {
-	          'Authorization': `Bearer ${token}`,
-	        },
 	      });
 
-      if (response.ok) {
+        if (!response.ok) {
+          const message = await getApiErrorMessage(response, '测试失败');
+          throw new Error(message);
+        }
+
         const result = await response.json();
         await loadProviders();
         if (result.success) {
@@ -492,43 +503,41 @@ export default function ProvidersPage() {
         } else {
           toast.error('测试失败', result.error || '未知错误');
         }
-      } else {
-        const error = await response.json();
-        toast.error('测试失败', error.error?.message || '未知错误');
+      } catch (error) {
+        if (isUnauthorizedError(error)) {
+          return;
+        }
+        console.error('Test failed:', error);
+        toast.error('测试失败', error instanceof Error ? error.message : undefined);
+      } finally {
+        setAccountTesting(null);
       }
-    } catch (error) {
-      console.error('Test failed:', error);
-      toast.error('测试失败');
-    } finally {
-      setAccountTesting(null);
-    }
   };
 
   // 单个账号重置健康状态
 	  const resetAccountHealth = async (providerType: string, uuid: string) => {
 	    setAccountResetting(uuid);
 	    try {
-	      const token = localStorage.getItem('authToken');
-	      const response = await fetch(`/api/accounts/${uuid}/reset-health`, {
+	      const response = await fetchWithAuth(`/api/accounts/${uuid}/reset-health`, {
 	        method: 'POST',
-	        headers: {
-	          'Authorization': `Bearer ${token}`,
-	        },
 	      });
 
-      if (handleApiError(response)) return;
-      if (response.ok) {
+        if (!response.ok) {
+          const message = await getApiErrorMessage(response, '重置失败');
+          throw new Error(message);
+        }
+
         await loadProviders();
         toast.success('重置成功', '健康状态已重置');
-      } else {
-        toast.error('重置失败');
+      } catch (error) {
+        if (isUnauthorizedError(error)) {
+          return;
+        }
+        console.error('Reset failed:', error);
+        toast.error('重置失败', error instanceof Error ? error.message : undefined);
+      } finally {
+        setAccountResetting(null);
       }
-    } catch (error) {
-      console.error('Reset failed:', error);
-      toast.error('重置失败');
-    } finally {
-      setAccountResetting(null);
-    }
   };
 
   // 删除账号
@@ -537,25 +546,23 @@ export default function ProvidersPage() {
 
     setAccountDeleting(uuid);
     try {
-      const token = localStorage.getItem('authToken');
-	      const response = await fetch(`/api/accounts/${uuid}`, {
-	        method: 'DELETE',
-	        headers: {
-	          'Authorization': `Bearer ${token}`,
-	        },
-	      });
+      const response = await fetchWithAuth(`/api/accounts/${uuid}`, {
+        method: 'DELETE',
+      });
 
-      if (handleApiError(response)) return;
-      if (response.ok) {
-        await loadProviders();
-        toast.success('删除成功', `账号 #${accountIndex + 1} 已删除`);
-      } else {
-        const error = await response.json();
-        toast.error('删除失败', error.error?.message || '未知错误');
+      if (!response.ok) {
+        const message = await getApiErrorMessage(response, '删除失败');
+        throw new Error(message);
       }
+
+      await loadProviders();
+      toast.success('删除成功', `账号 #${accountIndex + 1} 已删除`);
     } catch (error) {
+      if (isUnauthorizedError(error)) {
+        return;
+      }
       console.error('Delete failed:', error);
-      toast.error('删除失败');
+      toast.error('删除失败', error instanceof Error ? error.message : undefined);
     } finally {
       setAccountDeleting(null);
     }
@@ -573,31 +580,31 @@ export default function ProvidersPage() {
 
     setBatchDeleting(true);
     try {
-      const token = localStorage.getItem('authToken');
-	      const response = await fetch('/api/accounts/batch-delete', {
-	        method: 'POST',
-	        headers: {
-	          'Content-Type': 'application/json',
-	          'Authorization': `Bearer ${token}`,
-	        },
-	        body: JSON.stringify({
-	          uuids: Array.from(selectedAccounts)
-	        }),
-	      });
+      const response = await fetchWithAuth('/api/accounts/batch-delete', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          uuids: Array.from(selectedAccounts)
+        }),
+      });
 
-      if (handleApiError(response)) return;
-      if (response.ok) {
-        const result = await response.json();
-        setSelectedAccounts(new Set());
-        await loadProviders();
-        toast.success('批量删除成功', result.message);
-      } else {
-        const error = await response.json();
-        toast.error('批量删除失败', error.error?.message || '未知错误');
+      if (!response.ok) {
+        const message = await getApiErrorMessage(response, '批量删除失败');
+        throw new Error(message);
       }
+
+      const result = await response.json();
+      setSelectedAccounts(new Set());
+      await loadProviders();
+      toast.success('批量删除成功', result.message);
     } catch (error) {
+      if (isUnauthorizedError(error)) {
+        return;
+      }
       console.error('Batch delete failed:', error);
-      toast.error('批量删除失败');
+      toast.error('批量删除失败', error instanceof Error ? error.message : undefined);
     } finally {
       setBatchDeleting(false);
     }
@@ -618,31 +625,31 @@ export default function ProvidersPage() {
 
     setBatchDeleting(true);
     try {
-      const token = localStorage.getItem('authToken');
-	      const response = await fetch('/api/accounts/batch-delete', {
-	        method: 'POST',
-	        headers: {
-	          'Content-Type': 'application/json',
-	          'Authorization': `Bearer ${token}`,
-	        },
-	        body: JSON.stringify({
-	          deleteByStatus: statusTypes
-	        }),
-	      });
+      const response = await fetchWithAuth('/api/accounts/batch-delete', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          deleteByStatus: statusTypes
+        }),
+      });
 
-      if (handleApiError(response)) return;
-      if (response.ok) {
-        const result = await response.json();
-        setSelectedAccounts(new Set());
-        await loadProviders();
-        toast.success('批量删除成功', result.message);
-      } else {
-        const error = await response.json();
-        toast.error('批量删除失败', error.error?.message || '未知错误');
+      if (!response.ok) {
+        const message = await getApiErrorMessage(response, '批量删除失败');
+        throw new Error(message);
       }
+
+      const result = await response.json();
+      setSelectedAccounts(new Set());
+      await loadProviders();
+      toast.success('批量删除成功', result.message);
     } catch (error) {
+      if (isUnauthorizedError(error)) {
+        return;
+      }
       console.error('Batch delete by status failed:', error);
-      toast.error('批量删除失败');
+      toast.error('批量删除失败', error instanceof Error ? error.message : undefined);
     } finally {
       setBatchDeleting(false);
     }
@@ -1141,7 +1148,7 @@ export default function ProvidersPage() {
                 </div>
 
                 {/* Account Info Grid */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
                   {account.cachedEmail && (
                     <div className="flex items-center gap-3 p-3 rounded-lg bg-white/5">
                       <IconMail className="w-5 h-5 text-blue-400" />
@@ -1168,33 +1175,38 @@ export default function ProvidersPage() {
                       <p className="text-sm font-medium">{account.errorCount}</p>
                     </div>
                   </div>
-                </div>
 
-                {/* Timeline */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+
                   {account.lastUsed && (
+                  <div className="flex items-center gap-3 p-3 rounded-lg bg-white/5">
                     <div>
-                      <p className="text-gray-400">最后使用</p>
-                      <p className="font-medium">{formatRelativeTime(account.lastUsed)}</p>
-                      <p className="text-xs text-gray-500">{formatDate(account.lastUsed)}</p>
+                      <p className="text-xs text-gray-400">最后使用</p>
+                      <p className="text-sm font-medium">{formatRelativeTime(account.lastUsed)}</p>
+                      <p className="text-sm text-gray-500">{formatDate(account.lastUsed)}</p>
+                    </div>
                     </div>
                   )}
 
                   {account.lastHealthCheckTime && (
+                  <div className="flex items-center gap-3 p-3 rounded-lg bg-white/5">
                     <div>
-                      <p className="text-gray-400">最后健康检查</p>
-                      <p className="font-medium">{formatRelativeTime(account.lastHealthCheckTime)}</p>
-                      <p className="text-xs text-gray-500">{formatDate(account.lastHealthCheckTime)}</p>
+                      <p className="text-xs text-gray-400">最后健康检查</p>
+                      <p className="text-sm font-medium">{formatRelativeTime(account.lastHealthCheckTime)}</p>
+                      <p className="text-sm text-gray-500">{formatDate(account.lastHealthCheckTime)}</p>
+                    </div>
                     </div>
                   )}
 
                   {account.lastErrorTime && (
+                  <div className="flex items-center gap-3 p-3 rounded-lg bg-white/5">
                     <div>
-                      <p className="text-gray-400">最后错误</p>
-                      <p className="font-medium text-red-400">{formatRelativeTime(account.lastErrorTime)}</p>
-                      <p className="text-xs text-gray-500">{formatDate(account.lastErrorTime)}</p>
+                      <p className="text-xs text-gray-400">最后错误</p>
+                      <p className="text-sm font-medium text-red-400">{formatRelativeTime(account.lastErrorTime)}</p>
+                      <p className="text-sm text-gray-500">{formatDate(account.lastErrorTime)}</p>
+                    </div>
                     </div>
                   )}
+
                 </div>
 
                 {/* Error Message - 友好显示 */}
@@ -1218,6 +1230,8 @@ export default function ProvidersPage() {
                 )}
 
                 {/* File Path */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+
                 {account.KIRO_OAUTH_CREDS_FILE_PATH && (
                   <div className="p-3 rounded-lg bg-white/5 border border-white/10">
                     <p className="text-xs text-gray-400 mb-1">凭据文件路径</p>
@@ -1226,14 +1240,18 @@ export default function ProvidersPage() {
                 )}
 
                 {/* Additional Info */}
-                <div className="flex flex-wrap gap-4 text-xs text-gray-400">
-                  <div>UUID: <span className="text-gray-300 font-mono">{account.uuid}</span></div>
+                <div className="p-3 rounded-lg bg-white/5 border border-white/10">
+                  <div className="text-xs text-gray-400 mb-1">UUID: <span className="text-sm text-gray-300 font-mono">{account.uuid}</span></div>
+                  <div>
                   {account.checkModelName && (
-                    <div>检查模型: <span className="text-gray-300">{account.checkModelName}</span></div>
+                    <div style={{display: 'inline'}}><span className="text-xs text-gray-400 mb-1">检查模型:</span> <span className="text-sm text-gray-300">{account.checkModelName}</span></div>
                   )}
                   {account.lastHealthCheckModel && (
-                    <div>最后检查模型: <span className="text-gray-300">{account.lastHealthCheckModel}</span></div>
+                    <div style={{display: 'inline'}}><span className="text-xs text-gray-400 mb-1">最后检查模型:</span> <span className="text-sm text-gray-300">{account.lastHealthCheckModel}</span></div>
                   )}
+                  </div>
+                </div>
+
                 </div>
               </div>
             </CardSpotlight>

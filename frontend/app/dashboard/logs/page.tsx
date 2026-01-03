@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { Trash2, Download, RefreshCw, Filter, Search } from 'lucide-react';
+import { fetchWithAuth, isUnauthorizedError } from '@/lib/apiClient';
 
 interface LogEntry {
   timestamp: string;
@@ -35,12 +36,7 @@ export default function LogsPage() {
   const fetchLogs = async () => {
     try {
       setLoading(true);
-      const token = localStorage.getItem('token');
-      const response = await fetch('/api/logs', {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
+      const response = await fetchWithAuth('/api/logs');
 
       if (!response.ok) {
         throw new Error('获取日志失败');
@@ -50,6 +46,9 @@ export default function LogsPage() {
       setLogs(data);
       setError(null);
     } catch (err) {
+      if (isUnauthorizedError(err)) {
+        return;
+      }
       setError(err instanceof Error ? err.message : '获取日志失败');
     } finally {
       setLoading(false);
@@ -63,12 +62,8 @@ export default function LogsPage() {
     }
 
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch('/api/logs', {
+      const response = await fetchWithAuth('/api/logs', {
         method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
       });
 
       if (!response.ok) {
@@ -78,6 +73,9 @@ export default function LogsPage() {
       setLogs([]);
       setError(null);
     } catch (err) {
+      if (isUnauthorizedError(err)) {
+        return;
+      }
       setError(err instanceof Error ? err.message : '清空日志失败');
     }
   };
