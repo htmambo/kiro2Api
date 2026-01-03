@@ -3,12 +3,12 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import multer from 'multer';
 import crypto from 'crypto';
-import { getRequestBody } from './common.js';
-import { CONFIG } from './config-manager.js';
+import { getRequestBody } from './utils/common.js';
+import { CONFIG } from './config/manager.js';
 import { serviceInstances, getServiceAdapter } from './core/claude-kiro.js';
-import { initApiService, getActivePoolManager, isSQLiteMode } from './service-manager.js';
-import { sqliteDB } from './sqlite-db.js';
-import { handleKiroOAuth } from './oauth-handlers.js';
+import { initApiService, getActivePoolManager, isSQLiteMode } from './services/manager.js';
+import { sqliteDB } from './services/storage/sqlite-db.js';
+import { handleKiroOAuth } from './services/oauth-handlers.js';
 import {
     generateUUID,
     normalizePath,
@@ -21,8 +21,8 @@ import {
     addToUsedPaths,
     formatSystemPath,
     findDuplicateUserId
-} from './account-utils.js';
-import { formatKiroUsage } from './usage-service.js';
+} from './utils/account-utils.js';
+import { formatKiroUsage } from './services/usage-service.js';
 import { KIRO_MODELS } from './core/constants.js';
 
 // Token存储到本地文件中
@@ -34,7 +34,9 @@ const ACCOUNT_POOL_FILE = './configs/account_pool.json';
 const DEFAULT_PROVIDER_TYPE_FOR_ACCOUNTS = 'claude-kiro-oauth';
 
 function isAccountMode(config) {
-    return config && config.ACCOUNT_POOL_MODE === 'account';
+    // Provider 层已彻底移除，始终使用 account 模式
+    // legacy 模式作为别名保留，实际行为与 account 模式相同
+    return true;
 }
 
 function readAccountsFromStorage(currentConfig, poolManager = null) {
@@ -780,7 +782,7 @@ export async function serveStaticFiles(pathParam, res) {
 async function reloadConfig(providerPoolManager) {
     try {
         // Import config manager dynamically
-        const { initializeConfig } = await import('./config-manager.js');
+        const { initializeConfig } = await import('./config/manager.js');
 
         // Reload main config
         const newConfig = await initializeConfig(process.argv.slice(2), './configs/config.json');
@@ -1515,7 +1517,7 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
         }
     }
 
-    // Health check all accounts (force)
+    // Health check all accounts (batch)
     if (method === 'POST' && pathParam === '/api/accounts/health-check') {
         try {
             const { accountPool, providerPools } = readAccountsFromStorage(currentConfig, providerPoolManager);
@@ -1584,7 +1586,7 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
         }
     }
 
-    // Health check single account (force)
+    // Health check single account (force) - 必须在批量检查之前
     const accountHealthCheckMatch = pathParam.match(/^\/api\/accounts\/([^\/]+)\/health-check$/);
     if (method === 'POST' && accountHealthCheckMatch) {
         const uuid = decodeURIComponent(accountHealthCheckMatch[1]);
@@ -1597,16 +1599,18 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
                 return true;
             }
 
+            let healthResult = null;
+
             if (typeof providerPoolManager?._checkAccountHealth === 'function' && typeof providerPoolManager.markAccountHealthy === 'function') {
-                const healthResult = await providerPoolManager._checkAccountHealth(acc, true);
+                healthResult = await providerPoolManager._checkAccountHealth(acc, true);
                 if (healthResult && healthResult.success) {
                     providerPoolManager.markAccountHealthy(acc.uuid, { resetUsageCount: true, healthCheckModel: healthResult.modelName, userInfo: healthResult.userInfo });
                 } else {
                     providerPoolManager.markAccountUnhealthy(acc.uuid, healthResult?.errorMessage || '检测失败');
                 }
-            } else if (typeof providerPoolManager?._checkProviderHealth === 'function') {
+          } else if (typeof providerPoolManager?._checkProviderHealth === 'function') {
                 const providerType = DEFAULT_PROVIDER_TYPE_FOR_ACCOUNTS;
-                const healthResult = await providerPoolManager._checkProviderHealth(providerType, acc, true);
+                healthResult = await providerPoolManager._checkProviderHealth(providerType, acc, true);
                 if (healthResult && healthResult.success) {
                     providerPoolManager.markProviderHealthy(providerType, acc, false, healthResult.modelName, healthResult.userInfo);
                 } else {
@@ -1617,39 +1621,16 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
             const filePath = writeAccountsToStorage(currentConfig, accountPool, providerPools);
             await syncPoolManagerAfterAccountsChange(currentConfig, providerPoolManager, accountPool, providerPools);
 
+            // 返回详细的健康检查结果
             res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ success: true, uuid, filePath }));
-            return true;
-        } catch (error) {
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: { message: error.message } }));
-            return true;
-        }
-    }
-
-    // Reset single account health status
-    const accountResetHealthMatch = pathParam.match(/^\/api\/accounts\/([^\/]+)\/reset-health$/);
-    if (method === 'POST' && accountResetHealthMatch) {
-        const uuid = decodeURIComponent(accountResetHealthMatch[1]);
-        try {
-            const { accountPool, providerPools } = readAccountsFromStorage(currentConfig, providerPoolManager);
-            const acc = accountPool.accounts.find(a => a.uuid === uuid);
-            if (!acc) {
-                res.writeHead(404, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: { message: 'Account not found' } }));
-                return true;
-            }
-
-            acc.isHealthy = true;
-            acc.errorCount = 0;
-            acc.lastErrorTime = null;
-            acc.lastErrorMessage = null;
-
-            const filePath = writeAccountsToStorage(currentConfig, accountPool, providerPools);
-            await syncPoolManagerAfterAccountsChange(currentConfig, providerPoolManager, accountPool, providerPools);
-
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ success: true, uuid, filePath }));
+            res.end(JSON.stringify({
+                success: healthResult?.success || false,
+                isHealthy: healthResult?.success || false,
+                uuid,
+                modelName: healthResult?.modelName || null,
+                error: healthResult?.errorMessage || healthResult?.error || null,
+                filePath
+            }));
             return true;
         } catch (error) {
             res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -2005,7 +1986,7 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
             if (providerPoolManager) {
                 if (isSQLiteMode()) {
                     // SQLite 模式：直接插入到数据库
-                    const { sqliteDB } = await import('./sqlite-db.js');
+                    const { sqliteDB } = await import('./services/storage/sqlite-db.js');
                     sqliteDB.upsertProvider({
                         ...providerConfig,
                         providerType
@@ -2066,23 +2047,24 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
                 return true;
             }
 
-            const filePath = currentConfig.PROVIDER_POOLS_FILE_PATH || PROVIDER_POOLS_FILE;
-            let providerPools = {};
-            
-            // Load existing pools
-            if (existsSync(filePath)) {
+            const accountPoolPath = currentConfig.ACCOUNT_POOL_FILE_PATH || ACCOUNT_POOL_FILE;
+            const filePath = accountPoolPath;
+            let accountPool = { accounts: [] };
+
+            // Load existing account pool
+            if (existsSync(accountPoolPath)) {
                 try {
-                    const fileContent = readFileSync(filePath, 'utf8');
-                    providerPools = JSON.parse(fileContent);
+                    const fileContent = readFileSync(accountPoolPath, 'utf8');
+                    accountPool = JSON.parse(fileContent);
                 } catch (readError) {
                     res.writeHead(404, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({ error: { message: 'Provider pools file not found' } }));
+                    res.end(JSON.stringify({ error: { message: 'Account pool file not found' } }));
                     return true;
                 }
             }
 
             // Find and update the provider
-            const providers = providerPools[providerType] || [];
+            const providers = accountPool.accounts || [];
             const providerIndex = providers.findIndex(p => p.uuid === providerUuid);
             
             if (providerIndex === -1) {
@@ -2103,10 +2085,11 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
                 lastErrorTime: existingProvider.lastErrorTime
             };
 
-            providerPools[providerType][providerIndex] = updatedProvider;
+            providers[providerIndex] = updatedProvider;
+            accountPool.accounts = providers;
 
             // Save to file
-            writeFileSync(filePath, JSON.stringify(providerPools, null, 2), 'utf8');
+            writeFileSync(filePath, JSON.stringify(accountPool, null, 2), 'utf8');
             console.log(`[UI API] Updated provider ${providerUuid} in ${providerType}`);
 
             // Update provider pool manager if available
@@ -2118,6 +2101,9 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
                     });
                     console.log(`[UI API] Synced updated provider to SQLite: ${providerUuid}`);
                 } else {
+                    const providerPools = {
+                        [DEFAULT_PROVIDER_TYPE_FOR_ACCOUNTS]: accountPool.accounts
+                    };
                     providerPoolManager.providerPools = providerPools;
                     if (typeof providerPoolManager.initializeProviderStatus === 'function') {
                         providerPoolManager.initializeProviderStatus();
@@ -2154,23 +2140,24 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
         const providerUuid = updateProviderMatch[2];
 
         try {
-            const filePath = currentConfig.PROVIDER_POOLS_FILE_PATH || PROVIDER_POOLS_FILE;
-            let providerPools = {};
-            
-            // Load existing pools
-            if (existsSync(filePath)) {
+            const accountPoolPath = currentConfig.ACCOUNT_POOL_FILE_PATH || ACCOUNT_POOL_FILE;
+            const filePath = accountPoolPath;
+            let accountPool = { accounts: [] };
+
+            // Load existing account pool
+            if (existsSync(accountPoolPath)) {
                 try {
-                    const fileContent = readFileSync(filePath, 'utf8');
-                    providerPools = JSON.parse(fileContent);
+                    const fileContent = readFileSync(accountPoolPath, 'utf8');
+                    accountPool = JSON.parse(fileContent);
                 } catch (readError) {
                     res.writeHead(404, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({ error: { message: 'Provider pools file not found' } }));
+                    res.end(JSON.stringify({ error: { message: 'Account pool file not found' } }));
                     return true;
                 }
             }
 
             // Find and remove the provider
-            const providers = providerPools[providerType] || [];
+            const providers = accountPool.accounts || [];
             const providerIndex = providers.findIndex(p => p.uuid === providerUuid);
             
             if (providerIndex === -1) {
@@ -2187,7 +2174,7 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
 
             if (tokenFilePath) {
                 // 检查是否还有其他provider使用同一个token文件
-                const isFileUsedByOthers = Object.values(providerPools).flat().some(p => {
+                const isFileUsedByOthers = providers.some(p => {
                     if (p.uuid === providerUuid) return false; // 跳过当前要删除的provider
                     return (p.KIRO_OAUTH_CREDS_FILE_PATH === tokenFilePath);
                 });
@@ -2209,13 +2196,10 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
                 }
             }
 
-            // Remove the entire provider type if no providers left
-            if (providers.length === 0) {
-                delete providerPools[providerType];
-            }
+            accountPool.accounts = providers;
 
             // Save to file
-            writeFileSync(filePath, JSON.stringify(providerPools, null, 2), 'utf8');
+            writeFileSync(filePath, JSON.stringify(accountPool, null, 2), 'utf8');
             console.log(`[UI API] Deleted provider ${providerUuid} from ${providerType}`);
 
             // Update provider pool manager if available
@@ -2223,10 +2207,13 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
             if (providerPoolManager) {
                 if (isSQLiteMode()) {
                     // SQLite 模式：从数据库中删除
-                    const { sqliteDB } = await import('./sqlite-db.js');
+                    const { sqliteDB } = await import('./services/storage/sqlite-db.js');
                     sqliteDB.deleteProvider(providerUuid);
                     console.log(`[UI API] Synced deletion to SQLite: ${providerUuid}`);
                 } else {
+                    const providerPools = {
+                        [DEFAULT_PROVIDER_TYPE_FOR_ACCOUNTS]: accountPool.accounts
+                    };
                     providerPoolManager.providerPools = providerPools;
                     providerPoolManager.initializeProviderStatus();
                 }
@@ -2267,21 +2254,22 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
                 return true;
             }
 
-            const filePath = currentConfig.PROVIDER_POOLS_FILE_PATH || PROVIDER_POOLS_FILE;
-            let providerPools = {};
+            const accountPoolPath = currentConfig.ACCOUNT_POOL_FILE_PATH || ACCOUNT_POOL_FILE;
+            const filePath = accountPoolPath;
+            let accountPool = { accounts: [] };
 
-            if (existsSync(filePath)) {
+            if (existsSync(accountPoolPath)) {
                 try {
-                    const fileContent = readFileSync(filePath, 'utf8');
-                    providerPools = JSON.parse(fileContent);
+                    const fileContent = readFileSync(accountPoolPath, 'utf8');
+                    accountPool = JSON.parse(fileContent);
                 } catch (readError) {
                     res.writeHead(404, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({ error: { message: 'Provider pools file not found' } }));
+                    res.end(JSON.stringify({ error: { message: 'Account pool file not found' } }));
                     return true;
                 }
             }
 
-            const providers = providerPools[providerType] || [];
+            const providers = accountPool.accounts || [];
             let toDelete = [];
 
             // 如果指定了 deleteByStatus，按状态筛选要删除的账号
@@ -2354,14 +2342,10 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
             }
 
             // 更新 providers 数组（重新获取索引后的）
-            if (providers.length === 0) {
-                delete providerPools[providerType];
-            } else {
-                providerPools[providerType] = providers;
-            }
+            accountPool.accounts = providers;
 
             // 保存到文件
-            writeFileSync(filePath, JSON.stringify(providerPools, null, 2), 'utf8');
+            writeFileSync(filePath, JSON.stringify(accountPool, null, 2), 'utf8');
             console.log(`[Batch Delete] Deleted ${deleteResults.success.length} providers from ${providerType}`);
 
             // 更新 provider pool manager
@@ -2369,12 +2353,15 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
             if (providerPoolManager) {
                 if (isSQLiteMode()) {
                     // SQLite 模式：从数据库中删除
-                    const { sqliteDB } = await import('./sqlite-db.js');
+                    const { sqliteDB } = await import('./services/storage/sqlite-db.js');
                     for (const item of deleteResults.success) {
                         sqliteDB.deleteProvider(item.uuid);
                     }
                     console.log(`[Batch Delete] Synced deletions to SQLite`);
                 } else {
+                    const providerPools = {
+                        [DEFAULT_PROVIDER_TYPE_FOR_ACCOUNTS]: accountPool.accounts
+                    };
                     providerPoolManager.providerPools = providerPools;
                     providerPoolManager.initializeProviderStatus();
                 }
@@ -2411,23 +2398,24 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
         const action = disableEnableProviderMatch[3];
 
         try {
-            const filePath = currentConfig.PROVIDER_POOLS_FILE_PATH || PROVIDER_POOLS_FILE;
-            let providerPools = {};
-            
-            // Load existing pools
-            if (existsSync(filePath)) {
+            const accountPoolPath = currentConfig.ACCOUNT_POOL_FILE_PATH || ACCOUNT_POOL_FILE;
+            const filePath = accountPoolPath;
+            let accountPool = { accounts: [] };
+
+            // Load existing account pool
+            if (existsSync(accountPoolPath)) {
                 try {
-                    const fileContent = readFileSync(filePath, 'utf8');
-                    providerPools = JSON.parse(fileContent);
+                    const fileContent = readFileSync(accountPoolPath, 'utf8');
+                    accountPool = JSON.parse(fileContent);
                 } catch (readError) {
                     res.writeHead(404, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({ error: { message: 'Provider pools file not found' } }));
+                    res.end(JSON.stringify({ error: { message: 'Account pool file not found' } }));
                     return true;
                 }
             }
 
             // Find and update the provider
-            const providers = providerPools[providerType] || [];
+            const providers = accountPool.accounts || [];
             const providerIndex = providers.findIndex(p => p.uuid === providerUuid);
             
             if (providerIndex === -1) {
@@ -2439,15 +2427,19 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
             // Update isDisabled field
             const provider = providers[providerIndex];
             provider.isDisabled = action === 'disable';
-            
+            accountPool.accounts = providers;
+
             // Save to file
-            writeFileSync(filePath, JSON.stringify(providerPools, null, 2), 'utf8');
+            writeFileSync(filePath, JSON.stringify(accountPool, null, 2), 'utf8');
             console.log(`[UI API] ${action === 'disable' ? 'Disabled' : 'Enabled'} provider ${providerUuid} in ${providerType}`);
 
             // Update provider pool manager if available
             if (providerPoolManager) {
+                const providerPools = {
+                    [DEFAULT_PROVIDER_TYPE_FOR_ACCOUNTS]: accountPool.accounts
+                };
                 providerPoolManager.providerPools = providerPools;
-                
+
                 // Call the appropriate method
                 if (action === 'disable') {
                     providerPoolManager.disableProvider(providerType, provider);
@@ -2563,15 +2555,16 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
             const body = await parseRequestBody(req);
             const isDisabled = body.isDisabled;
 
-            const filePath = currentConfig.PROVIDER_POOLS_FILE_PATH || PROVIDER_POOLS_FILE;
-            let providerPools = {};
+            const accountPoolPath = currentConfig.ACCOUNT_POOL_FILE_PATH || ACCOUNT_POOL_FILE;
+            const filePath = accountPoolPath;
+            let accountPool = { accounts: [] };
 
-            if (existsSync(filePath)) {
-                const fileContent = readFileSync(filePath, 'utf8');
-                providerPools = JSON.parse(fileContent);
+            if (existsSync(accountPoolPath)) {
+                const fileContent = readFileSync(accountPoolPath, 'utf8');
+                accountPool = JSON.parse(fileContent);
             }
 
-            const providers = providerPools[providerType] || [];
+            const providers = accountPool.accounts || [];
             const providerIndex = providers.findIndex(p => p.uuid === providerUuid);
 
             if (providerIndex === -1) {
@@ -2582,11 +2575,15 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
 
             const provider = providers[providerIndex];
             provider.isDisabled = isDisabled;
+            accountPool.accounts = providers;
 
-            writeFileSync(filePath, JSON.stringify(providerPools, null, 2), 'utf8');
+            writeFileSync(filePath, JSON.stringify(accountPool, null, 2), 'utf8');
             console.log(`[UI API] Toggled provider ${providerUuid}: isDisabled=${isDisabled}`);
 
             if (providerPoolManager) {
+                const providerPools = {
+                    [DEFAULT_PROVIDER_TYPE_FOR_ACCOUNTS]: accountPool.accounts
+                };
                 providerPoolManager.providerPools = providerPools;
                 if (isDisabled) {
                     providerPoolManager.disableProvider(providerType, provider);
@@ -2599,228 +2596,6 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
             res.end(JSON.stringify({ success: true, isDisabled }));
             return true;
         } catch (error) {
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: { message: error.message } }));
-            return true;
-        }
-    }
-
-    // Single provider health check
-    const singleHealthCheckMatch = pathParam.match(/^\/api\/providers\/([^\/]+)\/([^\/]+)\/health-check$/);
-    if (method === 'POST' && singleHealthCheckMatch) {
-        const providerType = decodeURIComponent(singleHealthCheckMatch[1]);
-        const providerUuid = singleHealthCheckMatch[2];
-
-        try {
-            if (!providerPoolManager) {
-                res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: { message: 'Provider pool manager not initialized' } }));
-                return true;
-            }
-
-            // 获取提供商配置（支持 SQLite 和 JSON 两种模式）
-            let providerConfig = null;
-            if (isSQLiteMode()) {
-                const providerData = sqliteDB.getProviderByUuid(providerUuid);
-                if (providerData) {
-                    providerConfig = providerData.config;
-                }
-            } else {
-                const providers = providerPoolManager.providerStatus?.[providerType] || [];
-                const providerStatus = providers.find(p => p.config.uuid === providerUuid);
-                if (providerStatus) {
-                    providerConfig = providerStatus.config;
-                }
-            }
-
-            if (!providerConfig) {
-                res.writeHead(404, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: { message: 'Provider not found' } }));
-                return true;
-            }
-
-            console.log(`[UI API] Starting single health check for provider ${providerUuid}`);
-
-            const healthResult = await providerPoolManager._checkProviderHealth(providerType, providerConfig, true);
-
-            if (healthResult === null) {
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ success: false, isHealthy: false, message: '健康检测不支持此提供商类型' }));
-                return true;
-            }
-
-            if (healthResult.success) {
-                providerPoolManager.markProviderHealthy(providerType, providerConfig, false, healthResult.modelName, healthResult.userInfo);
-            } else {
-                providerPoolManager.markProviderUnhealthy(providerType, providerConfig, healthResult.error);
-            }
-
-            // 非 SQLite 模式时保存到文件
-            if (!isSQLiteMode()) {
-                const filePath = currentConfig.PROVIDER_POOLS_FILE_PATH || PROVIDER_POOLS_FILE;
-                const providerPools = {};
-                for (const pType in providerPoolManager.providerStatus) {
-                    providerPools[pType] = providerPoolManager.providerStatus[pType].map(ps => ps.config);
-                }
-                writeFileSync(filePath, JSON.stringify(providerPools, null, 2), 'utf8');
-            }
-
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                success: healthResult.success,
-                isHealthy: healthResult.success,
-                modelName: healthResult.modelName,
-                error: healthResult.error
-            }));
-            return true;
-        } catch (error) {
-            console.error('[UI API] Single health check error:', error);
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: { message: error.message } }));
-            return true;
-        }
-    }
-
-    // Single provider reset health
-    const singleResetHealthMatch = pathParam.match(/^\/api\/providers\/([^\/]+)\/([^\/]+)\/reset-health$/);
-    if (method === 'POST' && singleResetHealthMatch) {
-        const providerType = decodeURIComponent(singleResetHealthMatch[1]);
-        const providerUuid = singleResetHealthMatch[2];
-
-        try {
-            // SQLite 模式
-            if (isSQLiteMode()) {
-                const providerData = sqliteDB.getProviderByUuid(providerUuid);
-                if (!providerData) {
-                    res.writeHead(404, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({ error: { message: 'Provider not found' } }));
-                    return true;
-                }
-
-                // 重置健康状态
-                sqliteDB.updateProviderHealth(providerUuid, true, {
-                    errorCount: 0,
-                    lastErrorTime: null,
-                    lastErrorMessage: null
-                });
-
-                console.log(`[UI API] Reset health for provider ${providerUuid} (SQLite)`);
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ success: true, message: '健康状态已重置' }));
-                return true;
-            }
-
-            // JSON 模式
-            const filePath = currentConfig.PROVIDER_POOLS_FILE_PATH || PROVIDER_POOLS_FILE;
-            let providerPools = {};
-
-            if (existsSync(filePath)) {
-                const fileContent = readFileSync(filePath, 'utf8');
-                providerPools = JSON.parse(fileContent);
-            }
-
-            const providers = providerPools[providerType] || [];
-            const providerIndex = providers.findIndex(p => p.uuid === providerUuid);
-
-            if (providerIndex === -1) {
-                res.writeHead(404, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: { message: 'Provider not found' } }));
-                return true;
-            }
-
-            const provider = providers[providerIndex];
-            provider.isHealthy = true;
-            provider.errorCount = 0;
-            provider.lastErrorTime = null;
-            provider.lastErrorMessage = null;
-
-            writeFileSync(filePath, JSON.stringify(providerPools, null, 2), 'utf8');
-            console.log(`[UI API] Reset health for provider ${providerUuid}`);
-
-            if (providerPoolManager) {
-                providerPoolManager.providerPools = providerPools;
-                providerPoolManager.initializeProviderStatus();
-            }
-
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ success: true, message: '健康状态已重置' }));
-            return true;
-        } catch (error) {
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: { message: error.message } }));
-            return true;
-        }
-    }
-
-    // Single provider test
-    const singleTestMatch = pathParam.match(/^\/api\/providers\/([^\/]+)\/([^\/]+)\/test$/);
-    if (method === 'POST' && singleTestMatch) {
-        const providerType = decodeURIComponent(singleTestMatch[1]);
-        const providerUuid = singleTestMatch[2];
-
-        try {
-            if (!providerPoolManager) {
-                res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: { message: 'Provider pool manager not initialized' } }));
-                return true;
-            }
-
-            // 获取提供商配置（支持 SQLite 和 JSON 两种模式）
-            let providerConfig = null;
-            if (isSQLiteMode()) {
-                const providerData = sqliteDB.getProviderByUuid(providerUuid);
-                if (providerData) {
-                    providerConfig = providerData.config;
-                }
-            } else {
-                const providers = providerPoolManager.providerStatus?.[providerType] || [];
-                const providerStatus = providers.find(p => p.config.uuid === providerUuid);
-                if (providerStatus) {
-                    providerConfig = providerStatus.config;
-                }
-            }
-
-            if (!providerConfig) {
-                res.writeHead(404, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: { message: 'Provider not found' } }));
-                return true;
-            }
-
-            console.log(`[UI API] Testing provider ${providerUuid}`);
-
-            // Use health check to test the provider
-            const testResult = await providerPoolManager._checkProviderHealth(providerType, providerConfig, true);
-
-            if (testResult === null) {
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ success: false, error: '测试不支持此提供商类型' }));
-                return true;
-            }
-
-            if (testResult.success) {
-                providerPoolManager.markProviderHealthy(providerType, providerConfig, false, testResult.modelName);
-
-                // 非 SQLite 模式时保存到文件
-                if (!isSQLiteMode()) {
-                    const filePath = currentConfig.PROVIDER_POOLS_FILE_PATH || PROVIDER_POOLS_FILE;
-                    const providerPools = {};
-                    for (const pType in providerPoolManager.providerStatus) {
-                        providerPools[pType] = providerPoolManager.providerStatus[pType].map(ps => ps.config);
-                    }
-                    writeFileSync(filePath, JSON.stringify(providerPools, null, 2), 'utf8');
-                }
-            }
-
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                success: testResult.success,
-                message: testResult.success ? `测试成功，模型: ${testResult.modelName}` : testResult.error,
-                modelName: testResult.modelName,
-                error: testResult.error
-            }));
-            return true;
-        } catch (error) {
-            console.error('[UI API] Provider test error:', error);
             res.writeHead(500, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: { message: error.message } }));
             return true;
@@ -4493,14 +4268,16 @@ async function getProviderTypeUsage(providerType, currentConfig, providerPoolMan
         errorCount: 0
     };
 
-    // 获取提供商池中的所有实例（支持 SQLite 和 JSON 两种模式）
+    // 获取账号列表（支持 SQLite 和 JSON 两种模式）
     let providers = [];
+
     if (isSQLiteMode() && providerPoolManager && typeof providerPoolManager.getProviderPools === 'function') {
+        // SQLite 模式
         providers = providerPoolManager.getProviderPools(providerType);
-    } else if (providerPoolManager && providerPoolManager.providerPools && providerPoolManager.providerPools[providerType]) {
-        providers = providerPoolManager.providerPools[providerType];
-    } else if (currentConfig.providerPools && currentConfig.providerPools[providerType]) {
-        providers = currentConfig.providerPools[providerType];
+    } else {
+        // JSON 模式：从 account pool 获取
+        const { accountPool } = readAccountsFromStorage(currentConfig, providerPoolManager);
+        providers = accountPool.accounts || [];
     }
 
     result.totalCount = providers.length;

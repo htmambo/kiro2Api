@@ -2,7 +2,8 @@ import { promises as fs } from 'fs';
 import * as path from 'path';
 import * as http from 'http'; // Add http for IncomingMessage and ServerResponse types
 import * as crypto from 'crypto'; // Import crypto for MD5 hashing
-import { KiroService } from './core/claude-kiro.js'; // Import KiroService
+import { KiroService } from '../core/claude-kiro.js'; // Import KiroService
+import { ClaudeStrategy } from '../core/claude-strategy.js';
 
 export const API_ACTIONS = {
     GENERATE_CONTENT: 'generateContent',
@@ -362,7 +363,7 @@ export async function handleContentGenerationRequest(req, res, service, endpoint
     // 2.5. 如果使用了提供商池，根据模型重新选择提供商
     // 注意：这里使用 skipUsageCount: true，因为初次选择时已经增加了 usageCount
     if (_canUsePool(CONFIG, providerPoolManager)) {
-        const { getApiService } = await import('./service-manager.js');
+        const { getApiService } = await import('../services/manager.js');
         service = await getApiService(CONFIG, model);
         console.log(`[Content Generation] Re-selected service adapter based on model: ${model}`);
     }
@@ -421,7 +422,7 @@ export async function handleContentGenerationRequest(req, res, service, endpoint
             // 如果还有重试机会，选择下一个健康的provider
             if (retryCount < maxRetries && _canUsePool(CONFIG, providerPoolManager)) {
                 console.log('[Pool Retry] Selecting next healthy account/provider...');
-                const { getApiService } = await import('./service-manager.js');
+                const { getApiService } = await import('../services/manager.js');
                 const newConfig = { ...CONFIG };
                 service = await getApiService(newConfig, model);
                 pooluuid = newConfig.uuid;
@@ -506,7 +507,7 @@ export function handleError(res, error) {
         case 502:
         case 503:
         case 504:
-            errorMessage = 'Server error occurred. This is usually temporary.';
+            errorMessage += 'Server error occurred. This is usually temporary.';
             suggestions = [
                 'The request has been automatically retried',
                 'If the issue persists, try again in a few minutes',

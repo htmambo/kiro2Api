@@ -3,9 +3,9 @@
  * 用于处理各个提供商的授权文件用量查询
  */
 
-import { getAccountPoolManager } from './service-manager.js';
-import { serviceInstances } from './core/claude-kiro.js';
-import { MODEL_PROVIDER } from './common.js';
+import { getAccountPoolManager } from './manager.js';
+import { serviceInstances } from '../core/claude-kiro.js';
+import { MODEL_PROVIDER } from '../utils/common.js';
 
 /**
  * 用量查询服务类

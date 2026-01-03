@@ -27,8 +27,8 @@
     "supertest": "^6.3.3"
   },
   "scripts": {
-    "start": "node --max-old-space-size=120 src/api-server.js",
-    "dev": "node --max-old-space-size=120 src/api-server.js --api-key 123456 --host 0.0.0.0 --port 8045 --model-provider claude-kiro-oauth",
+    "start": "node --max-old-space-size=120 src/api/server.js",
+    "dev": "node --max-old-space-size=120 src/api/server.js --api-key 123456 --host 0.0.0.0 --port 8045 --model-provider claude-kiro-oauth",
     "deploy:frontend": "bash deploy-frontend.sh",
     "pm2:start": "pm2 start ecosystem.config.cjs",
     "pm2:stop": "pm2 stop kiro2api",

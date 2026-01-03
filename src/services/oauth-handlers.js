@@ -3,14 +3,14 @@ import path from 'path';
 import os from 'os';
 import { existsSync, readFileSync, writeFileSync } from 'fs';
 import { v4 as uuidv4 } from 'uuid';
-import { isSQLiteMode } from './service-manager.js';
-import { sqliteDB } from './sqlite-db.js';
+import { isSQLiteMode } from './manager.js';
+import { sqliteDB } from './storage/sqlite-db.js';
 
 // 延迟导入 broadcastEvent 避免循环依赖
 let _broadcastEvent = null;
 async function getBroadcastEvent() {
     if (!_broadcastEvent) {
-        const uiManager = await import('./ui-manager.js');
+        const uiManager = await import('../ui-manager.js');
         _broadcastEvent = uiManager.broadcastEvent;
     }
     return _broadcastEvent;
@@ -88,7 +88,7 @@ export async function handleKiroOAuth(currentConfig, poolManager = null) {
         console.log(`${KIRO_OAUTH_CONFIG.logPrefix} Client expires at: ${new Date(clientSecretExpiresAt * 1000).toISOString()}`);
 
         // 动态导入 KiroService (避免循环依赖)
-        const { KiroService } = await import('./core/claude-kiro.js');
+        const { KiroService } = await import('../core/claude-kiro.js');
 
         // 创建临时实例用于设备授权
         const kiroService = new KiroService(currentConfig);

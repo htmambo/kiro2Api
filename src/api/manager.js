@@ -1,7 +1,7 @@
 import {
     handleContentGenerationRequest,
     ENDPOINT_TYPE
-} from './common.js';
+} from '../utils/common.js';
 
 /**
  * Handle API authentication and routing

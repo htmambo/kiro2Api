@@ -1,11 +1,11 @@
 import deepmerge from 'deepmerge';
-import { handleError, isAuthorized } from './common.js';
-import { handleUIApiRequests, serveStaticFiles } from './ui-manager.js';
-import { handleAPIRequests } from './api-manager.js';
-import { getApiService } from './service-manager.js';
-import { getActivePoolManager } from './service-manager.js';
-import { MODEL_PROVIDER } from './common.js';
-import { PROMPT_LOG_FILENAME } from './config-manager.js';
+import { handleError, isAuthorized } from '../utils/common.js';
+import { handleUIApiRequests, serveStaticFiles } from '../ui-manager.js';
+import { handleAPIRequests } from './manager.js';
+import { getApiService } from '../services/manager.js';
+import { getActivePoolManager } from '../services/manager.js';
+import { MODEL_PROVIDER } from '../utils/common.js';
+import { PROMPT_LOG_FILENAME } from '../config/manager.js';
 /**
  * Main request handler. It authenticates the request, determines the endpoint type,
  * and delegates to the appropriate specialized handler function.
@@ -57,7 +57,7 @@ export function createRequestHandler(config, poolManager) {
         // Pool status and cache stats endpoint
         if (method === 'GET' && path === '/stats') {
             try {
-                const { getAccountPoolManager } = await import('./account-pool-manager.js');
+                const { getAccountPoolManager } = await import('../services/pools/account-pool-manager.js');
 
                 const accountPool = getAccountPoolManager();
 
@@ -115,6 +115,9 @@ export function createRequestHandler(config, poolManager) {
                 pathSegments.shift();
                 path = '/' + pathSegments.join('/');
                 requestUrl.pathname = path;
+            } else if (firstSegment === 'v1') {
+                currentConfig.MODEL_PROVIDER = 'claude-kiro-oauth';
+                console.log(`[Config] MODEL_PROVIDER overridden by path segment to: ${currentConfig.MODEL_PROVIDER}`);
             } else if (firstSegment && !isValidProvider) {
                 console.log(`[Config] Ignoring invalid MODEL_PROVIDER in path segment: ${firstSegment}`);
             }
