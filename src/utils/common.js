@@ -2,8 +2,8 @@ import { promises as fs } from 'fs';
 import * as path from 'path';
 import * as http from 'http'; // Add http for IncomingMessage and ServerResponse types
 import * as crypto from 'crypto'; // Import crypto for MD5 hashing
-import { KiroService } from '../core/claude-kiro.js'; // Import KiroService
-import { ClaudeStrategy } from '../core/claude-strategy.js';
+import { KiroService } from '../kiro/claude-kiro.js'; // Import KiroService
+import { KiroStrategy } from '../kiro/strategy.js';
 
 export const API_ACTIONS = {
     GENERATE_CONTENT: 'generateContent',
@@ -447,28 +447,49 @@ export async function handleContentGenerationRequest(req, res, service, endpoint
  * @returns {{model: string, isStream: boolean}} An object containing the model name and stream status.
  */
 function _extractModelAndStreamInfo(req, requestBody, fromProvider) {
-    const strategy = new ClaudeStrategy();
+    const strategy = new KiroStrategy();
     return strategy.extractModelAndStreamInfo(req, requestBody);
 }
 
 async function _applySystemPromptFromFile(config, requestBody, toProvider) {
-    const strategy = new ClaudeStrategy();
+    const strategy = new KiroStrategy();
     return strategy.applySystemPromptFromFile(config, requestBody);
 }
 
-export async function _manageSystemPrompt(requestBody, provider) {
-    const strategy = new ClaudeStrategy();
-    await strategy.manageSystemPrompt(requestBody);
+async function _manageSystemPrompt(requestBody, provider) {
+    let incomingSystemText = extractSystemPromptFromRequestBody(requestBody, 'claude');
+    let currentSystemText = '';
+    try {
+        currentSystemText = await fs.readFile(FETCH_SYSTEM_PROMPT_FILE, 'utf8');
+    } catch (error) {
+        if (error.code !== 'ENOENT') {
+            console.error(`[System Prompt Manager] Error reading system prompt file: ${error.message}`);
+        }
+    }
+
+    try {
+        if (incomingSystemText && incomingSystemText !== currentSystemText) {
+            await fs.writeFile(FETCH_SYSTEM_PROMPT_FILE, incomingSystemText);
+            console.log(`[System Prompt Manager] System prompt updated in file for provider '${providerName}'.`);
+        } else if (!incomingSystemText && currentSystemText) {
+            await fs.writeFile(FETCH_SYSTEM_PROMPT_FILE, '');
+            console.log('[System Prompt Manager] System prompt cleared from file.');
+        }
+    } catch (error) {
+        console.error(`[System Prompt Manager] Failed to manage system prompt file: ${error.message}`);
+    }
 }
+
+
 
 // Helper functions for content extraction and conversion
 export function extractResponseText(response, provider) {
-    const strategy = new ClaudeStrategy();
+    const strategy = new KiroStrategy();
     return strategy.extractResponseText(response);
 }
 
 export function extractPromptText(requestBody, provider) {
-    const strategy = new ClaudeStrategy();
+    const strategy = new KiroStrategy();
     return strategy.extractPromptText(requestBody);
 }
 
@@ -556,27 +577,20 @@ export function handleError(res, error) {
  */
 export function extractSystemPromptFromRequestBody(requestBody, provider) {
     let incomingSystemText = '';
-    switch (provider) {
-        case 'claude':
-            if (typeof requestBody.system === 'string') {
-                incomingSystemText = requestBody.system;
-            } else if (typeof requestBody.system === 'object') {
-                incomingSystemText = JSON.stringify(requestBody.system);
-            } else if (requestBody.messages?.length > 0) {
-                // Fallback to first user message if no system property
-                const userMessage = requestBody.messages.find(m => m.role === 'user');
-                if (userMessage) {
-                    if (Array.isArray(userMessage.content)) {
-                        incomingSystemText = userMessage.content.map(block => block.text).join('');
-                    } else {
-                        incomingSystemText = userMessage.content;
-                    }
-                }
+    if (typeof requestBody.system === 'string') {
+        incomingSystemText = requestBody.system;
+    } else if (typeof requestBody.system === 'object') {
+        incomingSystemText = JSON.stringify(requestBody.system);
+    } else if (requestBody.messages?.length > 0) {
+        // Fallback to first user message if no system property
+        const userMessage = requestBody.messages.find(m => m.role === 'user');
+        if (userMessage) {
+            if (Array.isArray(userMessage.content)) {
+                incomingSystemText = userMessage.content.map(block => block.text).join('');
+            } else {
+                incomingSystemText = userMessage.content;
             }
-            break;
-        default:
-            console.warn(`[System Prompt] Unknown provider: ${provider}`);
-            break;
+        }
     }
     return incomingSystemText;
 }

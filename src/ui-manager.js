@@ -5,7 +5,7 @@ import multer from 'multer';
 import crypto from 'crypto';
 import { getRequestBody } from './utils/common.js';
 import { CONFIG } from './config/manager.js';
-import { serviceInstances, getServiceAdapter } from './core/claude-kiro.js';
+import { serviceInstances, getServiceAdapter } from './kiro/claude-kiro.js';
 import { initApiService, getActivePoolManager, isSQLiteMode } from './services/manager.js';
 import { sqliteDB } from './services/storage/sqlite-db.js';
 import { handleKiroOAuth } from './services/oauth-handlers.js';
@@ -23,7 +23,7 @@ import {
     findDuplicateUserId
 } from './utils/account-utils.js';
 import { formatKiroUsage } from './services/usage-service.js';
-import { KIRO_MODELS } from './core/constants.js';
+import { KIRO_MODELS } from './kiro/constants.js';
 
 // Token存储到本地文件中
 const TOKEN_STORE_FILE = './configs/token-store.json';
@@ -3644,7 +3644,7 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
             console.log(`[AWS SSO] Client expires at: ${new Date(clientSecretExpiresAt * 1000).toISOString()}`);
 
             // 动态导入 KiroService
-            const { KiroService } = await import('./core/claude-kiro.js');
+            const { KiroService } = await import('./kiro/claude-kiro.js');
 
             // 创建临时实例用于设备授权
             const kiroService = new KiroService(currentConfig);

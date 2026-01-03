@@ -18,6 +18,7 @@ import { CardSpotlight } from '@/components/ui/card-spotlight';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/components/ui/toast';
 import { PageLoadingSkeleton } from '@/components/ui/skeleton';
+import { fetchWithAuth, isUnauthorizedError } from '@/lib/apiClient';
 
 interface CredentialFile {
   name: string;
@@ -28,6 +29,21 @@ interface CredentialFile {
   isUsed: boolean;
   usedBy?: string[];
 }
+
+const getErrorMessage = async (response: Response, fallback: string) => {
+  try {
+    const payload = await response.clone().json();
+    if (payload?.error?.message) {
+      return payload.error.message;
+    }
+    if (payload?.message) {
+      return payload.message;
+    }
+  } catch {
+    // ignore parse errors
+  }
+  return fallback;
+};
 
 export default function CredentialsPage() {
   const toast = useToast();
@@ -53,20 +69,20 @@ export default function CredentialsPage() {
     setRefreshing(true);
     const startTime = Date.now();
     try {
-      const token = localStorage.getItem('authToken');
-      const response = await fetch('/api/upload-configs', {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setCredentials(data);
+      const response = await fetchWithAuth('/api/upload-configs');
+      if (!response.ok) {
+        const message = await getErrorMessage(response, '加载凭据失败');
+        throw new Error(message);
       }
+      const data = await response.json();
+      setCredentials(data);
     } catch (error) {
+      if (isUnauthorizedError(error)) {
+        return;
+      }
       console.error('Failed to load credentials:', error);
+      toast.error('加载凭据失败', error instanceof Error ? error.message : undefined);
     } finally {
-      // 确保动画至少显示 800ms
       const elapsed = Date.now() - startTime;
       const minDelay = 800;
       if (elapsed < minDelay) {
@@ -98,21 +114,21 @@ export default function CredentialsPage() {
 
   const viewFile = async (file: CredentialFile) => {
     try {
-      const token = localStorage.getItem('authToken');
-      const response = await fetch(`/api/upload-configs/view/${encodeURIComponent(file.path)}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setFileContent(data.content || JSON.stringify(data, null, 2));
-        setSelectedFile(file);
-        setShowModal(true);
+      const response = await fetchWithAuth(`/api/upload-configs/view/${encodeURIComponent(file.path)}`);
+      if (!response.ok) {
+        const message = await getErrorMessage(response, '加载失败');
+        throw new Error(message);
       }
+      const data = await response.json();
+      setFileContent(data.content || JSON.stringify(data, null, 2));
+      setSelectedFile(file);
+      setShowModal(true);
     } catch (error) {
+      if (isUnauthorizedError(error)) {
+        return;
+      }
       console.error('Failed to load file content:', error);
-      toast.error('加载失败', '加载文件内容失败');
+      toast.error('加载失败', error instanceof Error ? error.message : '加载文件内容失败');
     }
   };
 
@@ -122,21 +138,23 @@ export default function CredentialsPage() {
     }
 
     try {
-      const token = localStorage.getItem('authToken');
-      const response = await fetch(`/api/upload-configs/delete/${encodeURIComponent(filePath)}`, {
+      const response = await fetchWithAuth(`/api/upload-configs/delete/${encodeURIComponent(filePath)}`, {
         method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
       });
 
-      if (response.ok) {
-        await loadCredentials();
-        toast.success('删除成功', '文件已删除');
+      if (!response.ok) {
+        const message = await getErrorMessage(response, '删除失败');
+        throw new Error(message);
       }
+
+      await loadCredentials();
+      toast.success('删除成功', '文件已删除');
     } catch (error) {
+      if (isUnauthorizedError(error)) {
+        return;
+      }
       console.error('Failed to delete file:', error);
-      toast.error('删除失败');
+      toast.error('删除失败', error instanceof Error ? error.message : undefined);
     }
   };
 

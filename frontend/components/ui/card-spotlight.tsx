@@ -2,7 +2,7 @@
 
 import React, { useRef, useState, useEffect } from 'react';
 
-export function CardSpotlight({ children, className = '' }: { children: React.ReactNode; className?: string }) {
+export function CardSpotlight({ children, className = '', noBackground = false, noPadding = false, style = {} }: { children: React.ReactNode; className?: string; noBackground?: boolean; noPadding?: boolean; style?: React.CSSProperties }) {
   const divRef = useRef<HTMLDivElement>(null);
   const [isFocused, setIsFocused] = useState(false);
   const [position, setPosition] = useState({ x: 0, y: 0 });
@@ -35,6 +35,15 @@ export function CardSpotlight({ children, className = '' }: { children: React.Re
     setOpacity(0);
   };
 
+  const paddingClass = noPadding ? '' : 'p-6';
+
+  const containerStyle: React.CSSProperties = {
+    borderColor: 'var(--fitness-border)',
+    boxShadow: '0 4px 24px rgba(0, 0, 0, 0.4)',
+    ...(noBackground ? {} : { backgroundColor: 'var(--fitness-card)' }),
+    ...style,
+  };
+
   return (
     <div
       ref={divRef}
@@ -43,33 +52,35 @@ export function CardSpotlight({ children, className = '' }: { children: React.Re
       onBlur={handleBlur}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
-      className={`group relative overflow-hidden rounded-xl border ease-smooth transition-all duration-300 p-6 ${className}`}
-      style={{
-        backgroundColor: 'var(--fitness-card)',
-        borderColor: 'var(--fitness-border)',
-        boxShadow: '0 4px 24px rgba(0, 0, 0, 0.4)',
-      }}
+      className={`group relative overflow-hidden rounded-xl border ease-smooth transition-all duration-300 ${paddingClass} ${className}`}
+      style={containerStyle}
     >
       {/* Hover state background change */}
-      <div
-        className="absolute inset-0 opacity-0 group-hover:opacity-100 ease-smooth transition-opacity duration-300 -z-10"
-        style={{ backgroundColor: 'var(--fitness-card-hover)' }}
-      />
+      {!noBackground && (
+        <div
+          className="absolute inset-0 opacity-0 group-hover:opacity-100 ease-smooth transition-opacity duration-300 -z-10"
+          style={{ backgroundColor: 'var(--fitness-card-hover)' }}
+        />
+      )}
 
       {/* Green accent glow on hover */}
-      <div
-        className="absolute inset-0 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-500 blur-2xl -z-20"
-        style={{ backgroundColor: 'var(--fitness-accent-dim)' }}
-      />
+      {!noBackground && (
+        <div
+          className="absolute inset-0 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-500 blur-2xl -z-20"
+          style={{ backgroundColor: 'var(--fitness-accent-dim)' }}
+        />
+      )}
 
       {/* Spotlight effect with green tint */}
-      <div
-        className="pointer-events-none absolute -inset-px opacity-0 ease-smooth transition-opacity duration-300 rounded-xl"
-        style={{
-          opacity,
-          background: `radial-gradient(600px circle at ${position.x}px ${position.y}px, rgba(0, 217, 163, 0.08), rgba(0, 217, 163, 0.03), transparent 50%)`,
-        }}
-      />
+      {!noBackground && (
+        <div
+          className="pointer-events-none absolute -inset-px opacity-0 ease-smooth transition-opacity duration-300 rounded-xl"
+          style={{
+            opacity,
+            background: `radial-gradient(600px circle at ${position.x}px ${position.y}px, rgba(0, 217, 163, 0.08), rgba(0, 217, 163, 0.03), transparent 50%)`,
+          }}
+        />
+      )}
 
       {/* Subtle top border highlight */}
       <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-white/[0.03] to-transparent" />

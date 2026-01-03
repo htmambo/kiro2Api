@@ -16,6 +16,7 @@ import {
 } from '@tabler/icons-react';
 import { CardSpotlight } from '@/components/ui/card-spotlight';
 import { PageLoadingSkeleton } from '@/components/ui/skeleton';
+import { fetchWithAuth, isUnauthorizedError } from '@/lib/apiClient';
 
 interface SystemInfo {
   uptime: number | string;
@@ -43,6 +44,21 @@ interface QuotaSummary {
   totalAccounts: number;
   accountsWithQuota: number;
 }
+
+const getResponseErrorMessage = async (response: Response, fallback: string) => {
+  try {
+    const payload = await response.clone().json();
+    if (payload?.error?.message) {
+      return payload.error.message;
+    }
+    if (payload?.message) {
+      return payload.message;
+    }
+  } catch {
+    // ignore parsing issues
+  }
+  return fallback;
+};
 
 // 格式化运行时间
 function formatUptime(uptime: number | string): string {
@@ -155,23 +171,38 @@ export default function DashboardPage() {
   const fetchAllData = async () => {
     setRefreshing(true);
     try {
-      const token = localStorage.getItem('authToken');
       const [systemRes, providersRes, usageRes] = await Promise.all([
-        fetch('/api/system', { headers: { 'Authorization': `Bearer ${token}` } }),
-        fetch('/api/accounts', { headers: { 'Authorization': `Bearer ${token}` } }),
-        fetch('/api/usage', { headers: { 'Authorization': `Bearer ${token}` } })
+        fetchWithAuth('/api/system'),
+        fetchWithAuth('/api/accounts'),
+        fetchWithAuth('/api/usage')
       ]);
 
-      if (systemRes.ok) setSystemInfo(await systemRes.json());
-      if (providersRes.ok) {
-        const data = await providersRes.json();
-        if (data._accountPoolStats) setPoolStats(data._accountPoolStats);
+      if (!systemRes.ok) {
+        const message = await getResponseErrorMessage(systemRes, '获取系统信息失败');
+        throw new Error(message);
       }
-      if (usageRes.ok) {
-        const data = await usageRes.json();
-        setQuotaSummary(calculateQuotaSummary(data));
+      if (!providersRes.ok) {
+        const message = await getResponseErrorMessage(providersRes, '获取提供商信息失败');
+        throw new Error(message);
       }
+      if (!usageRes.ok) {
+        const message = await getResponseErrorMessage(usageRes, '获取用量数据失败');
+        throw new Error(message);
+      }
+
+      setSystemInfo(await systemRes.json());
+
+      const providersData = await providersRes.json();
+      if (providersData._accountPoolStats) {
+        setPoolStats(providersData._accountPoolStats);
+      }
+
+      const usageData = await usageRes.json();
+      setQuotaSummary(calculateQuotaSummary(usageData));
     } catch (error) {
+      if (isUnauthorizedError(error)) {
+        return;
+      }
       console.error('Failed to fetch data:', error);
     } finally {
       setLoading(false);
