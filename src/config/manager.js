@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import { promises as pfs } from 'fs';
-import { INPUT_SYSTEM_PROMPT_FILE, MODEL_PROVIDER } from './common.js';
+import { INPUT_SYSTEM_PROMPT_FILE, MODEL_PROVIDER } from '../utils/common.js';
 
 export let CONFIG = {}; // Make CONFIG exportable
 export let PROMPT_LOG_FILENAME = ''; // Make PROMPT_LOG_FILENAME exportable

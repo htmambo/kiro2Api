@@ -8,7 +8,7 @@ import * as crypto from 'crypto';
 import * as http from 'http';
 import * as https from 'https';
 import { countTokens } from '@anthropic-ai/tokenizer';
-import { MODEL_PROVIDER } from '../common.js';
+import { MODEL_PROVIDER } from '../utils/common.js';
 import { KIRO_MODELS } from './constants.js';
 
 // 导入公共摘要模块

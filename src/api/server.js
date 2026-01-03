@@ -1,12 +1,12 @@
 import * as http from 'http';
-import { initializeConfig, CONFIG } from './config-manager.js';
-import { initApiService } from './service-manager.js';
-import { initializeUIManagement } from './ui-manager.js';
-import { initializeAPIManagement } from './api-manager.js';
+import { initializeConfig, CONFIG } from '../config/manager.js';
+import { initApiService } from '../services/manager.js';
+import { initializeUIManagement } from '../ui-manager.js';
+import { initializeAPIManagement } from './manager.js';
 import { createRequestHandler } from './request-handler.js';
 
 import 'dotenv/config'; // Import dotenv and configure it
-import { getActivePoolManager } from './service-manager.js';
+import { getActivePoolManager } from '../services/manager.js';
 
 // --- Server Initialization ---
 async function startServer() {

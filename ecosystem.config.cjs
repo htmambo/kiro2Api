@@ -1,7 +1,7 @@
 module.exports = {
   apps: [{
     name: 'kiro2api',
-    script: 'src/api-server.js',
+    script: 'src/api/server.js',
 
     // 运行模式
     instances: 1,

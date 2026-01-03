@@ -1,5 +1,5 @@
 import deepmerge from 'deepmerge';
-import { getServiceAdapter, serviceInstances } from './core/claude-kiro.js';
+import { getServiceAdapter, serviceInstances } from '../core/claude-kiro.js';
 
 let accountPoolManager = null;
 let useSQLiteMode = false;
@@ -30,8 +30,8 @@ export async function initApiService(config) {
     }
 
     if (useSQLiteMode) {
-        const { SQLiteAccountPoolManager } = await import('./sqlite-account-pool-manager.js');
-        const { sqliteDB } = await import('./sqlite-db.js');
+        const { SQLiteAccountPoolManager } = await import('./pools/sqlite-account-pool-manager.js');
+        const { sqliteDB } = await import('./storage/sqlite-db.js');
 
         accountPoolManager = new SQLiteAccountPoolManager({
             globalConfig: config,
@@ -48,7 +48,7 @@ export async function initApiService(config) {
             }
         }
     } else {
-        const { getAccountPoolManager } = await import('./account-pool-manager.js');
+        const { getAccountPoolManager } = await import('./pools/account-pool-manager.js');
         accountPoolManager = getAccountPoolManager({
             accountPool,
             globalConfig: config,
@@ -65,7 +65,7 @@ export async function initApiService(config) {
         config.DEFAULT_MODEL_PROVIDERS.forEach((provider) => providersToInit.add(provider));
     }
     if (providersToInit.size === 0) {
-        const { ALL_MODEL_PROVIDERS } = await import('./config-manager.js');
+        const { ALL_MODEL_PROVIDERS } = await import('../config/manager.js');
         ALL_MODEL_PROVIDERS.forEach((provider) => providersToInit.add(provider));
     }
 

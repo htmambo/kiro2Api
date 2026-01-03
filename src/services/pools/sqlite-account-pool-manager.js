@@ -3,8 +3,8 @@
  * 说明：该文件在 T07（SQLite schema 迁移）完成后正式启用。
  */
 
-import { sqliteDB } from './sqlite-db.js';
-import { getServiceAdapter } from './core/claude-kiro.js';
+import { sqliteDB } from '../storage/sqlite-db.js';
+import { getServiceAdapter } from '../../core/claude-kiro.js';
 import * as fs from 'fs';
 
 export class SQLiteAccountPoolManager {
