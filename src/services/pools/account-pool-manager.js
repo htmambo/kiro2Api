@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { getServiceAdapter } from '../../kiro/claude-kiro.js';
+import { getServiceAdapter } from '../../kiro/core.js';
 
 /**
  * Account Pool Manager - 单一账号池管理器（移除 providerType 概念）

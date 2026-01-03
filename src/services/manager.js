@@ -1,5 +1,5 @@
 import deepmerge from 'deepmerge';
-import { getServiceAdapter, serviceInstances } from '../kiro/claude-kiro.js';
+import { getServiceAdapter, serviceInstances } from '../kiro/core.js';
 
 let accountPoolManager = null;
 let useSQLiteMode = false;

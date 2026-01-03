@@ -4,7 +4,7 @@
  */
 
 import { sqliteDB } from '../storage/sqlite-db.js';
-import { getServiceAdapter } from '../kiro/claude-kiro.js';
+import { getServiceAdapter } from '../kiro/corejs';
 import * as fs from 'fs';
 
 export class SQLiteAccountPoolManager {
