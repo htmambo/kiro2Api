@@ -18,7 +18,6 @@ export function createRequestHandler(config, providerPoolManager) {
         // Deep copy the config for each request to allow dynamic modification
         const currentConfig = deepmerge({}, config);
         const requestUrl = new URL(req.url, `http://${req.headers.host}`);
-        console.error('[Request URL]', requestUrl.href);
         let path = requestUrl.pathname;
         const method = req.method;
 
