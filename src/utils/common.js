@@ -470,7 +470,7 @@ async function _manageSystemPrompt(requestBody, provider) {
     try {
         if (incomingSystemText && incomingSystemText !== currentSystemText) {
             await fs.writeFile(FETCH_SYSTEM_PROMPT_FILE, incomingSystemText);
-            console.log(`[System Prompt Manager] System prompt updated in file for provider '${providerName}'.`);
+            console.log(`[System Prompt Manager] System prompt updated.`);
         } else if (!incomingSystemText && currentSystemText) {
             await fs.writeFile(FETCH_SYSTEM_PROMPT_FILE, '');
             console.log('[System Prompt Manager] System prompt cleared from file.');
@@ -479,8 +479,6 @@ async function _manageSystemPrompt(requestBody, provider) {
         console.error(`[System Prompt Manager] Failed to manage system prompt file: ${error.message}`);
     }
 }
-
-
 
 // Helper functions for content extraction and conversion
 export function extractResponseText(response, provider) {
