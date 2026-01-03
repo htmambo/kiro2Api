@@ -406,7 +406,7 @@ export default function UsagePage() {
 
         return (
           <CardSpotlight key={providerName} noBackground noPadding>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
             {filteredInstances.map((instance, index) => {
                 const pool = getAccountPool(instance);
                 const isRefreshing = refreshingAccount === instance.uuid;

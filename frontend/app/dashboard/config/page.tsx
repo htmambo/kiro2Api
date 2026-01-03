@@ -267,7 +267,7 @@ export default function ConfigPage() {
             <h1 className="text-2xl font-bold bg-gradient-to-r from-white to-gray-400 bg-clip-text text-transparent">
               配置管理
             </h1>
-            <p className="text-sm text-gray-500">系统设置与提供商配置</p>
+            <p className="text-sm text-gray-500">系统配置，小心操作，确保正确无误。</p>
           </div>
         </div>
 
@@ -323,14 +323,49 @@ export default function ConfigPage() {
               placeholder="localhost"
             />
           </div>
-          <Select
-            label="模型提供商"
-            value={config.MODEL_PROVIDER}
-            onChange={(v) => updateConfig('MODEL_PROVIDER', v)}
-            options={[
-              { value: 'claude-kiro-oauth', label: 'Claude Kiro OAuth' },
-            ]}
+          <Input
+            label="启用 SQLite 模式"
+            value={config.USE_SQLITE_POOL}
+            onChange={(v) => updateConfig('USE_SQLITE_POOL', v)}
+            type="checkbox"
+            hint="账号多时建议开启，保存后需重启服务器生效"
           />
+          {config.USE_SQLITE_POOL && (
+            <>
+              <div className="p-2 mb-2 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                <p className="text-xs text-amber-400">修改后需重启服务器生效</p>
+              </div>
+              <Input
+                label="数据库路径"
+                value={config.SQLITE_DB_PATH}
+                onChange={(v) => updateConfig('SQLITE_DB_PATH', v)}
+                placeholder="data/provider_pool.db"
+              />
+              <div className="grid grid-cols-3 gap-3">
+                <Input
+                  label="缓存时长(秒)"
+                  value={config.USAGE_CACHE_TTL}
+                  onChange={(v) => updateConfig('USAGE_CACHE_TTL', v)}
+                  type="number"
+                  placeholder="300"
+                />
+                <Input
+                  label="检查并发"
+                  value={config.HEALTH_CHECK_CONCURRENCY}
+                  onChange={(v) => updateConfig('HEALTH_CHECK_CONCURRENCY', v)}
+                  type="number"
+                  placeholder="5"
+                />
+                <Input
+                  label="查询并发"
+                  value={config.USAGE_QUERY_CONCURRENCY}
+                  onChange={(v) => updateConfig('USAGE_QUERY_CONCURRENCY', v)}
+                  type="number"
+                  placeholder="10"
+                />
+              </div>
+            </>
+          )}
         </ConfigCard>
 
         {/* 认证设置 */}
@@ -533,58 +568,6 @@ export default function ConfigPage() {
             placeholder="provider_pools.json"
             hint="多账号负载均衡配置"
           />
-        </ConfigCard>
-
-        {/* SQLite 高性能模式 */}
-        <ConfigCard
-          icon={IconDatabase}
-          title="高性能模式"
-          description="SQLite 缓存加速"
-          gradient="from-cyan-500 to-blue-500"
-        >
-          <Input
-            label="启用 SQLite 模式"
-            value={config.USE_SQLITE_POOL}
-            onChange={(v) => updateConfig('USE_SQLITE_POOL', v)}
-            type="checkbox"
-            hint="账号多时建议开启，保存后需重启服务器生效"
-          />
-          {config.USE_SQLITE_POOL && (
-            <>
-              <div className="p-2 mb-2 rounded-lg bg-amber-500/10 border border-amber-500/20">
-                <p className="text-xs text-amber-400">修改后需重启服务器生效</p>
-              </div>
-              <Input
-                label="数据库路径"
-                value={config.SQLITE_DB_PATH}
-                onChange={(v) => updateConfig('SQLITE_DB_PATH', v)}
-                placeholder="data/provider_pool.db"
-              />
-              <div className="grid grid-cols-3 gap-3">
-                <Input
-                  label="缓存时长(秒)"
-                  value={config.USAGE_CACHE_TTL}
-                  onChange={(v) => updateConfig('USAGE_CACHE_TTL', v)}
-                  type="number"
-                  placeholder="300"
-                />
-                <Input
-                  label="检查并发"
-                  value={config.HEALTH_CHECK_CONCURRENCY}
-                  onChange={(v) => updateConfig('HEALTH_CHECK_CONCURRENCY', v)}
-                  type="number"
-                  placeholder="5"
-                />
-                <Input
-                  label="查询并发"
-                  value={config.USAGE_QUERY_CONCURRENCY}
-                  onChange={(v) => updateConfig('USAGE_QUERY_CONCURRENCY', v)}
-                  type="number"
-                  placeholder="10"
-                />
-              </div>
-            </>
-          )}
         </ConfigCard>
       </div>
     </div>

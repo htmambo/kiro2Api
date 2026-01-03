@@ -982,30 +982,6 @@ export default function ProvidersPage() {
         </div>
       </div>
 
-      {/* Provider Type Tabs */}
-      <div className="flex gap-4 border-b border-white/10 overflow-x-auto">
-        {providerTypes.map(type => {
-          const accounts = providers[type] || [];
-          const healthy = accounts.filter(a => a.isHealthy).length;
-          return (
-            <button
-              key={type}
-              onClick={() => setActiveProvider(type)}
-              className={`px-4 py-3 font-medium transition-all whitespace-nowrap ${
-                activeProvider === type
-                  ? 'text-blue-400 border-b-2 border-blue-400'
-                  : 'text-gray-400 hover:text-white'
-              }`}
-            >
-              {type}
-              <span className="ml-2 px-2 py-0.5 text-xs rounded-full bg-white/10">
-                {healthy}/{accounts.length}
-              </span>
-            </button>
-          );
-        })}
-      </div>
-
       {/* Accounts Grid */}
       <div className="grid grid-cols-1 gap-6">
         {/* 全选控制栏 */}

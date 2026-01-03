@@ -126,11 +126,11 @@ async function runUnauthorizedFlow(): Promise<void> {
 
       // 3. 跳转到登录页
       // 使用 replace 避免用户通过后退按钮返回
-      window.location.replace('/login');
+      window.location.replace('/login.html');
     } catch (error) {
       console.error('Error during unauthorized flow:', error);
       // 即使回调失败，也要确保跳转到登录页
-      window.location.replace('/login');
+      window.location.replace('/login.html');
     }
   })();
 
