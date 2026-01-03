@@ -4,7 +4,7 @@
  */
 
 import { getAccountPoolManager } from './manager.js';
-import { serviceInstances } from '../kiro/claude-kiro.js';
+import { serviceInstances } from '../kiro/core.js';
 import { MODEL_PROVIDER } from '../utils/common.js';
 
 /**

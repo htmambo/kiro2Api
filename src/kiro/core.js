@@ -7,7 +7,7 @@ import { countTokens } from '@anthropic-ai/tokenizer';
 import { MODEL_PROVIDER } from '../utils/common.js';
 import { KIRO_MODELS } from './constants.js';
 import { promises as fs } from 'fs';
-import crypto from 'crypto';
+import {getMacAddressSha256, generateRandomUserAgentComponents, getOriginalMacAddressSha256} from './utils.js';
 
 // 导入公共摘要模块
 import {
@@ -376,7 +376,7 @@ export class KiroService {
         console.log('[Kiro] Connection pool reset completed');
     }
 
-// Helper to save credentials to a file (class method)
+    // Helper to save credentials to a file (class method)
     async _saveCredentialsToFile(filePath, newData) {
         try {
             let existingData = {};
@@ -398,96 +398,96 @@ export class KiroService {
         }
     }
 
-async initializeAuth(forceRefresh = false) {
-    if (this.accessToken && !forceRefresh) {
-        console.debug('[Kiro Auth] Access token already available and not forced refresh.');
-        return;
-    }
+    async initializeAuth(forceRefresh = false) {
+        if (this.accessToken && !forceRefresh) {
+            console.debug('[Kiro Auth] Access token already available and not forced refresh.');
+            return;
+        }
 
-    // Helper to load credentials from a file
-    const loadCredentialsFromFile = async (filePath) => {
-        try {
-            const fileContent = await fs.readFile(filePath, 'utf8');
-            return JSON.parse(fileContent);
-        } catch (error) {
-            if (error.code === 'ENOENT') {
-                console.debug(`[Kiro Auth] Credential file not found: ${filePath}`);
-            } else if (error instanceof SyntaxError) {
-                console.warn(`[Kiro Auth] Failed to parse JSON from ${filePath}: ${error.message}`);
-            } else {
-                console.warn(`[Kiro Auth] Failed to read credential file ${filePath}: ${error.message}`);
+        // Helper to load credentials from a file
+        const loadCredentialsFromFile = async (filePath) => {
+            try {
+                const fileContent = await fs.readFile(filePath, 'utf8');
+                return JSON.parse(fileContent);
+            } catch (error) {
+                if (error.code === 'ENOENT') {
+                    console.debug(`[Kiro Auth] Credential file not found: ${filePath}`);
+                } else if (error instanceof SyntaxError) {
+                    console.warn(`[Kiro Auth] Failed to parse JSON from ${filePath}: ${error.message}`);
+                } else {
+                    console.warn(`[Kiro Auth] Failed to read credential file ${filePath}: ${error.message}`);
+                }
+                return null;
             }
-            return null;
-        }
-    };
+        };
 
-    try {
-        let mergedCredentials = {};
-
-        // Priority 1: Load from Base64 credentials if available
-        if (this.base64Creds) {
-            Object.assign(mergedCredentials, this.base64Creds);
-            console.info('[Kiro Auth] Successfully loaded credentials from Base64 (constructor).');
-            // Clear base64Creds after use to prevent re-processing
-            this.base64Creds = null;
-        }
-
-        // Priority 2 & 3 合并: 从指定文件路径或目录加载凭证
-        // 读取指定的 credPath 文件以及目录下的其他 JSON 文件(排除当前文件)
-        const targetFilePath = this.credsFilePath || path.join(this.credPath, KIRO_AUTH_TOKEN_FILE);
-        const dirPath = path.dirname(targetFilePath);
-        const targetFileName = path.basename(targetFilePath);
-        
-        console.debug(`[Kiro Auth] Attempting to load credentials from directory: ${dirPath}`);
-        
         try {
-            // 首先尝试读取目标文件
-            const targetCredentials = await loadCredentialsFromFile(targetFilePath);
-            if (targetCredentials) {
-                Object.assign(mergedCredentials, targetCredentials);
-                console.info(`[Kiro Auth] Successfully loaded OAuth credentials from ${targetFilePath}`);
+            let mergedCredentials = {};
+
+            // Priority 1: Load from Base64 credentials if available
+            if (this.base64Creds) {
+                Object.assign(mergedCredentials, this.base64Creds);
+                console.info('[Kiro Auth] Successfully loaded credentials from Base64 (constructor).');
+                // Clear base64Creds after use to prevent re-processing
+                this.base64Creds = null;
             }
 
-            // 注意：不再从同目录其他文件合并凭据
-            // 之前的逻辑会导致多账号凭据互相覆盖的问题
+            // Priority 2 & 3 合并: 从指定文件路径或目录加载凭证
+            // 读取指定的 credPath 文件以及目录下的其他 JSON 文件(排除当前文件)
+            const targetFilePath = this.credsFilePath || path.join(this.credPath, KIRO_AUTH_TOKEN_FILE);
+            const dirPath = path.dirname(targetFilePath);
+            const targetFileName = path.basename(targetFilePath);
+            
+            console.debug(`[Kiro Auth] Attempting to load credentials from directory: ${dirPath}`);
+            
+            try {
+                // 首先尝试读取目标文件
+                const targetCredentials = await loadCredentialsFromFile(targetFilePath);
+                if (targetCredentials) {
+                    Object.assign(mergedCredentials, targetCredentials);
+                    console.info(`[Kiro Auth] Successfully loaded OAuth credentials from ${targetFilePath}`);
+                }
+
+                // 注意：不再从同目录其他文件合并凭据
+                // 之前的逻辑会导致多账号凭据互相覆盖的问题
+            } catch (error) {
+                console.warn(`[Kiro Auth] Error loading credentials from directory ${dirPath}: ${error.message}`);
+            }
+
+            // console.log('[Kiro Auth] Merged credentials:', mergedCredentials);
+            // Apply loaded credentials, prioritizing existing values if they are not null/undefined
+            this.accessToken = this.accessToken || mergedCredentials.accessToken;
+            this.refreshToken = this.refreshToken || mergedCredentials.refreshToken;
+            this.clientId = this.clientId || mergedCredentials.clientId;
+            this.clientSecret = this.clientSecret || mergedCredentials.clientSecret;
+            this.authMethod = this.authMethod || mergedCredentials.authMethod;
+            this.expiresAt = this.expiresAt || mergedCredentials.expiresAt;
+            this.profileArn = this.profileArn || mergedCredentials.profileArn;
+            this.region = this.region || mergedCredentials.region;
+
+            // Ensure region is set before using it in URLs
+            if (!this.region) {
+                console.warn('[Kiro Auth] Region not found in credentials. Using default region us-east-1 for URLs.');
+                this.region = 'us-east-1'; // Set default region
+            }
+
+            this.refreshUrl = KIRO_CONSTANTS.REFRESH_URL.replace("{{region}}", this.region);
+            this.refreshIDCUrl = KIRO_CONSTANTS.REFRESH_IDC_URL.replace("{{region}}", this.region);
+            this.baseUrl = KIRO_CONSTANTS.BASE_URL.replace("{{region}}", this.region);
+            this.amazonQUrl = KIRO_CONSTANTS.AMAZON_Q_URL.replace("{{region}}", this.region);
         } catch (error) {
-            console.warn(`[Kiro Auth] Error loading credentials from directory ${dirPath}: ${error.message}`);
+            console.warn(`[Kiro Auth] Error during credential loading: ${error.message}`);
         }
 
-        // console.log('[Kiro Auth] Merged credentials:', mergedCredentials);
-        // Apply loaded credentials, prioritizing existing values if they are not null/undefined
-        this.accessToken = this.accessToken || mergedCredentials.accessToken;
-        this.refreshToken = this.refreshToken || mergedCredentials.refreshToken;
-        this.clientId = this.clientId || mergedCredentials.clientId;
-        this.clientSecret = this.clientSecret || mergedCredentials.clientSecret;
-        this.authMethod = this.authMethod || mergedCredentials.authMethod;
-        this.expiresAt = this.expiresAt || mergedCredentials.expiresAt;
-        this.profileArn = this.profileArn || mergedCredentials.profileArn;
-        this.region = this.region || mergedCredentials.region;
-
-        // Ensure region is set before using it in URLs
-        if (!this.region) {
-            console.warn('[Kiro Auth] Region not found in credentials. Using default region us-east-1 for URLs.');
-            this.region = 'us-east-1'; // Set default region
+        // 官方AWS SDK刷新逻辑：只在必要时刷新
+        if (forceRefresh || (!this.accessToken && this.refreshToken)) {
+            await this.refreshAccessTokenIfNeeded();
         }
 
-        this.refreshUrl = KIRO_CONSTANTS.REFRESH_URL.replace("{{region}}", this.region);
-        this.refreshIDCUrl = KIRO_CONSTANTS.REFRESH_IDC_URL.replace("{{region}}", this.region);
-        this.baseUrl = KIRO_CONSTANTS.BASE_URL.replace("{{region}}", this.region);
-        this.amazonQUrl = KIRO_CONSTANTS.AMAZON_Q_URL.replace("{{region}}", this.region);
-    } catch (error) {
-        console.warn(`[Kiro Auth] Error during credential loading: ${error.message}`);
+        if (!this.accessToken) {
+            throw new Error('No access token available after initialization and refresh attempts.');
+        }
     }
-
-    // 官方AWS SDK刷新逻辑：只在必要时刷新
-    if (forceRefresh || (!this.accessToken && this.refreshToken)) {
-        await this.refreshAccessTokenIfNeeded();
-    }
-
-    if (!this.accessToken) {
-        throw new Error('No access token available after initialization and refresh attempts.');
-    }
-}
 
     /**
      * 官方AWS SDK token刷新逻辑（完全仿制）
@@ -872,7 +872,7 @@ async initializeAuth(forceRefresh = false) {
         return mapToolParamsImpl(toolName, input, this.verboseLogging || toolName === 'Task');
     }
 
-    /**
+/**
      * 反向映射工具调用的参数名（Kiro → Claude Code）
      * 用于将 Kiro 返回的 tool_use 参数转换回 CC 期望的格式
      *
