@@ -10,7 +10,7 @@ import {
  * @param {http.IncomingMessage} req - The HTTP request object
  * @param {http.ServerResponse} res - The HTTP response object
  * @param {Object} currentConfig - The current configuration object
- * @param {Object} apiService - The API service instance
+ * @param {KiroService} apiService - The API service instance
  * @param {Object} providerPoolManager - The provider pool manager instance
  * @param {string} promptLogFilename - The prompt log filename
  * @returns {Promise<boolean>} - True if the request was handled by API

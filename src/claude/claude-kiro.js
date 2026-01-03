@@ -1147,42 +1147,6 @@ async initializeAuth(forceRefresh = false) {
                     updatedTokenData.profileArn = this.profileArn;
                 }
                 await this._saveCredentialsToFile(tokenFilePath, updatedTokenData);
-
-                // 如果是主账号refresh成功，同步到pool账号（因为它们是同一个AWS账号）
-                // 这样pool账号也能使用最新的token
-                if (tokenFilePath.includes('.aws\\sso\\cache')) {
-                    const poolFiles = [
-                        path.join(this.credPath, 'kiro-auth-token-1.json'),
-                        path.join(this.credPath, 'kiro-auth-token-2.json'),
-                        path.join(this.credPath, 'kiro-auth-token-3.json')
-                    ];
-
-                    for (const poolFile of poolFiles) {
-                        try {
-                            // 读取pool文件，保留provider信息
-                            let poolData = {};
-                            try {
-                                const existingContent = await fs.readFile(poolFile, 'utf8');
-                                poolData = JSON.parse(existingContent);
-                            } catch (e) {
-                                // 文件不存在或无法读取，使用空对象
-                            }
-
-                            // 合并新token和原有的provider信息
-                            const syncedData = {
-                                ...poolData,
-                                ...updatedTokenData,
-                                authMethod: poolData.authMethod || updatedTokenData.authMethod,
-                                provider: poolData.provider || updatedTokenData.provider
-                            };
-
-                            await this._saveCredentialsToFile(poolFile, syncedData);
-                            console.log(`[Kiro Auth] Synced token to pool file: ${path.basename(poolFile)}`);
-                        } catch (syncError) {
-                            console.warn(`[Kiro Auth] Failed to sync to ${path.basename(poolFile)}: ${syncError.message}`);
-                        }
-                    }
-                }
             } else {
                 throw new Error('Invalid refresh response: Missing accessToken');
             }
@@ -5597,7 +5561,7 @@ export function getServiceAdapter(config) {
     const provider = config.MODEL_PROVIDER;
     const providerKey = config.uuid ? provider + config.uuid : provider;
 
-    if (!serviceInstances[providerKey]) {
+    if (!serviceInstances[providerKey] || !(serviceInstances[providerKey] instanceof KiroService)) {
         if (provider === MODEL_PROVIDER.KIRO_API || provider === 'claude-kiro-oauth') {
             serviceInstances[providerKey] = new KiroService(config);
         } else {
@@ -5607,7 +5571,7 @@ export function getServiceAdapter(config) {
         }
     } else {
         // 更新缓存实例的 config（确保 ENABLE_THINKING_BY_DEFAULT 等配置被正确传递）
-        serviceInstances[providerKey].KiroService.config = config;
+        serviceInstances[providerKey].config = config;
     }
     return serviceInstances[providerKey];
 }

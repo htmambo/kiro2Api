@@ -28,13 +28,6 @@ const KIRO_OAUTH_CONFIG = {
 };
 
 /**
- * 生成 UUID
- */
-function generateUUID() {
-    return uuidv4();
-}
-
-/**
  * 处理 Kiro OAuth 授权 (AWS SSO 设备授权流程)
  * 使用动态客户端注册来获取 clientId 和 clientSecret
  * @param {Object} currentConfig - 当前配置对象
@@ -175,7 +168,7 @@ export async function handleKiroOAuth(currentConfig, providerPoolManager = null)
                 if (!exists) {
                     // 创建新的提供商配置
                     const newProvider = {
-                        uuid: generateUUID(),
+                        uuid: uuidv4(),
                         KIRO_OAUTH_CREDS_FILE_PATH: normalizedPath,
                         isHealthy: true,
                         usageCount: 0,
