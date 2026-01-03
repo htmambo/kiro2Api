@@ -57,20 +57,16 @@ export function createRequestHandler(config, providerPoolManager) {
         // Pool status and cache stats endpoint
         if (method === 'GET' && path === '/stats') {
             try {
-                const { getRedisManager } = await import('./redis-manager.js');
                 const { getAccountPoolManager } = await import('./account-pool-manager.js');
 
-                const redis = getRedisManager();
                 const accountPool = getAccountPoolManager();
 
-                const redisStats = await redis.getStats();
                 const poolStats = accountPool ? accountPool.getPoolStats() : null;
                 const poolDetails = accountPool ? accountPool.getPoolDetails() : null;
 
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({
                     timestamp: new Date().toISOString(),
-                    redis: redisStats,
                     accountPool: {
                         stats: poolStats,
                         details: poolDetails

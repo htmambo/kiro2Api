@@ -1,5 +1,5 @@
 import { ProviderStrategy } from '../provider-strategy.js';
-import { extractSystemPromptFromRequestBody, MODEL_PROTOCOL_PREFIX } from '../common.js';
+import { extractSystemPromptFromRequestBody } from '../common.js';
 
 /**
  * Claude provider strategy implementation.
@@ -52,7 +52,7 @@ class ClaudeStrategy extends ProviderStrategy {
             return requestBody;
         }
 
-        const existingSystemText = extractSystemPromptFromRequestBody(requestBody, MODEL_PROTOCOL_PREFIX.CLAUDE);
+        const existingSystemText = extractSystemPromptFromRequestBody(requestBody, 'claude');
 
         const newSystemText = config.SYSTEM_PROMPT_MODE === 'append' && existingSystemText
             ? `${existingSystemText}\n${filePromptContent}`
@@ -65,8 +65,8 @@ class ClaudeStrategy extends ProviderStrategy {
     }
 
     async manageSystemPrompt(requestBody) {
-        const incomingSystemText = extractSystemPromptFromRequestBody(requestBody, MODEL_PROTOCOL_PREFIX.CLAUDE);
-        await this._updateSystemPromptFile(incomingSystemText, MODEL_PROTOCOL_PREFIX.CLAUDE);
+        const incomingSystemText = extractSystemPromptFromRequestBody(requestBody, 'claude');
+        await this._updateSystemPromptFile(incomingSystemText, 'claude');
     }
 }
 

@@ -1,5 +1,5 @@
 import * as fs from 'fs'; // Import fs module
-import { getServiceAdapter } from './claude/claude-kiro.js';
+import { getServiceAdapter } from './core/claude-kiro.js';
 
 /**
  * Manages a pool of API service providers, handling their health and selection.

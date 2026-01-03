@@ -1,12 +1,12 @@
-import { getServiceAdapter, serviceInstances } from './claude/claude-kiro.js';
+import { getServiceAdapter, serviceInstances } from './core/claude-kiro.js';
 import { ProviderPoolManager } from './provider-pool-manager.js';
 import { SQLiteProviderPoolManager } from './sqlite-provider-pool-manager.js';
 import deepmerge from 'deepmerge';
 import * as fs from 'fs';
 import { promises as pfs } from 'fs';
 import * as path from 'path';
+import { PROVIDER_MAPPINGS } from './core/constants.js';
 import {
-    PROVIDER_MAPPINGS,
     createProviderConfig,
     addToUsedPaths,
     isPathUsed,
@@ -18,6 +18,7 @@ import {
 let providerPoolManager = null;
 // 是否使用 SQLite 模式
 let useSQLiteMode = false;
+let sqliteMaintenanceInterval = null;
 
 /**
  * 扫描 configs 目录并自动关联未关联的配置文件到对应的提供商
@@ -169,6 +170,11 @@ export async function initApiService(config) {
     // 检查是否启用 SQLite 模式
     useSQLiteMode = config.USE_SQLITE_POOL === true;
 
+    if (!useSQLiteMode && sqliteMaintenanceInterval) {
+        clearInterval(sqliteMaintenanceInterval);
+        sqliteMaintenanceInterval = null;
+    }
+
     if (config.providerPools && Object.keys(config.providerPools).length > 0) {
         if (useSQLiteMode) {
             // 使用 SQLite 模式
@@ -176,13 +182,27 @@ export async function initApiService(config) {
                 globalConfig: config,
                 maxErrorCount: config.MAX_ERROR_COUNT ?? 3,
                 dbPath: config.SQLITE_DB_PATH || 'data/provider_pool.db',
-                usageCacheTTL: config.USAGE_CACHE_TTL ?? 300,
                 healthCheckConcurrency: config.HEALTH_CHECK_CONCURRENCY ?? 5,
                 usageQueryConcurrency: config.USAGE_QUERY_CONCURRENCY ?? 10
             });
             // 从 JSON 导入提供商配置到 SQLite
             providerPoolManager.importFromJson(config.providerPools);
             console.log('[Initialization] SQLiteProviderPoolManager initialized with configured pools.');
+
+            if (sqliteMaintenanceInterval) {
+                clearInterval(sqliteMaintenanceInterval);
+                sqliteMaintenanceInterval = null;
+            }
+            if (typeof providerPoolManager.performMaintenance === 'function') {
+                providerPoolManager.performMaintenance().catch(err => {
+                    console.error('[ServiceManager] Initial maintenance failed:', err);
+                });
+                sqliteMaintenanceInterval = setInterval(() => {
+                    providerPoolManager.performMaintenance().catch(err => {
+                        console.error('[ServiceManager] Maintenance failed:', err);
+                    });
+                }, 60 * 60 * 1000); // 1 小时
+            }
         } else {
             // 使用传统 JSON 模式
             providerPoolManager = new ProviderPoolManager(config.providerPools, {

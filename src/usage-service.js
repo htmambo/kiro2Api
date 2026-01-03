@@ -4,7 +4,7 @@
  */
 
 import { getProviderPoolManager } from './service-manager.js';
-import { serviceInstances } from './claude/claude-kiro.js';
+import { serviceInstances } from './core/claude-kiro.js';
 import { MODEL_PROVIDER } from './common.js';
 
 /**

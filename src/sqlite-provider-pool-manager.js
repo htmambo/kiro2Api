@@ -4,7 +4,7 @@
  */
 
 import { sqliteDB } from './sqlite-db.js';
-import { getServiceAdapter } from './claude/claude-kiro.js';
+import { getServiceAdapter } from './core/claude-kiro.js';
 import * as fs from 'fs';
 
 export class SQLiteProviderPoolManager {
@@ -164,9 +164,6 @@ export class SQLiteProviderPoolManager {
             return;
         }
 
-        const provider = sqliteDB.getProviderByUuid(providerConfig.uuid);
-        if (!provider) return;
-
         let isRetryableError = false;
         let isFatalError = false;
         let errorMessage = null;
@@ -213,20 +210,41 @@ export class SQLiteProviderPoolManager {
         }
 
         if (!isRetryableError) {
-            const newErrorCount = provider.errorCount + 1;
-            const isHealthy = !isFatalError && newErrorCount < this.maxErrorCount;
-
-            sqliteDB.updateProviderHealth(providerConfig.uuid, isHealthy, {
-                errorCount: newErrorCount,
-                lastErrorTime: new Date().toISOString(),
-                lastErrorMessage: errorMessage
-            });
+            const db = sqliteDB.getDb();
+            const nowIso = new Date().toISOString();
+            const updateStmt = db.prepare(`
+                UPDATE providers
+                SET error_count = error_count + 1,
+                    is_healthy = CASE
+                        WHEN ? = 1 THEN 0
+                        WHEN error_count + 1 >= ? THEN 0
+                        ELSE 1
+                    END,
+                    last_error_time = ?,
+                    last_error_message = ?,
+                    updated_at = datetime('now')
+                WHERE uuid = ?
+            `);
+            const updateResult = updateStmt.run(
+                isFatalError ? 1 : 0,
+                this.maxErrorCount,
+                nowIso,
+                errorMessage,
+                providerConfig.uuid
+            );
+            if (updateResult.changes === 0) return;
 
             // 记录健康检查历史
             sqliteDB.recordHealthCheck(providerConfig.uuid, providerType, false, null, errorMessage);
 
-            if (!isHealthy) {
-                this._log('warn', `Marked provider unhealthy: ${providerConfig.uuid} (${isFatalError ? 'fatal error' : 'error count exceeded'})`);
+            const state = db
+                .prepare('SELECT is_healthy, error_count FROM providers WHERE uuid = ?')
+                .get(providerConfig.uuid);
+            if (state && state.is_healthy === 0) {
+                this._log(
+                    'warn',
+                    `Marked provider unhealthy: ${providerConfig.uuid} (${isFatalError ? 'fatal error' : 'error count exceeded'})`
+                );
             }
         } else {
             this._log('info', `Retryable error for ${providerConfig.uuid}, not counting as fatal`);
@@ -256,12 +274,32 @@ export class SQLiteProviderPoolManager {
         if (userInfo?.userId) {
             extra.cachedUserId = userInfo.userId;
         }
-
-        sqliteDB.updateProviderHealth(providerConfig.uuid, true, extra);
-
-        if (!resetUsageCount) {
-            sqliteDB.incrementUsage(providerConfig.uuid);
+        const db = sqliteDB.getDb();
+        const fields = [
+            'is_healthy = 1',
+            'error_count = 0',
+            'last_error_time = NULL',
+            'last_error_message = NULL',
+            'last_health_check_time = ?',
+            'last_health_check_model = ?'
+        ];
+        const values = [extra.lastHealthCheckTime, extra.lastHealthCheckModel];
+        if (extra.cachedEmail !== undefined) {
+            fields.push('cached_email = ?');
+            values.push(extra.cachedEmail);
         }
+        if (extra.cachedUserId !== undefined) {
+            fields.push('cached_user_id = ?');
+            values.push(extra.cachedUserId);
+        }
+        if (!resetUsageCount) {
+            fields.push('usage_count = usage_count + 1');
+            fields.push("last_used = datetime('now')");
+        }
+        fields.push("updated_at = datetime('now')");
+        values.push(providerConfig.uuid);
+        const stmt = db.prepare(`UPDATE providers SET ${fields.join(', ')} WHERE uuid = ?`);
+        stmt.run(...values);
 
         // 记录健康检查历史
         sqliteDB.recordHealthCheck(providerConfig.uuid, providerType, true, healthCheckModel, null);
