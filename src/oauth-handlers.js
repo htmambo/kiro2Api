@@ -31,10 +31,10 @@ const KIRO_OAUTH_CONFIG = {
  * 处理 Kiro OAuth 授权 (AWS SSO 设备授权流程)
  * 使用动态客户端注册来获取 clientId 和 clientSecret
  * @param {Object} currentConfig - 当前配置对象
- * @param {Object} providerPoolManager - 提供商池管理器实例（可选）
+ * @param {Object} poolManager - 池管理器实例（provider/account，可选）
  * @returns {Promise<Object>} 返回授权URL和相关信息
  */
-export async function handleKiroOAuth(currentConfig, providerPoolManager = null) {
+export async function handleKiroOAuth(currentConfig, poolManager = null) {
     try {
         const region = currentConfig.KIRO_REGION || KIRO_OAUTH_CONFIG.region;
         const startUrl = currentConfig.KIRO_START_URL || KIRO_OAUTH_CONFIG.startUrl;
@@ -141,83 +141,68 @@ export async function handleKiroOAuth(currentConfig, providerPoolManager = null)
             await fs.promises.writeFile(tokenFilePath, JSON.stringify(credentialsData, null, 2));
             console.log(`${KIRO_OAUTH_CONFIG.logPrefix} Token saved to: ${tokenFilePath}`);
 
-            // 自动添加到 provider_pools.json
+            // 自动添加到 account_pool.json（provider 层已移除）
             try {
-                const poolsFilePath = currentConfig.PROVIDER_POOLS_FILE_PATH || './configs/provider_pools.json';
-                let providerPools = {};
-
-                // 读取现有池
-                if (existsSync(poolsFilePath)) {
-                    const fileContent = readFileSync(poolsFilePath, 'utf8');
-                    providerPools = JSON.parse(fileContent);
-                }
-
-                // 确保 claude-kiro-oauth 数组存在
-                if (!providerPools['claude-kiro-oauth']) {
-                    providerPools['claude-kiro-oauth'] = [];
-                }
-
-                // 检查是否已存在相同路径的配置
                 const relativePath = path.relative(process.cwd(), tokenFilePath);
                 const normalizedPath = relativePath.replace(/\\/g, '/');
-                const exists = providerPools['claude-kiro-oauth'].some(p => {
-                    const existingPath = (p.KIRO_OAUTH_CREDS_FILE_PATH || '').replace(/\\/g, '/');
-                    return existingPath === normalizedPath || existingPath === './' + normalizedPath;
-                });
+                const poolsFilePath = currentConfig.ACCOUNT_POOL_FILE_PATH || './configs/account_pool.json';
+                let accountPool = { accounts: [] };
 
-                if (!exists) {
-                    // 创建新的提供商配置
-                    const newProvider = {
-                        uuid: uuidv4(),
-                        KIRO_OAUTH_CREDS_FILE_PATH: normalizedPath,
-                        isHealthy: true,
-                        usageCount: 0,
-                        errorCount: 0,
-                        lastUsed: null,
-                        lastErrorTime: null,
-                        isDisabled: false,
-                        lastHealthCheckTime: new Date().toISOString(),
-                        lastHealthCheckModel: 'claude-haiku-4-5',
-                        lastErrorMessage: null,
-                        checkModelName: '',
-                        checkHealth: true,
-                        notSupportedModels: []
-                    };
-
-                    providerPools['claude-kiro-oauth'].push(newProvider);
-
-                    // 保存到文件
-                    writeFileSync(poolsFilePath, JSON.stringify(providerPools, null, 2), 'utf8');
-                    console.log(`${KIRO_OAUTH_CONFIG.logPrefix} Auto-added to provider pool with UUID: ${newProvider.uuid}`);
-
-                    // 更新 provider pool manager（区分 SQLite 和 JSON 模式）
-                    if (providerPoolManager) {
-                        if (isSQLiteMode()) {
-                            // SQLite 模式：直接插入数据库
-                            sqliteDB.upsertProvider({
-                                ...newProvider,
-                                providerType: 'claude-kiro-oauth'
-                            });
-                        } else {
-                            // JSON 模式：更新内存并重建状态
-                            providerPoolManager.providerPools = providerPools;
-                            providerPoolManager.initializeProviderStatus();
+                    if (existsSync(poolsFilePath)) {
+                        const fileContent = readFileSync(poolsFilePath, 'utf8');
+                        const parsed = JSON.parse(fileContent);
+                        if (parsed && typeof parsed === 'object' && Array.isArray(parsed.accounts)) {
+                            accountPool = parsed;
                         }
                     }
 
-                    // 广播提供商更新事件
-                    const broadcast = await getBroadcastEvent();
-                    if (broadcast) {
-                        broadcast('provider_update', {
-                            action: 'add',
-                            provider: 'claude-kiro-oauth',
-                            uuid: newProvider.uuid,
-                            timestamp: new Date().toISOString()
-                        });
-                    }
+                    const exists = accountPool.accounts.some((a) => {
+                        const existingPath = (a.KIRO_OAUTH_CREDS_FILE_PATH || '').replace(/\\/g, '/');
+                        return existingPath === normalizedPath || existingPath === './' + normalizedPath;
+                    });
+
+                    if (!exists) {
+                        const newAccount = {
+                            uuid: uuidv4(),
+                            KIRO_OAUTH_CREDS_FILE_PATH: normalizedPath,
+                            isHealthy: true,
+                            usageCount: 0,
+                            errorCount: 0,
+                            lastUsed: null,
+                            lastErrorTime: null,
+                            isDisabled: false,
+                            lastHealthCheckTime: new Date().toISOString(),
+                            lastHealthCheckModel: 'claude-haiku-4-5',
+                            lastErrorMessage: null,
+                            checkModelName: '',
+                            checkHealth: true,
+                            notSupportedModels: []
+                        };
+
+                        accountPool.accounts.push(newAccount);
+                        writeFileSync(poolsFilePath, JSON.stringify(accountPool, null, 2), 'utf8');
+                        console.log(`${KIRO_OAUTH_CONFIG.logPrefix} Auto-added to account pool with UUID: ${newAccount.uuid}`);
+
+                        // 更新池管理器（SQLite 在 T07 迁移后启用）
+                        if (poolManager) {
+                            if (isSQLiteMode() && typeof sqliteDB.upsertAccount === 'function') {
+                                sqliteDB.upsertAccount(newAccount);
+                            } else if (typeof poolManager.setAccountPool === 'function') {
+                                poolManager.setAccountPool(accountPool);
+                            }
+                        }
+
+                        const broadcast = await getBroadcastEvent();
+                        if (broadcast) {
+                            broadcast('account_update', {
+                                action: 'add',
+                                uuid: newAccount.uuid,
+                                timestamp: new Date().toISOString()
+                            });
+                        }
                 }
             } catch (poolError) {
-                console.error(`${KIRO_OAUTH_CONFIG.logPrefix} Failed to update provider pool:`, poolError);
+                console.error(`${KIRO_OAUTH_CONFIG.logPrefix} Failed to update account pool:`, poolError);
             }
 
             // 广播授权完成事件

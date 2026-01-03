@@ -1,11 +1,10 @@
 /**
- * 提供商工具模块
- * 包含 ui-manager.js 和 service-manager.js 共用的工具函数
+ * 账号工具模块
+ * 包含 ui-manager.js 等共用的工具函数
  */
 
 import * as path from 'path';
 import { promises as fs } from 'fs';
-import { PROVIDER_MAPPINGS } from './core/constants.js';
 
 /**
  * 生成 UUID
@@ -170,21 +169,7 @@ export function isPathUsed(relativePath, fileName, usedPaths) {
  * @returns {Object|null} 提供商映射对象，如果未检测到则返回 null
  */
 export function detectProviderFromPath(normalizedPath) {
-    // 遍历映射关系，查找匹配的提供商
-    for (const mapping of PROVIDER_MAPPINGS) {
-        for (const pattern of mapping.patterns) {
-            if (normalizedPath.includes(pattern)) {
-                return {
-                    providerType: mapping.providerType,
-                    credPathKey: mapping.credPathKey,
-                    defaultCheckModel: mapping.defaultCheckModel,
-                    displayName: mapping.displayName,
-                    needsProjectId: mapping.needsProjectId
-                };
-            }
-        }
-    }
-
+    // provider 层已移除：保留函数签名用于兼容旧代码路径（返回 null）
     return null;
 }
 
@@ -194,7 +179,8 @@ export function detectProviderFromPath(normalizedPath) {
  * @returns {Object|null} 提供商映射对象，如果未找到则返回 null
  */
 export function getProviderMappingByDirName(dirName) {
-    return PROVIDER_MAPPINGS.find(m => m.dirName === dirName) || null;
+    // provider 层已移除：保留函数签名用于兼容旧代码路径（返回 null）
+    return null;
 }
 
 /**

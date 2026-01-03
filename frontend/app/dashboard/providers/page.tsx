@@ -141,34 +141,26 @@ export default function ProvidersPage() {
     loadProviders();
   }, []);
 
-  const loadProviders = async () => {
-    setRefreshing(true);
-    const startTime = Date.now();
-    try {
-      const token = localStorage.getItem('authToken');
-      const response = await fetch('/api/providers', {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
+	  const loadProviders = async () => {
+	    setRefreshing(true);
+	    const startTime = Date.now();
+	    try {
+	      const token = localStorage.getItem('authToken');
+	      const response = await fetch('/api/accounts', {
+	        headers: {
+	          'Authorization': `Bearer ${token}`,
+	        },
+	      });
       if (handleApiError(response)) return;
-      if (response.ok) {
-        const data = await response.json();
-        // 提取池统计信息
-        if (data._accountPoolStats) {
-          setPoolStats(data._accountPoolStats);
-        }
-        // 过滤掉不需要显示的提供商类型和内部字段
-        const hiddenProviders = ['gemini-cli-oauth', 'openai-qwen-oauth', 'gemini-antigravity'];
-        const filteredData: ProviderPools = {};
-        for (const [key, value] of Object.entries(data)) {
-          // 跳过以 _ 开头的内部字段（如 _accountPoolStats）和隐藏的提供商
-          if (!key.startsWith('_') && !hiddenProviders.includes(key) && Array.isArray(value)) {
-            filteredData[key] = value as ProviderAccount[];
-          }
-        }
-        setProviders(filteredData);
-      }
+	      if (response.ok) {
+	        const data = await response.json();
+	        // 提取池统计信息
+	        if (data._accountPoolStats) {
+	          setPoolStats(data._accountPoolStats);
+	        }
+	        const accounts = Array.isArray(data.accounts) ? (data.accounts as ProviderAccount[]) : [];
+	        setProviders({ 'claude-kiro-oauth': accounts });
+	      }
     } catch (error) {
       console.error('Failed to load providers:', error);
     } finally {
@@ -192,14 +184,14 @@ export default function ProvidersPage() {
     }
     try {
       const token = localStorage.getItem('authToken');
-      const response = await fetch(`/api/providers/${activeProvider}/health-check`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: poolFilter ? JSON.stringify({ pool: poolFilter }) : undefined,
-      });
+	      const response = await fetch(`/api/accounts/health-check`, {
+	        method: 'POST',
+	        headers: {
+	          'Content-Type': 'application/json',
+	          'Authorization': `Bearer ${token}`,
+	        },
+	        body: poolFilter ? JSON.stringify({ pool: poolFilter }) : undefined,
+	      });
 
       if (response.ok) {
         const result = await response.json();
@@ -226,12 +218,12 @@ export default function ProvidersPage() {
     setResettingHealth(true);
     try {
       const token = localStorage.getItem('authToken');
-      const response = await fetch(`/api/providers/${activeProvider}/reset-health`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
+	      const response = await fetch(`/api/accounts/reset-health`, {
+	        method: 'POST',
+	        headers: {
+	          'Authorization': `Bearer ${token}`,
+	        },
+	      });
 
       if (response.ok) {
         const result = await response.json();
@@ -428,17 +420,17 @@ export default function ProvidersPage() {
     }
   };
 
-  const toggleAccountStatus = async (providerType: string, uuid: string, currentStatus: boolean) => {
-    try {
-      const token = localStorage.getItem('authToken');
-      const response = await fetch(`/api/providers/${providerType}/${uuid}/toggle`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({ isDisabled: !currentStatus })
-      });
+	  const toggleAccountStatus = async (providerType: string, uuid: string, currentStatus: boolean) => {
+	    try {
+	      const token = localStorage.getItem('authToken');
+	      const response = await fetch(`/api/accounts/${uuid}/toggle`, {
+	        method: 'POST',
+	        headers: {
+	          'Content-Type': 'application/json',
+	          'Authorization': `Bearer ${token}`,
+	        },
+	        body: JSON.stringify({ isDisabled: !currentStatus })
+	      });
 
       if (response.ok) {
         await loadProviders();
@@ -450,16 +442,16 @@ export default function ProvidersPage() {
     }
   };
 
-  const runHealthCheck = async (providerType: string, uuid: string) => {
-    setAccountHealthChecking(uuid);
-    try {
-      const token = localStorage.getItem('authToken');
-      const response = await fetch(`/api/providers/${providerType}/${uuid}/health-check`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
+	  const runHealthCheck = async (providerType: string, uuid: string) => {
+	    setAccountHealthChecking(uuid);
+	    try {
+	      const token = localStorage.getItem('authToken');
+	      const response = await fetch(`/api/accounts/${uuid}/health-check`, {
+	        method: 'POST',
+	        headers: {
+	          'Authorization': `Bearer ${token}`,
+	        },
+	      });
 
       if (response.ok) {
         const result = await response.json();
@@ -481,16 +473,16 @@ export default function ProvidersPage() {
   };
 
   // 单个账号测试
-  const testAccount = async (providerType: string, uuid: string) => {
-    setAccountTesting(uuid);
-    try {
-      const token = localStorage.getItem('authToken');
-      const response = await fetch(`/api/providers/${providerType}/${uuid}/test`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
+	  const testAccount = async (providerType: string, uuid: string) => {
+	    setAccountTesting(uuid);
+	    try {
+	      const token = localStorage.getItem('authToken');
+	      const response = await fetch(`/api/accounts/${uuid}/test`, {
+	        method: 'POST',
+	        headers: {
+	          'Authorization': `Bearer ${token}`,
+	        },
+	      });
 
       if (response.ok) {
         const result = await response.json();
@@ -513,16 +505,16 @@ export default function ProvidersPage() {
   };
 
   // 单个账号重置健康状态
-  const resetAccountHealth = async (providerType: string, uuid: string) => {
-    setAccountResetting(uuid);
-    try {
-      const token = localStorage.getItem('authToken');
-      const response = await fetch(`/api/providers/${providerType}/${uuid}/reset-health`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
+	  const resetAccountHealth = async (providerType: string, uuid: string) => {
+	    setAccountResetting(uuid);
+	    try {
+	      const token = localStorage.getItem('authToken');
+	      const response = await fetch(`/api/accounts/${uuid}/reset-health`, {
+	        method: 'POST',
+	        headers: {
+	          'Authorization': `Bearer ${token}`,
+	        },
+	      });
 
       if (handleApiError(response)) return;
       if (response.ok) {
@@ -540,18 +532,18 @@ export default function ProvidersPage() {
   };
 
   // 删除账号
-  const deleteAccount = async (providerType: string, uuid: string, accountIndex: number) => {
+	  const deleteAccount = async (providerType: string, uuid: string, accountIndex: number) => {
     if (!confirm(`确定要删除账号 #${accountIndex + 1} 吗？\n\n该操作将同时删除对应的 token 文件，且不可恢复！`)) return;
 
     setAccountDeleting(uuid);
     try {
       const token = localStorage.getItem('authToken');
-      const response = await fetch(`/api/providers/${providerType}/${uuid}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
+	      const response = await fetch(`/api/accounts/${uuid}`, {
+	        method: 'DELETE',
+	        headers: {
+	          'Authorization': `Bearer ${token}`,
+	        },
+	      });
 
       if (handleApiError(response)) return;
       if (response.ok) {
@@ -582,17 +574,16 @@ export default function ProvidersPage() {
     setBatchDeleting(true);
     try {
       const token = localStorage.getItem('authToken');
-      const response = await fetch('/api/providers/batch-delete', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          providerType: activeProvider,
-          uuids: Array.from(selectedAccounts)
-        }),
-      });
+	      const response = await fetch('/api/accounts/batch-delete', {
+	        method: 'POST',
+	        headers: {
+	          'Content-Type': 'application/json',
+	          'Authorization': `Bearer ${token}`,
+	        },
+	        body: JSON.stringify({
+	          uuids: Array.from(selectedAccounts)
+	        }),
+	      });
 
       if (handleApiError(response)) return;
       if (response.ok) {
@@ -628,17 +619,16 @@ export default function ProvidersPage() {
     setBatchDeleting(true);
     try {
       const token = localStorage.getItem('authToken');
-      const response = await fetch('/api/providers/batch-delete', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          providerType: activeProvider,
-          deleteByStatus: statusTypes
-        }),
-      });
+	      const response = await fetch('/api/accounts/batch-delete', {
+	        method: 'POST',
+	        headers: {
+	          'Content-Type': 'application/json',
+	          'Authorization': `Bearer ${token}`,
+	        },
+	        body: JSON.stringify({
+	          deleteByStatus: statusTypes
+	        }),
+	      });
 
       if (handleApiError(response)) return;
       if (response.ok) {

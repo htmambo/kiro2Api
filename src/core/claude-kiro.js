@@ -5554,7 +5554,6 @@ export const serviceInstances = {};
 
 // 服务适配器工厂 - 简化为仅支持 Kiro OAuth
 export function getServiceAdapter(config) {
-    console.log(`[Adapter] Config: `, config);
     console.log(`[Adapter] getServiceAdapter, provider: ${config.MODEL_PROVIDER}, uuid: ${config.uuid}`);
     const provider = config.MODEL_PROVIDER;
     const providerKey = config.uuid ? provider + config.uuid : provider;

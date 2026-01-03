@@ -1,0 +1,99 @@
+{
+  "claude-kiro-oauth": [
+    {
+      "uuid": "a1a5c663-4d52-4194-ac0d-cf02fb07dc18",
+      "KIRO_OAUTH_CREDS_FILE_PATH": "configs/kiro/kiro-auth-token-1.json",
+      "isHealthy": true,
+      "usageCount": 0,
+      "errorCount": 0,
+      "lastUsed": "2026-01-03T07:17:17.517Z",
+      "lastErrorTime": null,
+      "isDisabled": false,
+      "lastHealthCheckTime": "2026-01-03T09:42:58.027Z",
+      "lastHealthCheckModel": "claude-sonnet-4-20250514",
+      "lastErrorMessage": null,
+      "checkModelName": "",
+      "checkHealth": true,
+      "notSupportedModels": [],
+      "errorStatus": {
+        "status": "正常",
+        "message": "",
+        "statusType": "ok"
+      },
+      "poolType": "healthy",
+      "cachedEmail": "i@hoping.gq",
+      "cachedAt": "2026-01-02T22:26:23.402Z",
+      "cachedUserId": "d-9067642ac7.74d82458-0051-701e-37ff-90406a38566d"
+    },
+    {
+      "KIRO_OAUTH_CREDS_FILE_PATH": "./configs/kiro/kiro-auth-token-3.json",
+      "uuid": "5bb4c86e-ef5e-46b7-b4ca-76fc0a7c0f05",
+      "checkModelName": "claude-haiku-4-5",
+      "checkHealth": true,
+      "isHealthy": true,
+      "isDisabled": false,
+      "lastUsed": "2026-01-03T09:45:38.080Z",
+      "usageCount": 16,
+      "errorCount": 0,
+      "lastErrorTime": null,
+      "lastHealthCheckTime": "2026-01-03T09:45:38.080Z",
+      "lastHealthCheckModel": "claude-haiku-4-5",
+      "lastErrorMessage": null,
+      "cachedEmail": "wandrzej3@48dz.com",
+      "cachedAt": "2026-01-03T04:57:38.068Z",
+      "cachedUserId": "d-9067642ac7.e458d448-d0f1-7060-de77-ae74e2b66ae6",
+      "errorStatus": {
+        "status": "正常",
+        "message": "",
+        "statusType": "ok"
+      },
+      "poolType": "healthy"
+    },
+    {
+      "uuid": "df4c1c26-87a4-4185-ac1f-0c425869c18f",
+      "KIRO_OAUTH_CREDS_FILE_PATH": "configs/kiro/kiro-auth-token-4.json",
+      "isHealthy": true,
+      "usageCount": 0,
+      "errorCount": 0,
+      "lastUsed": "2026-01-03T07:22:22.298Z",
+      "lastErrorTime": null,
+      "isDisabled": false,
+      "lastHealthCheckTime": "2026-01-03T09:42:57.965Z",
+      "lastHealthCheckModel": "claude-sonnet-4-20250514",
+      "lastErrorMessage": null,
+      "checkModelName": "",
+      "checkHealth": true,
+      "notSupportedModels": [],
+      "errorStatus": {
+        "status": "正常",
+        "message": "",
+        "statusType": "ok"
+      },
+      "poolType": "healthy",
+      "cachedUserId": "d-9067642ac7.e4084428-3031-7061-fbce-5a60cc7d16a6",
+      "cachedEmail": "eliapz1@swsdz.com",
+      "cachedAt": "2026-01-03T04:57:39.969Z"
+    },
+    {
+      "KIRO_OAUTH_CREDS_FILE_PATH": "./configs/kiro/kiro-auth-token-2.json",
+      "uuid": "b0e06b9f-2933-421d-aee6-bc0cf7165365",
+      "checkModelName": "claude-haiku-4-5",
+      "checkHealth": true,
+      "isHealthy": false,
+      "isDisabled": true,
+      "lastUsed": null,
+      "usageCount": 0,
+      "errorCount": 2,
+      "lastErrorTime": "2026-01-03T09:45:56.261Z",
+      "lastHealthCheckTime": "2026-01-03T09:41:37.787Z",
+      "lastHealthCheckModel": "claude-haiku-4-5",
+      "lastErrorMessage": "Token is expired. Please refresh SSO session.",
+      "errorStatus": {
+        "status": "过期",
+        "message": "Token 已失效，需要重新授权",
+        "statusType": "expired"
+      },
+      "poolType": "banned"
+    }
+  ]
+}

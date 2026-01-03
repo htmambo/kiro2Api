@@ -154,11 +154,11 @@ export default function UsagePage() {
   };
 
   // 单个账号刷新用量
-  const refreshAccountUsage = async (providerType: string, uuid: string) => {
+  const refreshAccountUsage = async (uuid: string) => {
     setRefreshingAccount(uuid);
     try {
       const token = localStorage.getItem('authToken');
-      const response = await fetch(`/api/usage/${providerType}/${uuid}?refresh=true`, {
+      const response = await fetch(`/api/usage/${uuid}?refresh=true`, {
         headers: { 'Authorization': `Bearer ${token}` },
       });
       if (response.ok) {
@@ -430,7 +430,7 @@ export default function UsagePage() {
                             </Badge>
                           )}
                           <button
-                            onClick={() => refreshAccountUsage(providerName, instance.uuid)}
+                            onClick={() => refreshAccountUsage(instance.uuid)}
                             disabled={isRefreshing}
                             className="p-1.5 rounded-lg hover:bg-white/10 transition-colors disabled:opacity-50"
                             title="刷新此账号用量"

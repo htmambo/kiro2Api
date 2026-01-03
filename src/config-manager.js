@@ -5,6 +5,11 @@ import { INPUT_SYSTEM_PROMPT_FILE, MODEL_PROVIDER } from './common.js';
 export let CONFIG = {}; // Make CONFIG exportable
 export let PROMPT_LOG_FILENAME = ''; // Make PROMPT_LOG_FILENAME exportable
 
+// 账号池重构开关：
+// - legacy: 兼容旧值（实际等同 account）
+// - account: 使用 accounts/account_pool.json 逻辑
+export const ACCOUNT_POOL_MODE = process.env.ACCOUNT_POOL_MODE || 'legacy';
+
 const ALL_MODEL_PROVIDERS = Object.values(MODEL_PROVIDER);
 
 function normalizeConfiguredProviders(config) {
@@ -87,6 +92,8 @@ export async function initializeConfig(args = process.argv.slice(2), configFileP
                     SERVER_PORT: 8045,
                     HOST: '0.0.0.0',
                     MODEL_PROVIDER: MODEL_PROVIDER.KIRO_API,
+                    ACCOUNT_POOL_MODE: 'legacy',
+                    ACCOUNT_POOL_FILE_PATH: "./configs/account_pool.json",
                     KIRO_OAUTH_CREDS_BASE64: null,
                     SYSTEM_PROMPT_FILE_PATH: INPUT_SYSTEM_PROMPT_FILE,
                     SYSTEM_PROMPT_MODE: 'overwrite',
@@ -119,6 +126,8 @@ export async function initializeConfig(args = process.argv.slice(2), configFileP
                 SERVER_PORT: 8045,
                 HOST: '0.0.0.0',
                 MODEL_PROVIDER: MODEL_PROVIDER.KIRO_API,
+                ACCOUNT_POOL_MODE: 'legacy',
+                ACCOUNT_POOL_FILE_PATH: "./configs/account_pool.json",
                 KIRO_OAUTH_CREDS_BASE64: null,
                 SYSTEM_PROMPT_FILE_PATH: INPUT_SYSTEM_PROMPT_FILE,
                 SYSTEM_PROMPT_MODE: 'overwrite',
@@ -259,36 +268,84 @@ export async function initializeConfig(args = process.argv.slice(2), configFileP
 
     normalizeConfiguredProviders(currentConfig);
 
+    // ACCOUNT_POOL_MODE 支持 env 覆盖，默认 legacy
+    currentConfig.ACCOUNT_POOL_MODE = process.env.ACCOUNT_POOL_MODE || currentConfig.ACCOUNT_POOL_MODE || 'legacy';
+    console.log(`[Config] ACCOUNT_POOL_MODE = ${currentConfig.ACCOUNT_POOL_MODE}`);
+
     if (!currentConfig.SYSTEM_PROMPT_FILE_PATH) {
         currentConfig.SYSTEM_PROMPT_FILE_PATH = INPUT_SYSTEM_PROMPT_FILE;
     }
     currentConfig.SYSTEM_PROMPT_CONTENT = await getSystemPromptFileContent(currentConfig.SYSTEM_PROMPT_FILE_PATH);
 
-    // 加载号池配置
+    // --- 账号池/号池配置加载（支持自动迁移） ---
     if (!currentConfig.PROVIDER_POOLS_FILE_PATH) {
         currentConfig.PROVIDER_POOLS_FILE_PATH = 'configs/provider_pools.json';
     }
-    if (currentConfig.PROVIDER_POOLS_FILE_PATH) {
+    if (!currentConfig.ACCOUNT_POOL_FILE_PATH) {
+        currentConfig.ACCOUNT_POOL_FILE_PATH = 'configs/account_pool.json';
+    }
+
+    const loadOrMigrateAccountPool = async () => {
         try {
-            const poolsData = await pfs.readFile(currentConfig.PROVIDER_POOLS_FILE_PATH, 'utf8');
-            currentConfig.providerPools = JSON.parse(poolsData);
-            console.log(`[Config] Loaded provider pools from ${currentConfig.PROVIDER_POOLS_FILE_PATH}`);
+            const accountData = await pfs.readFile(currentConfig.ACCOUNT_POOL_FILE_PATH, 'utf8');
+            const parsed = JSON.parse(accountData);
+            if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.accounts)) {
+                throw new Error('Invalid account_pool.json format (expected { accounts: [] })');
+            }
+            return parsed;
         } catch (error) {
-            if (error.code === 'ENOENT') {
-                // 文件不存在，创建空的 provider_pools.json
-                const emptyPools = { 'claude-kiro-oauth': [] };
-                fs.writeFileSync(currentConfig.PROVIDER_POOLS_FILE_PATH, JSON.stringify(emptyPools, null, 2), 'utf8');
-                currentConfig.providerPools = emptyPools;
-                console.log(`[Config] Created empty ${currentConfig.PROVIDER_POOLS_FILE_PATH}`);
-                console.log('[Config] ℹ️  Add Kiro OAuth tokens via the web UI or manually');
-            } else {
-                console.error(`[Config Error] Failed to load provider pools from ${currentConfig.PROVIDER_POOLS_FILE_PATH}: ${error.message}`);
-                currentConfig.providerPools = { 'claude-kiro-oauth': [] };
+            if (error.code !== 'ENOENT') {
+                console.error(`[Config Error] Failed to load account pool from ${currentConfig.ACCOUNT_POOL_FILE_PATH}: ${error.message}`);
+                return { accounts: [] };
             }
         }
-    } else {
-        currentConfig.providerPools = { 'claude-kiro-oauth': [] };
-    }
+
+        // account_pool.json 不存在：尝试从 provider_pools.json 迁移
+        if (fs.existsSync(currentConfig.PROVIDER_POOLS_FILE_PATH)) {
+            try {
+                const legacyData = JSON.parse(fs.readFileSync(currentConfig.PROVIDER_POOLS_FILE_PATH, 'utf8'));
+                const legacyAccounts = Array.isArray(legacyData?.['claude-kiro-oauth'])
+                    ? legacyData['claude-kiro-oauth']
+                    : [];
+
+                // 基础校验：uuid 唯一 & 必填
+                const seen = new Set();
+                const accounts = [];
+                for (const acc of legacyAccounts) {
+                    if (!acc || typeof acc !== 'object') continue;
+                    if (!acc.uuid || typeof acc.uuid !== 'string') {
+                        console.warn('[Config] Skipping legacy account without uuid');
+                        continue;
+                    }
+                    if (seen.has(acc.uuid)) {
+                        console.warn(`[Config] Duplicate uuid in legacy pools, skipping: ${acc.uuid}`);
+                        continue;
+                    }
+                    seen.add(acc.uuid);
+                    accounts.push(acc);
+                }
+
+                const migrated = { accounts };
+                const backupPath = `${currentConfig.PROVIDER_POOLS_FILE_PATH}.bak-${Date.now()}`;
+                fs.copyFileSync(currentConfig.PROVIDER_POOLS_FILE_PATH, backupPath);
+                fs.writeFileSync(currentConfig.ACCOUNT_POOL_FILE_PATH, JSON.stringify(migrated, null, 2), 'utf8');
+                console.log(`[Config] Migrated provider_pools.json -> account_pool.json (backup: ${backupPath})`);
+                return migrated;
+            } catch (migrateError) {
+                console.error(`[Config Error] Failed to migrate provider pools to account pool: ${migrateError.message}`);
+                return { accounts: [] };
+            }
+        }
+
+        // 无任何文件：创建空账号池文件（provider 层已移除，账号池为唯一入口）
+        const emptyPool = { accounts: [] };
+        fs.writeFileSync(currentConfig.ACCOUNT_POOL_FILE_PATH, JSON.stringify(emptyPool, null, 2), 'utf8');
+        console.log(`[Config] Created empty ${currentConfig.ACCOUNT_POOL_FILE_PATH}`);
+        return emptyPool;
+    };
+
+    currentConfig.accountPool = await loadOrMigrateAccountPool();
+    console.log(`[Config] Loaded account pool (${currentConfig.accountPool.accounts.length} account(s)) from ${currentConfig.ACCOUNT_POOL_FILE_PATH}`);
 
     // Set PROMPT_LOG_FILENAME based on the determined config
     if (currentConfig.PROMPT_LOG_MODE === 'file') {
