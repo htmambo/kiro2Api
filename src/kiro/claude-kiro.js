@@ -1,15 +1,13 @@
 import axios from 'axios';
 import { v4 as uuidv4 } from 'uuid';
-import { promises as fs } from 'fs';
-import { writeFileSync } from 'fs';
 import * as path from 'path';
-import * as os from 'os';
-import * as crypto from 'crypto';
 import * as http from 'http';
 import * as https from 'https';
 import { countTokens } from '@anthropic-ai/tokenizer';
 import { MODEL_PROVIDER } from '../utils/common.js';
 import { KIRO_MODELS } from './constants.js';
+import { promises as fs } from 'fs';
+import crypto from 'crypto';
 
 // 导入公共摘要模块
 import {
@@ -17,27 +15,32 @@ import {
     SUMMARIZATION_CONFIG
 } from './summarization.js';
 
+// 导入认证模块
+import {
+    KIRO_CONSTANTS as AUTH_KIRO_CONSTANTS
+} from './auth.js';
+
+// 导入工具映射模块
+import {
+    CC_TO_KIRO_TOOL_MAPPING,
+    KIRO_TOOL_SCHEMAS,
+    mapToolUseParams as mapToolParamsImpl,
+    reverseMapToolInput as reverseMapInputImpl,
+    parseSingleToolCall,
+    parseBracketToolCalls,
+    deduplicateToolCalls
+} from './tools.js';
+
+// 导入工具函数模块
+import {
+    unescapeHTML,
+    isZodSchema,
+    detectImageFormat
+} from './utils.js';
+
+// 扩展认证模块的常量，添加上下文管理配置
 const KIRO_CONSTANTS = {
-    REFRESH_URL: 'https://prod.{{region}}.auth.desktop.kiro.dev/refreshToken',
-    REFRESH_IDC_URL: 'https://oidc.{{region}}.amazonaws.com/token',
-    DEVICE_AUTH_URL: 'https://oidc.{{region}}.amazonaws.com/device_authorization',
-    REGISTER_CLIENT_URL: 'https://oidc.{{region}}.amazonaws.com/client/register',
-    BASE_URL: 'https://codewhisperer.{{region}}.amazonaws.com/generateAssistantResponse',
-    AMAZON_Q_URL: 'https://codewhisperer.{{region}}.amazonaws.com/SendMessageStreaming',
-    USAGE_LIMITS_URL: 'https://q.{{region}}.amazonaws.com/getUsageLimits',
-    DEFAULT_MODEL_NAME: 'claude-sonnet-4-20250514',
-    AXIOS_TIMEOUT: 120000, // 2 minutes timeout
-    USER_AGENT: 'KiroIDE',
-    KIRO_VERSION: '0.7.45',  // 仿制Kiro官方客户端最新版本
-    CONTENT_TYPE_JSON: 'application/json',
-    ACCEPT_JSON: 'application/json',
-    AUTH_METHOD_SOCIAL: 'social',
-    AUTH_METHOD_IDC: 'IdC',
-    CHAT_TRIGGER_TYPE_MANUAL: 'MANUAL',
-    ORIGIN_AI_EDITOR: 'AI_EDITOR',
-    EXPIRE_WINDOW_MS: 5 * 60 * 1000,  // 官方AWS SDK: 5分钟过期窗口
-    REFRESH_DEBOUNCE_MS: 30 * 1000,   // 官方AWS SDK: 30秒防抖
-    DEVICE_GRANT_TYPE: 'urn:ietf:params:oauth:grant-type:device_code',
+    ...AUTH_KIRO_CONSTANTS,
 
     // Kiro 风格的上下文窗口管理配置
     // 测试结果: AWS 实际限制约 223K tokens (720K chars 失败，710K chars 成功)
@@ -58,75 +61,6 @@ const THINKING_PROMPT_TEMPLATE = `在回复之前，请在 <thinking>...</thinki
 - 考虑边界情况和潜在问题
 - 确保工具参数完全符合要求
 然后提供经过充分思考的回复。`;
-
-// Kiro 优化：HTML 转义字符处理（完美复刻官方 Kiro extension.js:578020-578035）
-function unescapeHTML(str) {
-    if (!str || typeof str !== 'string') return str;
-
-    // 官方 Kiro 的转义映射表（支持十进制和十六进制）
-    const escapeMap = {
-        // 官方支持的十进制格式
-        '&amp;': '&',
-        '&#38;': '&',
-        '&lt;': '<',
-        '&#60;': '<',
-        '&gt;': '>',
-        '&#62;': '>',
-        '&apos;': "'",
-        '&#39;': "'",
-        '&quot;': '"',
-        '&#34;': '"',
-        // 额外支持的十六进制格式（更全面）
-        '&#x27;': "'",
-        '&#x60;': '`',
-        '&#x2F;': '/',
-        '&#x5C;': '\\'
-    };
-
-    // 匹配所有支持的转义格式
-    return str.replace(/&(?:amp|#38|#x26|lt|#60|#x3C|gt|#62|#x3E|apos|#39|#x27|quot|#34|#x22|#x60|#x2F|#x5C);/gi, match => escapeMap[match.toLowerCase()] || match);
-}
-
-// Kiro 优化：Zod Schema 检测（从官方 Kiro extension.js:644913 提取）
-function isZodSchema(schema) {
-    if (typeof schema !== "object" || schema === null) {
-        return false;
-    }
-
-    // 检查 Zod v3 格式
-    if ("_def" in schema && !("_zod" in schema)) {
-        const def = schema._def;
-        return typeof def === "object" && def != null && "typeName" in def;
-    }
-
-    // 检查 Zod v4 格式（向前兼容）
-    if ("_zod" in schema) {
-        const zod = schema._zod;
-        return typeof zod === "object" && zod !== null && "def" in zod;
-    }
-
-    return false;
-}
-
-// Kiro 优化：图片格式自动检测（从官方 Kiro extension.js:707760 提取）
-function detectImageFormat(imageUrl) {
-    if (!imageUrl || typeof imageUrl !== 'string') {
-        return 'jpeg';  // 默认 JPEG
-    }
-
-    // 从 base64 data URL 的 header 中检测格式
-    const base64Header = imageUrl.split(',')[0];
-
-    if (base64Header.includes('png')) {
-        return 'png';
-    } else if (base64Header.includes('gif')) {
-        return 'gif';
-    } else if (base64Header.includes('webp')) {
-        return 'webp';
-    } else {
-        return 'jpeg';  // 默认 JPEG
-    }
-}
 
 // 完整的模型映射表 - Anthropic官方模型ID到AWS CodeWhisperer模型ID
 // 注意：AWS CodeWhisperer模型ID使用点号分隔版本号（如claude-opus-4.5）
@@ -152,214 +86,6 @@ const MODEL_MAPPING = Object.fromEntries(
     Object.entries(FULL_MODEL_MAPPING).filter(([key]) => KIRO_MODELS.includes(key))
 );
 
-// ============================================================================
-// CC→Kiro 工具映射表
-// Claude Code 发送 30+ 工具，Kiro 只支持 ~15 个
-// 通过映射减少工具数量，避免 400 错误
-// ============================================================================
-
-const CC_TO_KIRO_TOOL_MAPPING = {
-    // ===== 直接映射（参数名转换）=====
-    'Read': {
-        kiroTool: 'readFile',
-        paramMap: { file_path: 'path', offset: 'start_line', limit: 'end_line' },
-        description: 'Read file content'
-    },
-    'Write': {
-        kiroTool: 'fsWrite',
-        paramMap: { file_path: 'path', content: 'text' },
-        description: 'Write file'
-    },
-    'Edit': {
-        kiroTool: 'strReplace',
-        paramMap: { file_path: 'path', old_string: 'oldStr', new_string: 'newStr' },
-        description: 'Replace text in file'
-    },
-    'Bash': {
-        kiroTool: 'executeBash',
-        paramMap: { command: 'command', timeout: 'timeout' },
-        description: 'Execute shell command'
-    },
-    'Glob': {
-        kiroTool: 'fileSearch',
-        paramMap: { pattern: 'query' },
-        description: 'Search files by pattern'
-    },
-    'Grep': {
-        kiroTool: 'grepSearch',
-        paramMap: { pattern: 'query', path: 'includePattern' },
-        description: 'Search content in files'
-    },
-    'LS': {
-        kiroTool: 'listDirectory',
-        paramMap: { path: 'path' },
-        description: 'List directory'
-    },
-    'AskUserQuestion': {
-        kiroTool: 'userInput',
-        paramMap: { question: 'question' },
-        description: 'Ask user for input'
-    },
-
-    // ===== 特殊处理 =====
-    'Task': {
-        kiroTool: 'invokeSubAgent',
-        paramMap: { subagent_type: 'name', prompt: 'prompt', description: 'explanation' },
-        description: 'Invoke sub-agent for complex tasks'
-    },
-    'LSP': { remove: true, reason: 'Kiro getDiagnostics is not equivalent to CC LSP operations' },
-    'KillShell': {
-        kiroTool: 'controlProcess',
-        paramMap: { shell_id: 'processId' },
-        fixedParams: { action: 'stop' },
-        description: 'Stop background process'
-    },
-    'TaskOutput': {
-        kiroTool: 'getProcessOutput',
-        paramMap: { task_id: 'processId' },
-        description: 'Get process output'
-    },
-
-    // ===== Builtin 工具（服务端模拟）=====
-    'WebSearch': {
-        kiroTool: 'webSearch',
-        paramMap: { query: 'query' },
-        description: 'Search the web for information (server-side implementation)',
-        serverSideExecute: true  // 标记为服务端执行
-    },
-    'WebFetch': { remove: true, reason: 'AWS CodeWhisperer does not support builtin tools' },
-
-    // ===== 不支持的工具（移除）=====
-    'TodoWrite': { remove: true, reason: 'Not supported by Kiro' },
-    'TodoRead': { remove: true, reason: 'Not supported by Kiro' },
-    'EnterPlanMode': { remove: true, reason: 'Not supported by Kiro' },
-    'ExitPlanMode': { remove: true, reason: 'Not supported by Kiro' },
-    'NotebookEdit': { remove: true, reason: 'Not supported by Kiro' },
-    'Skill': { remove: true, reason: 'CC internal only' },
-
-    // ===== 降级处理 =====
-    'NotebookRead': {
-        kiroTool: 'readFile',
-        paramMap: { notebook_path: 'path' },
-        description: 'Read notebook as file'
-    },
-};
-
-// Kiro 官方工具的简洁 Schema（从 extension.js 提取）
-// 注意：只保留 CC 也支持的参数，避免 CC 验证失败
-const KIRO_TOOL_SCHEMAS = {
-    readFile: {
-        type: 'object',
-        properties: {
-            path: { type: 'string', description: 'Path to file to read' },
-            start_line: { type: 'number', description: 'Starting line number (optional)' },
-            end_line: { type: 'number', description: 'Ending line number (optional)' }
-            // 移除 explanation - CC 不支持
-        },
-        required: ['path']
-    },
-    fsWrite: {
-        type: 'object',
-        properties: {
-            path: { type: 'string' },
-            text: { type: 'string' }
-        },
-        required: ['path', 'text']
-    },
-    strReplace: {
-        type: 'object',
-        properties: {
-            path: { type: 'string' },
-            oldStr: { type: 'string' },
-            newStr: { type: 'string' }
-        },
-        required: ['path', 'oldStr', 'newStr']
-    },
-    grepSearch: {
-        type: 'object',
-        properties: {
-            query: { type: 'string', description: 'The regex pattern to search for' },
-            includePattern: { type: 'string', description: 'Glob pattern for files to include' }
-            // 移除 caseSensitive, excludePattern, explanation - CC 用不同的参数名
-        },
-        required: ['query']
-    },
-    fileSearch: {
-        type: 'object',
-        properties: {
-            query: { type: 'string', description: 'The glob pattern to search for' }
-            // 移除 explanation, excludePattern, includeIgnoredFiles - CC 不支持
-        },
-        required: ['query']
-    },
-    executeBash: {
-        type: 'object',
-        properties: {
-            command: { type: 'string', description: 'Shell command to execute' },
-            timeout: { type: 'number', description: 'Command timeout in milliseconds' }
-            // 移除 path, ignoreWarning - CC 不支持
-        },
-        required: ['command']
-    },
-    listDirectory: {
-        type: 'object',
-        properties: {
-            path: { type: 'string', description: 'Path to directory' }
-            // 移除 explanation, depth - CC 不支持
-        },
-        required: ['path']
-    },
-    userInput: {
-        type: 'object',
-        properties: {
-            question: { type: 'string', description: 'The question to ask the user' },
-            options: { type: 'array', items: { type: 'string' }, description: 'Predefined choices for the user' }
-            // 移除 reason - CC 不支持
-        },
-        required: ['question']
-    },
-    getDiagnostics: {
-        type: 'object',
-        properties: {
-            paths: { type: 'array', items: { type: 'string' } }
-        },
-        required: ['paths']
-    },
-    controlProcess: {
-        type: 'object',
-        properties: {
-            action: { type: 'string', enum: ['start', 'stop', 'restart'] },
-            command: { type: 'string' },
-            processId: { type: 'string' }
-        },
-        required: ['action']
-    },
-    getProcessOutput: {
-        type: 'object',
-        properties: {
-            processId: { type: 'string' },
-            lines: { type: 'number' }
-        },
-        required: ['processId']
-    },
-    invokeSubAgent: {
-        type: 'object',
-        properties: {
-            name: { type: 'string', description: 'name of the agent to invoke' },
-            prompt: { type: 'string', description: 'The instruction or question for the agent' },
-            explanation: { type: 'string', description: 'One or two sentences explaining why this tool is being used' }
-        },
-        required: ['name', 'prompt', 'explanation']
-    },
-    // ===== 服务端模拟工具 =====
-    webSearch: {
-        type: 'object',
-        properties: {
-            query: { type: 'string', description: 'The search query' }
-        },
-        required: ['query']
-    }
-};
 
 const KIRO_AUTH_TOKEN_FILE = "kiro-auth-token.json";
 
@@ -523,266 +249,6 @@ function formatSearchResults(searchResult) {
 // 官方AWS SDK：模块级别的防抖变量，按refreshToken分组（不同账号可以并发刷新）
 // 使用Map存储每个refreshToken的防抖状态
 const refreshTokenDebounceMap = new Map(); // key: refreshToken, value: { lastAttemptTime, promise }
-
-/**
- * 生成随机的 MAC 地址哈希（用于设备指纹随机化）
- * 每次调用生成不同的虚拟设备指纹，降低批量注册检测风险
- */
-async function getMacAddressSha256() {
-    // 生成随机的虚拟 MAC 地址（格式: xx:xx:xx:xx:xx:xx）
-    const randomMac = Array.from({ length: 6 }, () =>
-        Math.floor(Math.random() * 256).toString(16).padStart(2, '0')
-    ).join(':');
-
-    const sha256Hash = crypto.createHash('sha256').update(randomMac).digest('hex');
-    return sha256Hash;
-}
-
-/**
- * 生成随机化的 User-Agent 组件
- */
-function generateRandomUserAgentComponents() {
-    // 随机 Windows 版本
-    const winVersions = ['10.0.19041', '10.0.19042', '10.0.19043', '10.0.19044', '10.0.19045',
-                         '10.0.22000', '10.0.22621', '10.0.22631', '10.0.26100'];
-    const randomWinVersion = winVersions[Math.floor(Math.random() * winVersions.length)];
-
-    // 随机 Node.js 版本
-    const nodeVersions = ['18.17.0', '18.18.0', '18.19.0', '20.10.0', '20.11.0', '20.12.0',
-                          '22.0.0', '22.1.0', '22.2.0', '22.11.0', '22.12.0', '22.21.1'];
-    const randomNodeVersion = nodeVersions[Math.floor(Math.random() * nodeVersions.length)];
-
-    // 随机 SDK 版本
-    const sdkVersions = ['1.0.24', '1.0.25', '1.0.26', '1.0.27', '1.0.28'];
-    const randomSdkVersion = sdkVersions[Math.floor(Math.random() * sdkVersions.length)];
-
-    // 随机 Kiro 版本
-    const kiroVersions = ['0.7.40', '0.7.41', '0.7.42', '0.7.43', '0.7.44', '0.7.45', '0.7.46'];
-    const randomKiroVersion = kiroVersions[Math.floor(Math.random() * kiroVersions.length)];
-
-    // 随机 OS 类型
-    const osTypes = ['win32', 'darwin', 'linux'];
-    const randomOs = osTypes[Math.floor(Math.random() * osTypes.length)];
-
-    return {
-        winVersion: randomWinVersion,
-        nodeVersion: randomNodeVersion,
-        sdkVersion: randomSdkVersion,
-        kiroVersion: randomKiroVersion,
-        osType: randomOs
-    };
-}
-
-async function getOriginalMacAddressSha256() {
-    const networkInterfaces = os.networkInterfaces();
-    let macAddress = '';
-
-    for (const interfaceName in networkInterfaces) {
-        const networkInterface = networkInterfaces[interfaceName];
-        for (const iface of networkInterface) {
-            if (!iface.internal && iface.mac && iface.mac !== '00:00:00:00:00:00') {
-                macAddress = iface.mac;
-                break;
-            }
-        }
-        if (macAddress) break;
-    }
-
-    if (!macAddress) {
-        console.warn("无法获取MAC地址，将使用默认值。");
-        macAddress = '00:00:00:00:00:00';
-    }
-
-    const sha256Hash = crypto.createHash('sha256').update(macAddress).digest('hex');
-    return sha256Hash;
-}
-
-// Helper functions for tool calls and JSON parsing
-
-/**
- * 通用的括号匹配函数 - 支持多种括号类型
- * @param {string} text - 要搜索的文本
- * @param {number} startPos - 起始位置
- * @param {string} openChar - 开括号字符 (默认 '[')
- * @param {string} closeChar - 闭括号字符 (默认 ']')
- * @returns {number} 匹配的闭括号位置，未找到返回 -1
- */
-function findMatchingBracket(text, startPos, openChar = '[', closeChar = ']') {
-    if (!text || startPos >= text.length || text[startPos] !== openChar) {
-        return -1;
-    }
-
-    let bracketCount = 1;
-    let inString = false;
-    let escapeNext = false;
-
-    for (let i = startPos + 1; i < text.length; i++) {
-        const char = text[i];
-
-        if (escapeNext) {
-            escapeNext = false;
-            continue;
-        }
-
-        if (char === '\\' && inString) {
-            escapeNext = true;
-            continue;
-        }
-
-        if (char === '"' && !escapeNext) {
-            inString = !inString;
-            continue;
-        }
-
-        if (!inString) {
-            if (char === openChar) {
-                bracketCount++;
-            } else if (char === closeChar) {
-                bracketCount--;
-                if (bracketCount === 0) {
-                    return i;
-                }
-            }
-        }
-    }
-    return -1;
-}
-
-
-/**
- * 尝试修复常见的 JSON 格式问题
- * @param {string} jsonStr - 可能有问题的 JSON 字符串
- * @returns {string} 修复后的 JSON 字符串
- */
-function repairJson(jsonStr) {
-    let repaired = jsonStr;
-    // 移除尾部逗号
-    repaired = repaired.replace(/,\s*([}\]])/g, '$1');
-    // 为未引用的键添加引号
-    repaired = repaired.replace(/([{,]\s*)([a-zA-Z0-9_]+?)\s*:/g, '$1"$2":');
-    // 确保字符串值被正确引用
-    repaired = repaired.replace(/:\s*([a-zA-Z0-9_]+)(?=[,\}\]])/g, ':"$1"');
-    return repaired;
-}
-
-/**
- * 解析单个工具调用文本
- * @param {string} toolCallText - 工具调用文本
- * @returns {Object|null} 解析后的工具调用对象或 null
- */
-function parseSingleToolCall(toolCallText) {
-    const namePattern = /\[Called\s+(\w+)\s+with\s+args:/i;
-    const nameMatch = toolCallText.match(namePattern);
-
-    if (!nameMatch) {
-        return null;
-    }
-
-    const functionName = nameMatch[1].trim();
-    const argsStartMarker = "with args:";
-    const argsStartPos = toolCallText.toLowerCase().indexOf(argsStartMarker.toLowerCase());
-
-    if (argsStartPos === -1) {
-        return null;
-    }
-
-    const argsStart = argsStartPos + argsStartMarker.length;
-    const argsEnd = toolCallText.lastIndexOf(']');
-
-    if (argsEnd <= argsStart) {
-        return null;
-    }
-
-    const jsonCandidate = toolCallText.substring(argsStart, argsEnd).trim();
-
-    try {
-        const repairedJson = repairJson(jsonCandidate);
-        const argumentsObj = JSON.parse(repairedJson);
-
-        if (typeof argumentsObj !== 'object' || argumentsObj === null) {
-            return null;
-        }
-
-        const toolCallId = `call_${uuidv4().replace(/-/g, '').substring(0, 8)}`;
-        return {
-            id: toolCallId,
-            type: "function",
-            function: {
-                name: functionName,
-                arguments: JSON.stringify(argumentsObj)
-            }
-        };
-    } catch (e) {
-        console.error(`Failed to parse tool call arguments: ${e.message}`, jsonCandidate);
-        return null;
-    }
-}
-
-function parseBracketToolCalls(responseText) {
-    if (!responseText || !responseText.includes("[Called")) {
-        return null;
-    }
-
-    const toolCalls = [];
-    const callPositions = [];
-    let start = 0;
-    while (true) {
-        const pos = responseText.indexOf("[Called", start);
-        if (pos === -1) {
-            break;
-        }
-        callPositions.push(pos);
-        start = pos + 1;
-    }
-
-    for (let i = 0; i < callPositions.length; i++) {
-        const startPos = callPositions[i];
-        let endSearchLimit;
-        if (i + 1 < callPositions.length) {
-            endSearchLimit = callPositions[i + 1];
-        } else {
-            endSearchLimit = responseText.length;
-        }
-
-        const segment = responseText.substring(startPos, endSearchLimit);
-        const bracketEnd = findMatchingBracket(segment, 0);
-
-        let toolCallText;
-        if (bracketEnd !== -1) {
-            toolCallText = segment.substring(0, bracketEnd + 1);
-        } else {
-            // Fallback: if no matching bracket, try to find the last ']' in the segment
-            const lastBracket = segment.lastIndexOf(']');
-            if (lastBracket !== -1) {
-                toolCallText = segment.substring(0, lastBracket + 1);
-            } else {
-                continue; // Skip this one if no closing bracket found
-            }
-        }
-        
-        const parsedCall = parseSingleToolCall(toolCallText);
-        if (parsedCall) {
-            toolCalls.push(parsedCall);
-        }
-    }
-    return toolCalls.length > 0 ? toolCalls : null;
-}
-
-function deduplicateToolCalls(toolCalls) {
-    const seen = new Set();
-    const uniqueToolCalls = [];
-
-    for (const tc of toolCalls) {
-        const key = `${tc.function.name}-${tc.function.arguments}`;
-        if (!seen.has(key)) {
-            seen.add(key);
-            uniqueToolCalls.push(tc);
-        } else {
-            console.log(`Skipping duplicate tool call: ${tc.function.name}`);
-        }
-    }
-    return uniqueToolCalls;
-}
 
 export class KiroService {
     constructor(config = {}) {
@@ -1403,73 +869,7 @@ async initializeAuth(forceRefresh = false) {
      * @returns {Object} - 映射后的参数
      */
     mapToolUseParams(toolName, input) {
-        // 调试日志：特别追踪 Task 工具
-        if (toolName === 'Task') {
-            console.log(`[Kiro Task Debug] mapToolUseParams called with input:`, JSON.stringify(input));
-        }
-
-        // ⚠️ 关键修复：Kiro API 要求 toolUse 必须有 input 字段
-        // 如果 input 是 undefined 或 null，返回空对象而不是 undefined
-        if (input === undefined || input === null) {
-            console.log(`[Kiro ParamMap] ${toolName}: input is ${input}, returning empty object`);
-            return {};
-        }
-
-        if (typeof input !== 'object') {
-            if (this.verboseLogging) {
-                console.log(`[Kiro ParamMap] ${toolName}: input is not object (${typeof input}), wrapping in object`);
-            }
-            // 如果 input 是原始类型，包装成对象
-            return { value: input };
-        }
-
-        const mapping = CC_TO_KIRO_TOOL_MAPPING[toolName];
-        if (!mapping) {
-            if (this.verboseLogging) {
-                console.log(`[Kiro ParamMap] ${toolName}: no mapping found, using original input`);
-            }
-            return input;
-        }
-
-        // 调试日志：Task 工具的映射配置
-        if (toolName === 'Task') {
-            console.log(`[Kiro Task Debug] Found mapping:`, JSON.stringify(mapping));
-        }
-
-        const mappedInput = {};
-
-        // 应用参数映射
-        if (mapping.paramMap) {
-            for (const [ccParam, kiroParam] of Object.entries(mapping.paramMap)) {
-                if (input[ccParam] !== undefined) {
-                    mappedInput[kiroParam] = input[ccParam];
-                    if (this.verboseLogging || toolName === 'Task') {
-                        console.log(`[Kiro ParamMap] ${toolName}: mapped ${ccParam} → ${kiroParam} = ${JSON.stringify(input[ccParam])}`);
-                    }
-                }
-            }
-        }
-
-        // 添加未映射的参数（保持原样）
-        for (const [key, value] of Object.entries(input)) {
-            if (mappedInput[key] === undefined &&
-                (!mapping.paramMap || !mapping.paramMap[key])) {
-                mappedInput[key] = value;
-            }
-        }
-
-        // 添加固定参数
-        if (mapping.fixedParams) {
-            Object.assign(mappedInput, mapping.fixedParams);
-            if (this.verboseLogging) {
-                console.log(`[Kiro ParamMap] ${toolName}: added fixed params:`, mapping.fixedParams);
-            }
-        }
-
-        if (this.verboseLogging || toolName === 'Task') {
-            console.log(`[Kiro ParamMap] ${toolName}: final mapped input:`, JSON.stringify(mappedInput));
-        }
-        return mappedInput;
+        return mapToolParamsImpl(toolName, input, this.verboseLogging || toolName === 'Task');
     }
 
     /**
@@ -1481,54 +881,10 @@ async initializeAuth(forceRefresh = false) {
      * @returns {Object} - 反向映射后的参数（CC 格式）
      */
     reverseMapToolInput(toolName, input) {
-        if (!input || typeof input !== 'object') {
-            return input;
-        }
-
-        const mapping = CC_TO_KIRO_TOOL_MAPPING[toolName];
-        if (!mapping || !mapping.paramMap) {
-            return input;
-        }
-
-        // 创建反向映射表（Kiro → CC）
-        const reverseMap = {};
-        for (const [ccParam, kiroParam] of Object.entries(mapping.paramMap)) {
-            reverseMap[kiroParam] = ccParam;
-        }
-
-        // Kiro 特有参数列表（这些参数在 Kiro 工具中存在，但 CC 工具中没有）
-        // ⚠️ 包含 raw/raw_arguments 防止旧版代码或边缘情况创建的参数泄漏
-        const kiroOnlyParams = ['explanation', 'ignoreWarning', 'depth', 'reason',
-                                'caseSensitive', 'excludePattern', 'includeIgnoredFiles',
-                                'raw', 'raw_arguments', 'value'];
-
-        const reversedInput = {};
-
-        for (const [key, value] of Object.entries(input)) {
-            if (reverseMap[key]) {
-                // 有反向映射：使用 CC 参数名
-                reversedInput[reverseMap[key]] = value;
-                if (this.verboseLogging) {
-                    console.log(`[Kiro ReverseMap] ${toolName}: reversed ${key} → ${reverseMap[key]}`);
-                }
-            } else if (kiroOnlyParams.includes(key)) {
-                // Kiro 特有参数：跳过
-                if (this.verboseLogging) {
-                    console.log(`[Kiro ReverseMap] ${toolName}: filtered out Kiro-only param: ${key}`);
-                }
-            } else {
-                // 其他参数：保留（可能是 CC 和 Kiro 共有的参数，或者是新的参数）
-                reversedInput[key] = value;
-            }
-        }
-
-        if (this.verboseLogging) {
-            console.log(`[Kiro ReverseMap] ${toolName}: reversed input:`, JSON.stringify(reversedInput));
-        }
-        return reversedInput;
+        return reverseMapInputImpl(toolName, input, this.verboseLogging);
     }
 
-    /**
+/**
      * Kiro 优化：工具格式转换（支持多种输入格式，统一输出 toolSpecification）
      * 参考 Kiro 源码 extension.js:707778
      * 支持 Kiro 原生等多种工具格式

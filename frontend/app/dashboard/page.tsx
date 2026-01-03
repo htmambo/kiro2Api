@@ -182,7 +182,7 @@ export default function DashboardPage() {
         throw new Error(message);
       }
       if (!providersRes.ok) {
-        const message = await getResponseErrorMessage(providersRes, '获取提供商信息失败');
+        const message = await getResponseErrorMessage(providersRes, '获取提账号信息失败');
         throw new Error(message);
       }
       if (!usageRes.ok) {

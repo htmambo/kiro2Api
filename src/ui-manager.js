@@ -24,6 +24,8 @@ import {
 } from './utils/account-utils.js';
 import { formatKiroUsage } from './services/usage-service.js';
 import { KIRO_MODELS } from './kiro/constants.js';
+import { serveStaticFiles } from './ui/static.js';
+import { initializeUIManagement, broadcastEvent } from './ui/events.js';
 
 // Token存储到本地文件中
 const TOKEN_STORE_FILE = './configs/token-store.json';
@@ -670,99 +672,6 @@ const upload = multer({
  * @param {string} path - The request path
  * @param {http.ServerResponse} res - The HTTP response object
  */
-export async function serveStaticFiles(pathParam, res) {
-    // 处理不同类型的路径
-    let relativePath;
-    if (pathParam === '/' || pathParam === '/index.html') {
-        relativePath = 'index.html';
-    } else if (pathParam === '/favicon.ico') {
-        relativePath = 'favicon.ico';
-    } else if (pathParam.startsWith('/_next/') || pathParam.startsWith('/dashboard') || pathParam.startsWith('/login') || pathParam.startsWith('/app/')) {
-        // Next.js 静态资源直接使用路径（去掉开头的 /）
-        relativePath = pathParam.substring(1);
-    } else if (pathParam.startsWith('/')) {
-        // 其他以 / 开头的路径，去掉开头的 /
-        relativePath = pathParam.substring(1);
-    } else {
-        // 其他路径移除 /static/ 前缀
-        relativePath = pathParam.replace('/static/', '');
-    }
-
-    let filePath = path.join(process.cwd(), 'static', relativePath);
-
-    // 首先尝试添加 .html 扩展名（优先于目录处理）
-    const ext = path.extname(filePath);
-    if (!ext && !filePath.endsWith('/')) {
-        const htmlPath = filePath + '.html';
-        if (existsSync(htmlPath)) {
-            try {
-                const stats = statSync(htmlPath);
-                if (!stats.isDirectory()) {
-                    filePath = htmlPath;
-                }
-            } catch (e) {
-                // 忽略错误
-            }
-        }
-    }
-
-    // 如果文件不存在，检查是否是目录并尝试添加 index.html
-    if (!existsSync(filePath) || (existsSync(filePath) && statSync(filePath).isDirectory())) {
-        const currentPath = path.join(process.cwd(), 'static', relativePath);
-        if (existsSync(currentPath)) {
-            try {
-                const stats = statSync(currentPath);
-                if (stats.isDirectory()) {
-                    const indexPath = path.join(currentPath, 'index.html');
-                    if (existsSync(indexPath)) {
-                        filePath = indexPath;
-                    }
-                }
-            } catch (e) {
-                // 忽略错误
-            }
-        }
-    }
-
-    if (existsSync(filePath)) {
-        try {
-            const stats = statSync(filePath);
-            if (stats.isDirectory()) {
-                return false; // 仍然是目录，返回 false
-            }
-        } catch (e) {
-            return false;
-        }
-
-        const fileExt = path.extname(filePath);
-        const contentType = {
-            '.html': 'text/html',
-            '.css': 'text/css',
-            '.js': 'application/javascript',
-            '.png': 'image/png',
-            '.jpg': 'image/jpeg',
-            '.jpeg': 'image/jpeg',
-            '.svg': 'image/svg+xml',
-            '.ico': 'image/x-icon',
-            '.json': 'application/json',
-            '.woff': 'font/woff',
-            '.woff2': 'font/woff2',
-            '.ttf': 'font/ttf'
-        }[fileExt] || 'text/plain';
-
-        // 为HTML文件添加允许Next.js运行的CSP头（完全禁用CSP限制）
-        const headers = { 'Content-Type': contentType };
-        if (fileExt === '.html') {
-            // 使用最宽松的CSP策略
-            headers['Content-Security-Policy'] = "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;";
-        }
-
-        res.writeHead(200, headers);
-        res.end(readFileSync(filePath));
-        return true;
-    }
-    return false;
-}
 
 /**
  * Handle UI management API requests
@@ -3901,64 +3810,12 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
 /**
  * Initialize UI management features
  */
-export function initializeUIManagement() {
-    // Initialize log broadcasting for UI
-    if (!global.eventClients) {
-        global.eventClients = [];
-    }
-    if (!global.logBuffer) {
-        global.logBuffer = [];
-    }
-
-    // Override console.log to broadcast logs
-    const originalLog = console.log;
-    console.log = function(...args) {
-        originalLog.apply(console, args);
-        const message = args.map(arg => typeof arg === 'string' ? arg : JSON.stringify(arg)).join(' ');
-        const logEntry = {
-            timestamp: new Date().toISOString(),
-            level: 'info',
-            message: message
-        };
-        global.logBuffer.push(logEntry);
-        if (global.logBuffer.length > 100) {
-            global.logBuffer.shift();
-        }
-        broadcastEvent('log', logEntry);
-    };
-
-    // Override console.error to broadcast errors
-    const originalError = console.error;
-    console.error = function(...args) {
-        originalError.apply(console, args);
-        const message = args.map(arg => typeof arg === 'string' ? arg : JSON.stringify(arg)).join(' ');
-        const logEntry = {
-            timestamp: new Date().toISOString(),
-            level: 'error',
-            message: message
-        };
-        global.logBuffer.push(logEntry);
-        if (global.logBuffer.length > 100) {
-            global.logBuffer.shift();
-        }
-        broadcastEvent('log', logEntry);
-    };
-}
 
 /**
  * Helper function to broadcast events to UI clients
  * @param {string} eventType - The type of event
  * @param {any} data - The data to broadcast
  */
-export function broadcastEvent(eventType, data) {
-    if (global.eventClients && global.eventClients.length > 0) {
-        const payload = typeof data === 'string' ? data : JSON.stringify(data);
-        global.eventClients.forEach(client => {
-            client.write(`event: ${eventType}\n`);
-            client.write(`data: ${payload}\n\n`);
-        });
-    }
-}
 
 /**
  * Scan and analyze configuration files
@@ -4464,3 +4321,6 @@ function getProviderDisplayName(provider, providerType) {
 
     return provider.uuid || '未命名';
 }
+
+// 重新导出从 UI 模块导入的函数
+export { serveStaticFiles, initializeUIManagement, broadcastEvent };

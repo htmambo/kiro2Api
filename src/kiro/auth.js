@@ -11,10 +11,13 @@ export const KIRO_CONSTANTS = {
     USAGE_LIMITS_URL: 'https://q.{{region}}.amazonaws.com/getUsageLimits',
     DEFAULT_MODEL_NAME: 'claude-sonnet-4-20250514',
     AXIOS_TIMEOUT: 120000,
+    USER_AGENT: 'KiroIDE',
+    KIRO_VERSION: '0.7.45',  // 仿制Kiro官方客户端最新版本
     CONTENT_TYPE_JSON: 'application/json',
     ACCEPT_JSON: 'application/json',
     AUTH_METHOD_SOCIAL: 'social',
     AUTH_METHOD_IDC: 'IdC',
+    CHAT_TRIGGER_TYPE_MANUAL: 'MANUAL',
     ORIGIN_AI_EDITOR: 'AI_EDITOR',
     EXPIRE_WINDOW_MS: 5 * 60 * 1000,
     REFRESH_DEBOUNCE_MS: 30 * 1000,

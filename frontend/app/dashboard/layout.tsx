@@ -20,7 +20,7 @@ import { registerUnauthorizedHandler } from '@/lib/apiClient';
 const navItems = [
   { href: '/dashboard', icon: IconChartPie, label: '仪表盘' },
   { href: '/dashboard/config', icon: IconSettings, label: '配置管理' },
-  { href: '/dashboard/providers', icon: IconServer, label: '提供商池' },
+  { href: '/dashboard/providers', icon: IconServer, label: '号池管理' },
   { href: '/dashboard/credentials', icon: IconKey, label: '凭据文件' },
   { href: '/dashboard/usage', icon: IconChartLine, label: '用量统计' },
   { href: '/dashboard/logs', icon: IconTerminal, label: '运行日志' },
