@@ -35,10 +35,6 @@ export async function handleAPIRequests(method, path, req, res, currentConfig, a
 export function initializeAPIManagement(services) {
     return async function heartbeatAndRefreshToken() {
         console.log(`[Heartbeat] Server is running. Current time: ${new Date().toLocaleString()}`, Object.keys(services));
-        // 循环遍历所有已初始化的服务适配器，并尝试刷新令牌
-        // if (getProviderPoolManager()) {
-        //     await getProviderPoolManager().performHealthChecks(); // 定期执行健康检查
-        // }
         for (const providerKey in services) {
             const serviceAdapter = services[providerKey];
             try {

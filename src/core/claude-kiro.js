@@ -7,9 +7,10 @@ import * as os from 'os';
 import * as crypto from 'crypto';
 import * as http from 'http';
 import * as https from 'https';
-import { getProviderModels } from '../provider-models.js';
 import { countTokens } from '@anthropic-ai/tokenizer';
 import { MODEL_PROVIDER } from '../common.js';
+import { KIRO_MODELS } from './constants.js';
+
 // 导入公共摘要模块
 import {
     buildMessagesWithSummary,
@@ -126,9 +127,6 @@ function detectImageFormat(imageUrl) {
         return 'jpeg';  // 默认 JPEG
     }
 }
-
-// 从 provider-models.js 获取支持的模型列表
-const KIRO_MODELS = getProviderModels('claude-kiro-oauth');
 
 // 完整的模型映射表 - Anthropic官方模型ID到AWS CodeWhisperer模型ID
 // 注意：AWS CodeWhisperer模型ID使用点号分隔版本号（如claude-opus-4.5）

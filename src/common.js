@@ -2,18 +2,12 @@ import { promises as fs } from 'fs';
 import * as path from 'path';
 import * as http from 'http'; // Add http for IncomingMessage and ServerResponse types
 import * as crypto from 'crypto'; // Import crypto for MD5 hashing
-import { KiroService } from './claude/claude-kiro.js'; // Import KiroService
-import { ProviderStrategyFactory } from './provider-strategies.js';
+import { KiroService } from './core/claude-kiro.js'; // Import KiroService
 
 export const API_ACTIONS = {
     GENERATE_CONTENT: 'generateContent',
     STREAM_GENERATE_CONTENT: 'streamGenerateContent',
 };
-
-export const MODEL_PROTOCOL_PREFIX = {
-    // Model provider constants
-    CLAUDE: 'claude',
-}
 
 export const MODEL_PROVIDER = {
     // Model provider constants - Only Kiro OAuth
@@ -175,7 +169,7 @@ export async function handleStreamRequest(res, service, model, requestBody, from
         throw initialError; // 抛出让外层重试逻辑处理
     }
 
-    const addEvent = getProtocolPrefix(fromProvider) === MODEL_PROTOCOL_PREFIX.CLAUDE;
+    const addEvent = getProtocolPrefix(fromProvider) === 'claude';
 
     try {
         streamStarted = true;
@@ -310,7 +304,7 @@ export async function handleContentGenerationRequest(req, res, service, endpoint
     }
 
     const clientProviderMap = {
-        [ENDPOINT_TYPE.CLAUDE_MESSAGE]: MODEL_PROTOCOL_PREFIX.CLAUDE,
+        [ENDPOINT_TYPE.CLAUDE_MESSAGE]: 'claude',
     };
 
     const fromProvider = clientProviderMap[endpointType];
@@ -421,28 +415,28 @@ export async function handleContentGenerationRequest(req, res, service, endpoint
  * @returns {{model: string, isStream: boolean}} An object containing the model name and stream status.
  */
 function _extractModelAndStreamInfo(req, requestBody, fromProvider) {
-    const strategy = ProviderStrategyFactory.getStrategy(getProtocolPrefix(fromProvider));
+    const strategy = new ClaudeStrategy();
     return strategy.extractModelAndStreamInfo(req, requestBody);
 }
 
 async function _applySystemPromptFromFile(config, requestBody, toProvider) {
-    const strategy = ProviderStrategyFactory.getStrategy(getProtocolPrefix(toProvider));
+    const strategy = new ClaudeStrategy();
     return strategy.applySystemPromptFromFile(config, requestBody);
 }
 
 export async function _manageSystemPrompt(requestBody, provider) {
-    const strategy = ProviderStrategyFactory.getStrategy(getProtocolPrefix(provider));
+    const strategy = new ClaudeStrategy();
     await strategy.manageSystemPrompt(requestBody);
 }
 
 // Helper functions for content extraction and conversion
 export function extractResponseText(response, provider) {
-    const strategy = ProviderStrategyFactory.getStrategy(getProtocolPrefix(provider));
+    const strategy = new ClaudeStrategy();
     return strategy.extractResponseText(response);
 }
 
 export function extractPromptText(requestBody, provider) {
-    const strategy = ProviderStrategyFactory.getStrategy(getProtocolPrefix(provider));
+    const strategy = new ClaudeStrategy();
     return strategy.extractPromptText(requestBody);
 }
 
@@ -531,7 +525,7 @@ export function handleError(res, error) {
 export function extractSystemPromptFromRequestBody(requestBody, provider) {
     let incomingSystemText = '';
     switch (provider) {
-        case MODEL_PROTOCOL_PREFIX.CLAUDE:
+        case 'claude':
             if (typeof requestBody.system === 'string') {
                 incomingSystemText = requestBody.system;
             } else if (typeof requestBody.system === 'object') {
@@ -587,7 +581,7 @@ function createErrorResponse(error, fromProvider) {
     };
     
     switch (protocolPrefix) {
-        case MODEL_PROTOCOL_PREFIX.CLAUDE:
+        case 'claude':
             // Claude 非流式错误格式（外层有 type 标记）
             return {
                 type: "error",  // 核心区分标记
@@ -630,7 +624,7 @@ function createStreamErrorResponse(error, fromProvider) {
     };
     
     switch (protocolPrefix) {
-        case MODEL_PROTOCOL_PREFIX.CLAUDE:
+        case 'claude':
             // Claude 流式错误格式（SSE event + data）
             const claudeError = {
                 type: "error",

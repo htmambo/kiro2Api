@@ -28,14 +28,6 @@ async function startServer() {
     const server = http.createServer(requestHandlerInstance);
     server.listen(CONFIG.SERVER_PORT, CONFIG.HOST, async () => {
         console.log(`--- Unified API Server Configuration ---`);
-        const configuredProviders = Array.isArray(CONFIG.DEFAULT_MODEL_PROVIDERS) && CONFIG.DEFAULT_MODEL_PROVIDERS.length > 0
-            ? CONFIG.DEFAULT_MODEL_PROVIDERS
-            : [CONFIG.MODEL_PROVIDER];
-        const uniqueProviders = [...new Set(configuredProviders)];
-        console.log(`  Primary Model Provider: ${CONFIG.MODEL_PROVIDER}`);
-        if (uniqueProviders.length > 1) {
-            console.log(`  Additional Model Providers: ${uniqueProviders.slice(1).join(', ')}`);
-        }
         console.log(`  System Prompt File: ${CONFIG.SYSTEM_PROMPT_FILE_PATH || 'Default'}`);
         console.log(`  System Prompt Mode: ${CONFIG.SYSTEM_PROMPT_MODE}`);
         console.log(`  Host: ${CONFIG.HOST}`);

@@ -88,7 +88,7 @@ export async function handleKiroOAuth(currentConfig, providerPoolManager = null)
         console.log(`${KIRO_OAUTH_CONFIG.logPrefix} Client expires at: ${new Date(clientSecretExpiresAt * 1000).toISOString()}`);
 
         // 动态导入 KiroService (避免循环依赖)
-        const { KiroService } = await import('./claude/claude-kiro.js');
+        const { KiroService } = await import('./core/claude-kiro.js');
 
         // 创建临时实例用于设备授权
         const kiroService = new KiroService(currentConfig);

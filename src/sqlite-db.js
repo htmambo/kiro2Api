@@ -19,6 +19,11 @@ class SQLiteDB {
      */
     init(dbPath = 'data/provider_pool.db') {
         if (this.db) {
+            if (this.dbPath !== dbPath) {
+                console.warn(
+                    `[SQLiteDB] Database already initialized with path: ${this.dbPath}, ignoring new path: ${dbPath}`
+                );
+            }
             return this.db;
         }
 
@@ -35,6 +40,7 @@ class SQLiteDB {
         // 启用 WAL 模式提高并发性能
         this.db.pragma('journal_mode = WAL');
         this.db.pragma('synchronous = NORMAL');
+        this.db.pragma('busy_timeout = 5000');
 
         // 创建表
         this._createTables();
@@ -104,6 +110,15 @@ class SQLiteDB {
             CREATE INDEX IF NOT EXISTS idx_providers_healthy ON providers(is_healthy, is_disabled);
             CREATE INDEX IF NOT EXISTS idx_usage_cache_expires ON usage_cache(expires_at);
             CREATE INDEX IF NOT EXISTS idx_health_history_uuid ON health_check_history(provider_uuid);
+
+            CREATE INDEX IF NOT EXISTS idx_providers_type_health
+            ON providers(provider_type, is_healthy, is_disabled);
+
+            CREATE INDEX IF NOT EXISTS idx_usage_cache_type_expires
+            ON usage_cache(provider_type, expires_at);
+
+            CREATE INDEX IF NOT EXISTS idx_health_history_time
+            ON health_check_history(check_time);
         `);
     }
 
@@ -405,7 +420,7 @@ class SQLiteDB {
      */
     setUsageCache(uuid, providerType, usageData, ttlSeconds = 300) {
         const db = this.getDb();
-        const expiresAt = new Date(Date.now() + ttlSeconds * 1000).toISOString();
+        const expiresAt = Date.now() + ttlSeconds * 1000;
         const stmt = db.prepare(`
             INSERT INTO usage_cache (provider_uuid, provider_type, usage_data, expires_at, cached_at)
             VALUES (?, ?, ?, ?, datetime('now'))
@@ -429,9 +444,9 @@ class SQLiteDB {
             SELECT * FROM usage_cache
             WHERE provider_uuid = ?
             AND provider_type = ?
-            AND expires_at > datetime('now')
+            AND expires_at > ?
         `);
-        const row = stmt.get(uuid, providerType);
+        const row = stmt.get(uuid, providerType, Date.now());
         if (!row) return null;
 
         try {
@@ -455,9 +470,9 @@ class SQLiteDB {
         const stmt = db.prepare(`
             SELECT * FROM usage_cache
             WHERE provider_type = ?
-            AND expires_at > datetime('now')
+            AND expires_at > ?
         `);
-        const rows = stmt.all(providerType);
+        const rows = stmt.all(providerType, Date.now());
         const cache = new Map();
 
         for (const row of rows) {
@@ -478,8 +493,8 @@ class SQLiteDB {
      */
     cleanExpiredUsageCache() {
         const db = this.getDb();
-        const stmt = db.prepare(`DELETE FROM usage_cache WHERE expires_at <= datetime('now')`);
-        const result = stmt.run();
+        const stmt = db.prepare(`DELETE FROM usage_cache WHERE expires_at <= ?`);
+        const result = stmt.run(Date.now());
         if (result.changes > 0) {
             console.log(`[SQLiteDB] Cleaned ${result.changes} expired usage cache entries`);
         }

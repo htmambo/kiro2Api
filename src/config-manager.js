@@ -102,7 +102,6 @@ export async function initializeConfig(args = process.argv.slice(2), configFileP
                     // SQLite 模式配置
                     USE_SQLITE_POOL: false,
                     SQLITE_DB_PATH: "data/provider_pool.db",
-                    USAGE_CACHE_TTL: 300,
                     HEALTH_CHECK_CONCURRENCY: 5,
                     USAGE_QUERY_CONCURRENCY: 10
                 };
@@ -135,7 +134,6 @@ export async function initializeConfig(args = process.argv.slice(2), configFileP
                 // SQLite 模式配置
                 USE_SQLITE_POOL: false,
                 SQLITE_DB_PATH: "data/provider_pool.db",
-                USAGE_CACHE_TTL: 300,
                 HEALTH_CHECK_CONCURRENCY: 5,
                 USAGE_QUERY_CONCURRENCY: 10
             };

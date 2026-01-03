@@ -12,10 +12,6 @@
  * 异常池 -> (定期重试) -> 检查池 -> (检查通过) -> 健康池
  */
 
-import { getRedisManager } from './redis-manager.js';
-import fs from 'fs/promises';
-import path from 'path';
-
 // 错误类型分类
 const ERROR_TYPES = {
     // 临时性错误（可恢复）
@@ -57,17 +53,11 @@ const CONFIG = {
     // 自动恢复检查间隔（毫秒）
     AUTO_RECOVERY_INTERVAL: 10 * 60 * 1000,  // 10 分钟
 
-    // Redis 缓存 TTL
-    CACHE_TTL: {
-        POOL_STATUS: 300,        // 池状态缓存 5 分钟
-        ERROR_COUNT: 600         // 错误计数缓存 10 分钟
-    }
 };
 
 class AccountPoolManager {
     constructor(config = {}) {
         this.config = { ...CONFIG, ...config };
-        this.redis = getRedisManager();
 
         // 内存中的池状态（用于快速访问）
         this.pools = {
@@ -99,22 +89,15 @@ class AccountPoolManager {
     async initialize(providers) {
         console.log('[AccountPool] Initializing account pool manager...');
 
-        // 从 Redis 加载池状态
-        await this._loadPoolStateFromRedis();
-
-        // 如果 Redis 中没有数据，从 providers 初始化
-        if (this.pools[POOL_STATUS.HEALTHY].size === 0) {
-            for (const provider of providers) {
-                this.pools[POOL_STATUS.HEALTHY].set(provider.id, {
-                    id: provider.id,
-                    type: provider.type,
-                    config: provider.config,
-                    addedAt: Date.now()
-                });
-            }
-            await this._savePoolStateToRedis();
+        for (const provider of providers) {
+            this.pools[POOL_STATUS.HEALTHY].set(provider.id, {
+                id: provider.id,
+                type: provider.type,
+                config: provider.config,
+                addedAt: Date.now()
+            });
         }
-
+            
         // 启动自动恢复检查
         this._startAutoRecovery();
 
@@ -145,13 +128,6 @@ class AccountPoolManager {
             await this._moveToPool(providerId, POOL_STATUS.CHECKING, error);
             console.log(`[AccountPool] ⚠️ Account ${providerId} moved to CHECKING pool (error threshold reached)`);
         }
-
-        // 缓存错误计数到 Redis
-        await this.redis.set(
-            `account:error:${providerId}`,
-            newCount,
-            this.config.CACHE_TTL.ERROR_COUNT
-        );
     }
 
     /**
@@ -160,7 +136,6 @@ class AccountPoolManager {
     async recordSuccess(providerId) {
         // 重置错误计数
         this.errorCounts.set(providerId, 0);
-        await this.redis.delete(`account:error:${providerId}`);
 
         // 如果账号在检查池，移回健康池
         if (this.pools[POOL_STATUS.CHECKING].has(providerId)) {
@@ -286,16 +261,6 @@ class AccountPoolManager {
         // 添加到目标池
         this.pools[targetStatus].set(providerId, account);
         this.lastCheckTime.set(providerId, Date.now());
-
-        // 保存到 Redis
-        await this._savePoolStateToRedis();
-
-        // 缓存池状态
-        await this.redis.set(
-            `account:pool:${providerId}`,
-            targetStatus,
-            this.config.CACHE_TTL.POOL_STATUS
-        );
     }
 
     /**
@@ -376,78 +341,6 @@ class AccountPoolManager {
         );
 
         console.log(`[AccountPool] Auto-recovery started (interval: ${this.config.AUTO_RECOVERY_INTERVAL / 1000}s)`);
-    }
-
-    /**
-     * 从 Redis 加载池状态
-     */
-    async _loadPoolStateFromRedis() {
-        if (!this.redis.isAvailable()) {
-            console.log('[AccountPool] Redis not available, skipping state load');
-            return;
-        }
-
-        try {
-            const poolState = await this.redis.get('account:pool:state');
-
-            if (poolState) {
-                // 恢复池状态
-                for (const [status, accounts] of Object.entries(poolState.pools)) {
-                    this.pools[status] = new Map(accounts);
-                }
-
-                // 恢复错误计数
-                if (poolState.errorCounts) {
-                    this.errorCounts = new Map(poolState.errorCounts);
-                }
-
-                // 恢复最后检查时间
-                if (poolState.lastCheckTime) {
-                    this.lastCheckTime = new Map(poolState.lastCheckTime);
-                }
-
-                console.log('[AccountPool] Pool state loaded from Redis');
-                this.cacheStats.hits++;
-            } else {
-                console.log('[AccountPool] No pool state found in Redis');
-                this.cacheStats.misses++;
-            }
-
-            this.cacheStats.total++;
-        } catch (error) {
-            console.error('[AccountPool] Failed to load pool state from Redis:', error.message);
-            this.cacheStats.misses++;
-            this.cacheStats.total++;
-        }
-    }
-
-    /**
-     * 保存池状态到 Redis
-     */
-    async _savePoolStateToRedis() {
-        if (!this.redis.isAvailable()) {
-            return;
-        }
-
-        try {
-            const poolState = {
-                pools: {},
-                errorCounts: Array.from(this.errorCounts.entries()),
-                lastCheckTime: Array.from(this.lastCheckTime.entries()),
-                updatedAt: Date.now()
-            };
-
-            // 转换 Map 为数组以便序列化
-            for (const [status, pool] of Object.entries(this.pools)) {
-                poolState.pools[status] = Array.from(pool.entries());
-            }
-
-            await this.redis.set('account:pool:state', poolState, 3600); // 1 小时 TTL
-
-            console.log('[AccountPool] Pool state saved to Redis');
-        } catch (error) {
-            console.error('[AccountPool] Failed to save pool state to Redis:', error.message);
-        }
     }
 
     /**

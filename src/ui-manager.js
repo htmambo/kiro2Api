@@ -4,9 +4,8 @@ import path from 'path';
 import multer from 'multer';
 import crypto from 'crypto';
 import { getRequestBody } from './common.js';
-import { getAllProviderModels, getProviderModels } from './provider-models.js';
 import { CONFIG } from './config-manager.js';
-import { serviceInstances, getServiceAdapter } from './claude/claude-kiro.js';
+import { serviceInstances, getServiceAdapter } from './core/claude-kiro.js';
 import { initApiService, getProviderPoolManager, isSQLiteMode } from './service-manager.js';
 import { sqliteDB } from './sqlite-db.js';
 import { handleKiroOAuth } from './oauth-handlers.js';
@@ -24,6 +23,7 @@ import {
     findDuplicateUserId
 } from './provider-utils.js';
 import { formatKiroUsage } from './usage-service.js';
+import { KIRO_MODELS } from './core/constants.js';
 
 // Token存储到本地文件中
 const TOKEN_STORE_FILE = './configs/token-store.json';
@@ -1056,7 +1056,6 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
             // SQLite 配置
             if (newConfig.USE_SQLITE_POOL !== undefined) currentConfig.USE_SQLITE_POOL = newConfig.USE_SQLITE_POOL;
             if (newConfig.SQLITE_DB_PATH !== undefined) currentConfig.SQLITE_DB_PATH = newConfig.SQLITE_DB_PATH;
-            if (newConfig.USAGE_CACHE_TTL !== undefined) currentConfig.USAGE_CACHE_TTL = newConfig.USAGE_CACHE_TTL;
             if (newConfig.HEALTH_CHECK_CONCURRENCY !== undefined) currentConfig.HEALTH_CHECK_CONCURRENCY = newConfig.HEALTH_CHECK_CONCURRENCY;
             if (newConfig.USAGE_QUERY_CONCURRENCY !== undefined) currentConfig.USAGE_QUERY_CONCURRENCY = newConfig.USAGE_QUERY_CONCURRENCY;
 
@@ -1107,7 +1106,6 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
                     // SQLite 配置
                     USE_SQLITE_POOL: currentConfig.USE_SQLITE_POOL,
                     SQLITE_DB_PATH: currentConfig.SQLITE_DB_PATH,
-                    USAGE_CACHE_TTL: currentConfig.USAGE_CACHE_TTL,
                     HEALTH_CHECK_CONCURRENCY: currentConfig.HEALTH_CHECK_CONCURRENCY,
                     USAGE_QUERY_CONCURRENCY: currentConfig.USAGE_QUERY_CONCURRENCY
                 };
@@ -1205,10 +1203,6 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
 
         // 尝试添加账号池统计信息（不影响原有数据）
         try {
-            const { getRedisManager } = await import('./redis-manager.js');
-            const redis = getRedisManager();
-            const redisStats = await redis.getStats();
-
             // 直接从 providerPools 计算统计数据
             let healthyCount = 0;
             let checkingCount = 0;
@@ -1257,7 +1251,7 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
                 total: totalCount,
                 totalUsageCount,
                 totalErrorCount,
-                cacheHitRate: redisStats?.cacheStats?.hitRate || '0%'
+                cacheHitRate: '0%'
             };
 
             console.log(`[UI API] Pool stats: healthy=${healthyCount}, checking=${checkingCount}, banned=${bannedCount}, total=${totalCount}`);
@@ -1323,9 +1317,8 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
 
     // Get available models for all providers or specific provider type
     if (method === 'GET' && pathParam === '/api/provider-models') {
-        const allModels = getAllProviderModels();
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(allModels));
+        res.end(JSON.stringify(KIRO_MODELS));
         return true;
     }
 
@@ -1333,7 +1326,7 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
     const providerModelsMatch = pathParam.match(/^\/api\/provider-models\/([^\/]+)$/);
     if (method === 'GET' && providerModelsMatch) {
         const providerType = decodeURIComponent(providerModelsMatch[1]);
-        const models = getProviderModels(providerType);
+        const models = KIRO_MODELS;
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
             providerType,
@@ -1500,8 +1493,18 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
 
             // Update provider pool manager if available
             if (providerPoolManager) {
-                providerPoolManager.providerPools = providerPools;
-                providerPoolManager.initializeProviderStatus();
+                if (isSQLiteMode()) {
+                    sqliteDB.upsertProvider({
+                        ...updatedProvider,
+                        providerType
+                    });
+                    console.log(`[UI API] Synced updated provider to SQLite: ${providerUuid}`);
+                } else {
+                    providerPoolManager.providerPools = providerPools;
+                    if (typeof providerPoolManager.initializeProviderStatus === 'function') {
+                        providerPoolManager.initializeProviderStatus();
+                    }
+                }
             }
 
             // 广播更新事件
@@ -3226,7 +3229,7 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
             console.log(`[AWS SSO] Client expires at: ${new Date(clientSecretExpiresAt * 1000).toISOString()}`);
 
             // 动态导入 KiroService
-            const { KiroService } = await import('./claude/claude-kiro.js');
+            const { KiroService } = await import('./core/claude-kiro.js');
 
             // 创建临时实例用于设备授权
             const kiroService = new KiroService(currentConfig);
