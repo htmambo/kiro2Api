@@ -136,7 +136,7 @@ export function createRequestHandler(config, accountPoolManager) {
 
         try {
             // Handle API requests
-            const apiHandled = await handleAPIRequests(method, path, req, res, currentConfig, apiService, poolManager, PROMPT_LOG_FILENAME);
+            const apiHandled = await handleAPIRequests(method, path, req, res, currentConfig, apiService, accountPoolManager, PROMPT_LOG_FILENAME);
             if (apiHandled) return;
 
             // Fallback for unmatched routes

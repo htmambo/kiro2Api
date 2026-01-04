@@ -103,6 +103,10 @@ export function pathsEqual(path1, path2) {
  * @returns {boolean} 如果文件正在被使用则返回 true
  */
 export function isPathUsed(relativePath, fileName, usedPaths) {
+    // console.log('relativePath: ', relativePath);
+    // console.log('fileName: ', fileName);
+    // console.log('usedPaths: ', usedPaths);
+    // console.log('---------------------');
     if (!relativePath) return false;
     
     // 标准化相对路径

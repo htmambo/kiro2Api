@@ -42,72 +42,29 @@ function isAccountMode(config) {
 }
 
 function readAccountsFromStorage(currentConfig, poolManager = null) {
-    const accountMode = isAccountMode(currentConfig);
-    if (accountMode) {
-        const filePath = currentConfig.ACCOUNT_POOL_FILE_PATH || ACCOUNT_POOL_FILE;
-        let accountPool = { accounts: [] };
-
-        // 尽量优先使用内存池（带运行时字段）
-        if (poolManager && typeof poolManager.listAccounts === 'function') {
-            accountPool = { accounts: poolManager.listAccounts() };
-        } else if (filePath && existsSync(filePath)) {
-            try {
-                const parsed = JSON.parse(readFileSync(filePath, 'utf-8'));
-                if (parsed && typeof parsed === 'object' && Array.isArray(parsed.accounts)) {
-                    accountPool = parsed;
-                }
-            } catch (error) {
-                console.warn('[UI API] Failed to read account pool:', error.message);
-            }
-        }
-
-        return { accountMode: true, filePath, accountPool };
-    }
-
-    // legacy：从 provider_pools.json 中读取默认 providerType 的账号列表
     const filePath = currentConfig.ACCOUNT_POOL_FILE_PATH || ACCOUNT_POOL_FILE;
-    let accountPools = {};
-    if (poolManager && typeof poolManager.exportToJson === 'function' && isSQLiteMode()) {
+    let accountPool = { accounts: [] };
+
+    // 尽量优先使用内存池（带运行时字段）
+    if (poolManager && typeof poolManager.listAccounts === 'function') {
+        accountPool = { accounts: poolManager.listAccounts() };
+    } else if (filePath && existsSync(filePath)) {
         try {
-            accountPools = poolManager.exportToJson();
+            const parsed = JSON.parse(readFileSync(filePath, 'utf-8'));
+            if (parsed && typeof parsed === 'object' && Array.isArray(parsed.accounts)) {
+                accountPool = parsed;
+            }
         } catch (error) {
-            console.warn('[UI API] Failed to export providers from SQLite:', error.message);
+            console.warn('[UI API] Failed to read account pool:', error.message);
         }
     }
 
-    if (Object.keys(accountPools).length === 0 && filePath && existsSync(filePath)) {
-        try {
-            accountPools = JSON.parse(readFileSync(filePath, 'utf-8'));
-        } catch (error) {
-            console.warn('[UI API] Failed to read account pools:', error.message);
-        }
-    }
-
-    const accounts = Array.isArray(accountPools)
-        ? accountPools
-        : [];
-
-    return {
-        accountMode: false,
-        filePath,
-        accountPools,
-        accountPool: { accounts }
-    };
+    return { accountMode: true, filePath, accountPool };
 }
 
 function writeAccountsToStorage(currentConfig, accountPool, legacyProviderPools = null) {
-    if (isAccountMode(currentConfig)) {
-        const filePath = currentConfig.ACCOUNT_POOL_FILE_PATH || ACCOUNT_POOL_FILE;
-        writeFileSync(filePath, JSON.stringify(accountPool, null, 2), 'utf8');
-        return filePath;
-    }
-
     const filePath = currentConfig.ACCOUNT_POOL_FILE_PATH || ACCOUNT_POOL_FILE;
-    const accountPools = legacyProviderPools && typeof legacyProviderPools === 'object'
-        ? legacyProviderPools
-        : {};
-    accountPools = accountPool.accounts;
-    writeFileSync(filePath, JSON.stringify(accountPools, null, 2), 'utf8');
+    writeFileSync(filePath, JSON.stringify(accountPool, null, 2), 'utf8');
     return filePath;
 }
 
@@ -117,15 +74,6 @@ async function syncPoolManagerAfterAccountsChange(currentConfig, poolManager, ac
     if (typeof poolManager.setAccountPool === 'function') {
         poolManager.setAccountPool(accountPool);
         return;
-    }
-
-    if (!isAccountMode(currentConfig) && typeof poolManager.initializeProviderStatus === 'function') {
-        const providerPools = legacyProviderPools && typeof legacyProviderPools === 'object'
-            ? legacyProviderPools
-            : {};
-        providerPools[DEFAULT_PROVIDER_TYPE_FOR_ACCOUNTS] = accountPool.accounts;
-        poolManager.providerPools = providerPools;
-        poolManager.initializeProviderStatus();
     }
 }
 
@@ -688,33 +636,13 @@ const upload = multer({
  * 动态导入config-manager并重新初始化配置
  * @returns {Promise<Object>} 返回重载后的配置对象
  */
-async function reloadConfig(providerPoolManager) {
+async function reloadConfig() {
     try {
         // Import config manager dynamically
         const { initializeConfig } = await import('./config/manager.js');
 
         // Reload main config
         const newConfig = await initializeConfig(process.argv.slice(2), './configs/config.json');
-        // Update provider pool manager if available
-        if (providerPoolManager) {
-            if (isSQLiteMode()) {
-                // SQLite 模式：重新导入 JSON 到 SQLite
-                for (const [providerType, providers] of Object.entries(newConfig.providerPools)) {
-                    if (Array.isArray(providers)) {
-                        for (const provider of providers) {
-                            sqliteDB.upsertProvider({
-                                ...provider,
-                                providerType
-                            });
-                        }
-                    }
-                }
-            } else {
-                // JSON 模式：更新内存并重新初始化
-                providerPoolManager.providerPools = newConfig.providerPools;
-                providerPoolManager.initializeProviderStatus();
-            }
-        }
 
         // Update global CONFIG
         Object.assign(CONFIG, newConfig);
@@ -846,16 +774,6 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
             saveOAuthStates().catch(err => {
                 console.error('[Kiro OAuth] Failed to persist after cleanup:', err.message);
             });
-
-            // 通知 provider pool manager 重新加载
-            if (providerPoolManager) {
-                try {
-                    await providerPoolManager.reloadPools();
-                    console.log('[Kiro OAuth Web] Provider pools reloaded');
-                } catch (e) {
-                    console.warn('[Kiro OAuth Web] Failed to reload pools:', e.message);
-                }
-            }
 
             res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
             res.end(generateOAuthResultPage(true, `账号 #${accountNumber} 授权成功！`, {
@@ -1177,8 +1095,33 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
             nodeVersion: process.version,
             serverTime: new Date().toLocaleString(),
             memoryUsage: `${Math.round(memUsage.rss / 1024 / 1024)} MB / ${Math.round(memUsage.rss * 1.5 / 1024 / 1024)} MB`,
-            uptime: process.uptime()
+            uptime: process.uptime(),
+            isWorker: !!process.env.IS_WORKER_PROCESS // 告知前端是否运行在 Worker 模式
         }));
+        return true;
+    }
+
+    // Restart server (Worker mode only)
+    if (method === 'POST' && pathParam === '/api/restart') {
+        if (process.send && process.env.IS_WORKER_PROCESS) {
+            console.log('[UI API] Sending restart request to master...');
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ 
+                success: true, 
+                message: '服务器正在重启...' 
+            }));
+            
+            // 稍微延迟发送，让响应先返回
+            setTimeout(() => {
+                process.send({ type: 'restart_request' });
+            }, 100);
+        } else {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ 
+                success: false, 
+                message: '当前未运行在 Cluster Worker 模式，无法自动重启。请手动重启服务。' 
+            }));
+        }
         return true;
     }
 
@@ -1416,23 +1359,44 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
     // Reset all accounts health status
     if (method === 'POST' && pathParam === '/api/accounts/reset-health') {
         try {
-            const { accountPool, providerPools } = readAccountsFromStorage(currentConfig, providerPoolManager);
-            let resetCount = 0;
-            for (const acc of accountPool.accounts) {
-                if (!acc.isHealthy) {
-                    acc.isHealthy = true;
-                    acc.errorCount = 0;
-                    acc.lastErrorTime = null;
-                    acc.lastErrorMessage = null;
-                    resetCount++;
-                }
-            }
-
-            const filePath = writeAccountsToStorage(currentConfig, accountPool, providerPools);
-            await syncPoolManagerAfterAccountsChange(currentConfig, providerPoolManager, accountPool, providerPools);
+            providerPoolManager.markAllAccountsHealthy();
+            const resetCount = providerPoolManager.accountPool.accounts.length;
+            const filePath = writeAccountsToStorage(currentConfig, providerPoolManager.accountPool);
 
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ success: true, resetCount, filePath }));
+            return true;
+        } catch (error) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: { message: error.message } }));
+            return true;
+        }
+    }
+
+    // Reset all accounts health status for a specific provider type
+    const resetHealthMatch = pathParam.match(/^\/api\/accounts\/([^\/]+)\/reset-health$/);
+    if (method === 'POST' && resetHealthMatch) {
+        const accountUuid = resetHealthMatch[1];
+
+        try {
+            const result = providerPoolManager.markAccountHealthy(accountUuid);
+            const filePath = writeAccountsToStorage(currentConfig, providerPoolManager.accountPool);
+            const resetCount = result ? 1 : 0;
+            if(result) {
+                // 广播更新事件
+                broadcastEvent('config_update', {
+                    action: 'reset_health',
+                    filePath: filePath,
+                    resetCount,
+                    timestamp: new Date().toISOString()
+                });
+            }
+
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+                success: true,
+                message: `成功重置 ${resetCount} 个节点的健康状态`,
+            }));
             return true;
         } catch (error) {
             res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -1665,377 +1629,11 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
         }
     }
 
-    // Get provider pools summary
-    if (method === 'GET' && pathParam === '/api/providers') {
-        let providerPools = {};
-        const filePath = currentConfig.PROVIDER_POOLS_FILE_PATH || PROVIDER_POOLS_FILE;
-
-        // 如果启用了 SQLite 模式，从 SQLite 读取（包含运行时数据）
-        if (isSQLiteMode() && providerPoolManager && typeof providerPoolManager.exportToJson === 'function') {
-            try {
-                // SQLiteProviderPoolManager.exportToJson() 返回带运行时数据的完整配置
-                providerPools = providerPoolManager.exportToJson();
-                console.log('[UI API] Loaded providers from SQLite');
-            } catch (error) {
-                console.warn('[UI API] Failed to load from SQLite:', error.message);
-            }
-        }
-
-        // 如果没有从 SQLite 加载到数据，尝试从 JSON 加载
-        if (Object.keys(providerPools).length === 0) {
-            try {
-                if (providerPoolManager && providerPoolManager.providerPools) {
-                    providerPools = providerPoolManager.providerPools;
-                } else if (filePath && existsSync(filePath)) {
-                    const poolsData = JSON.parse(readFileSync(filePath, 'utf-8'));
-                    providerPools = poolsData;
-                }
-            } catch (error) {
-                console.warn('[UI API] Failed to load provider pools:', error.message);
-            }
-        }
-
-        // 确保每个 provider type 都是数组，并且不包含以 _ 开头的内部字段
-        const cleanedPools = {};
-        for (const key in providerPools) {
-            if (!key.startsWith('_')) {
-                cleanedPools[key] = Array.isArray(providerPools[key]) ? providerPools[key] : [];
-            }
-        }
-        providerPools = cleanedPools;
-
-        // 尝试添加账号池统计信息（不影响原有数据）
-        try {
-            // 直接从 providerPools 计算统计数据
-            let healthyCount = 0;
-            let checkingCount = 0;
-            let bannedCount = 0;
-            let totalUsageCount = 0;
-            let totalErrorCount = 0;
-
-            for (const [providerType, accounts] of Object.entries(providerPools)) {
-                if (Array.isArray(accounts)) {
-                    for (const account of accounts) {
-                        totalUsageCount += account.usageCount || 0;
-                        totalErrorCount += account.errorCount || 0;
-
-                        // 解析错误消息，添加友好提示
-                        if (account.lastErrorMessage) {
-                            account.errorStatus = parseErrorMessage(account.lastErrorMessage);
-                        } else {
-                            account.errorStatus = { status: '正常', message: '', statusType: 'ok' };
-                        }
-
-                        // 判断池类型
-                        if (account.isDisabled) {
-                            account.poolType = 'disabled';
-                            bannedCount++;
-                        } else if (!account.isHealthy) {
-                            account.poolType = 'banned';
-                            bannedCount++;
-                        } else if (account.errorCount > 0 && account.isHealthy) {
-                            account.poolType = 'checking';
-                            checkingCount++;
-                        } else {
-                            account.poolType = 'healthy';
-                            healthyCount++;
-                        }
-                    }
-                }
-            }
-
-            const totalCount = healthyCount + checkingCount + bannedCount;
-
-            // 添加账号池统计信息（不破坏原有结构）
-            providerPools._accountPoolStats = {
-                healthy: healthyCount,
-                checking: checkingCount,
-                banned: bannedCount,
-                total: totalCount,
-                totalUsageCount,
-                totalErrorCount,
-                cacheHitRate: '0%'
-            };
-
-            console.log(`[UI API] Pool stats: healthy=${healthyCount}, checking=${checkingCount}, banned=${bannedCount}, total=${totalCount}`);
-        } catch (error) {
-            console.warn('[UI API] Failed to add account pool stats:', error.message, error.stack);
-            // 不影响原有功能，继续返回
-        }
-
-        // 最终验证：确保所有非 _ 开头的字段都是数组
-        for (const key in providerPools) {
-            if (!key.startsWith('_') && !Array.isArray(providerPools[key])) {
-                console.warn(`[UI API] Warning: ${key} is not an array, converting to empty array`);
-                providerPools[key] = [];
-            }
-        }
-
-        res.writeHead(200, getNoCacheHeaders());
-        res.end(JSON.stringify(providerPools));
-        return true;
-    }
-
-    // Get specific provider type details
-    const providerTypeMatch = pathParam.match(/^\/api\/providers\/([^\/]+)$/);
-    if (method === 'GET' && providerTypeMatch) {
-        const providerType = decodeURIComponent(providerTypeMatch[1]);
-        let providers = [];
-        const filePath = currentConfig.PROVIDER_POOLS_FILE_PATH || PROVIDER_POOLS_FILE;
-
-        // 如果启用了 SQLite 模式，从 SQLite 读取
-        if (isSQLiteMode() && providerPoolManager && typeof providerPoolManager.getProviderPools === 'function') {
-            try {
-                providers = providerPoolManager.getProviderPools(providerType);
-            } catch (error) {
-                console.warn('[UI API] Failed to load from SQLite:', error.message);
-            }
-        }
-
-        // 如果没有从 SQLite 加载到数据，尝试从 JSON 加载
-        if (providers.length === 0) {
-            try {
-                let providerPools = {};
-                if (providerPoolManager && providerPoolManager.providerPools) {
-                    providerPools = providerPoolManager.providerPools;
-                } else if (filePath && existsSync(filePath)) {
-                    const poolsData = JSON.parse(readFileSync(filePath, 'utf-8'));
-                    providerPools = poolsData;
-                }
-                providers = providerPools[providerType] || [];
-            } catch (error) {
-                console.warn('[UI API] Failed to load provider pools:', error.message);
-            }
-        }
-
-        res.writeHead(200, getNoCacheHeaders());
-        res.end(JSON.stringify({
-            providerType,
-            providers,
-            totalCount: providers.length,
-            healthyCount: providers.filter(p => p.isHealthy).length
-        }));
-        return true;
-    }
-
     // Get available models for all providers or specific provider type
-    if (method === 'GET' && pathParam === '/api/provider-models') {
+    if (method === 'GET' && pathParam === '/api/full-models') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(KIRO_MODELS));
         return true;
-    }
-
-    // Get available models for a specific provider type
-    const providerModelsMatch = pathParam.match(/^\/api\/provider-models\/([^\/]+)$/);
-    if (method === 'GET' && providerModelsMatch) {
-        const providerType = decodeURIComponent(providerModelsMatch[1]);
-        const models = KIRO_MODELS;
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-            providerType,
-            models
-        }));
-        return true;
-    }
-
-    // Add new provider configuration
-    if (method === 'POST' && pathParam === '/api/providers') {
-        try {
-            const body = await getRequestBody(req);
-            const { providerType, providerConfig } = body;
-
-            if (!providerType || !providerConfig) {
-                res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: { message: 'providerType and providerConfig are required' } }));
-                return true;
-            }
-
-            // Generate UUID if not provided
-            if (!providerConfig.uuid) {
-                providerConfig.uuid = generateUUID();
-            }
-
-            // Set default values
-            providerConfig.isHealthy = providerConfig.isHealthy !== undefined ? providerConfig.isHealthy : true;
-            providerConfig.lastUsed = providerConfig.lastUsed || null;
-            providerConfig.usageCount = providerConfig.usageCount || 0;
-            providerConfig.errorCount = providerConfig.errorCount || 0;
-            providerConfig.lastErrorTime = providerConfig.lastErrorTime || null;
-
-            const filePath = currentConfig.PROVIDER_POOLS_FILE_PATH || PROVIDER_POOLS_FILE;
-            let providerPools = {};
-            
-            // Load existing pools
-            if (existsSync(filePath)) {
-                try {
-                    const fileContent = readFileSync(filePath, 'utf8');
-                    providerPools = JSON.parse(fileContent);
-                } catch (readError) {
-                    console.warn('[UI API] Failed to read existing provider pools:', readError.message);
-                }
-            }
-
-            // Add new provider to the appropriate type
-            if (!providerPools[providerType]) {
-                providerPools[providerType] = [];
-            }
-            providerPools[providerType].push(providerConfig);
-
-            // Save to file
-            writeFileSync(filePath, JSON.stringify(providerPools, null, 2), 'utf8');
-            console.log(`[UI API] Added new provider to ${providerType}: ${providerConfig.uuid}`);
-
-            // Update provider pool manager if available
-            const providerPoolManager = getAccountPoolManager();
-            if (providerPoolManager) {
-                if (isSQLiteMode()) {
-                    // SQLite 模式：直接插入到数据库
-                    const { sqliteDB } = await import('./services/storage/sqlite-db.js');
-                    sqliteDB.upsertProvider({
-                        ...providerConfig,
-                        providerType
-                    });
-                    console.log(`[UI API] Synced new provider to SQLite: ${providerConfig.uuid}`);
-                } else {
-                    // JSON 模式：重新初始化状态
-                    providerPoolManager.providerPools = providerPools;
-                    providerPoolManager.initializeProviderStatus();
-                }
-            }
-
-            // 广播更新事件
-            broadcastEvent('config_update', {
-                action: 'add',
-                filePath: filePath,
-                providerType,
-                providerConfig,
-                timestamp: new Date().toISOString()
-            });
-
-            // 广播提供商更新事件
-            broadcastEvent('provider_update', {
-                action: 'add',
-                providerType,
-                providerConfig,
-                timestamp: new Date().toISOString()
-            });
-
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                success: true,
-                message: 'Provider added successfully',
-                provider: providerConfig,
-                providerType
-            }));
-            return true;
-        } catch (error) {
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: { message: error.message } }));
-            return true;
-        }
-    }
-
-    // Update specific provider configuration
-    const updateProviderMatch = pathParam.match(/^\/api\/providers\/([^\/]+)\/([^\/]+)$/);
-    if (method === 'PUT' && updateProviderMatch) {
-        const providerType = decodeURIComponent(updateProviderMatch[1]);
-        const providerUuid = updateProviderMatch[2];
-
-        try {
-            const body = await getRequestBody(req);
-            const { providerConfig } = body;
-
-            if (!providerConfig) {
-                res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: { message: 'providerConfig is required' } }));
-                return true;
-            }
-
-            const accountPoolPath = currentConfig.ACCOUNT_POOL_FILE_PATH || ACCOUNT_POOL_FILE;
-            const filePath = accountPoolPath;
-            let accountPool = { accounts: [] };
-
-            // Load existing account pool
-            if (existsSync(accountPoolPath)) {
-                try {
-                    const fileContent = readFileSync(accountPoolPath, 'utf8');
-                    accountPool = JSON.parse(fileContent);
-                } catch (readError) {
-                    res.writeHead(404, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({ error: { message: 'Account pool file not found' } }));
-                    return true;
-                }
-            }
-
-            // Find and update the provider
-            const providers = accountPool.accounts || [];
-            const providerIndex = providers.findIndex(p => p.uuid === providerUuid);
-            
-            if (providerIndex === -1) {
-                res.writeHead(404, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: { message: 'Provider not found' } }));
-                return true;
-            }
-
-            // Update provider while preserving certain fields
-            const existingProvider = providers[providerIndex];
-            const updatedProvider = {
-                ...existingProvider,
-                ...providerConfig,
-                uuid: providerUuid, // Ensure UUID doesn't change
-                lastUsed: existingProvider.lastUsed, // Preserve usage stats
-                usageCount: existingProvider.usageCount,
-                errorCount: existingProvider.errorCount,
-                lastErrorTime: existingProvider.lastErrorTime
-            };
-
-            providers[providerIndex] = updatedProvider;
-            accountPool.accounts = providers;
-
-            // Save to file
-            writeFileSync(filePath, JSON.stringify(accountPool, null, 2), 'utf8');
-            console.log(`[UI API] Updated provider ${providerUuid} in ${providerType}`);
-
-            // Update provider pool manager if available
-            if (providerPoolManager) {
-                if (isSQLiteMode()) {
-                    sqliteDB.upsertProvider({
-                        ...updatedProvider,
-                        providerType
-                    });
-                    console.log(`[UI API] Synced updated provider to SQLite: ${providerUuid}`);
-                } else {
-                    const providerPools = {
-                        [DEFAULT_PROVIDER_TYPE_FOR_ACCOUNTS]: accountPool.accounts
-                    };
-                    providerPoolManager.providerPools = providerPools;
-                    if (typeof providerPoolManager.initializeProviderStatus === 'function') {
-                        providerPoolManager.initializeProviderStatus();
-                    }
-                }
-            }
-
-            // 广播更新事件
-            broadcastEvent('config_update', {
-                action: 'update',
-                filePath: filePath,
-                providerType,
-                providerConfig: updatedProvider,
-                timestamp: new Date().toISOString()
-            });
-
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                success: true,
-                message: 'Provider updated successfully',
-                provider: updatedProvider
-            }));
-            return true;
-        } catch (error) {
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: { message: error.message } }));
-            return true;
-        }
     }
 
     // Delete specific provider configuration
@@ -2105,23 +1703,6 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
             // Save to file
             writeFileSync(filePath, JSON.stringify(accountPool, null, 2), 'utf8');
             console.log(`[UI API] Deleted provider ${providerUuid} from ${providerType}`);
-
-            // Update provider pool manager if available
-            const providerPoolManager = getAccountPoolManager();
-            if (providerPoolManager) {
-                if (isSQLiteMode()) {
-                    // SQLite 模式：从数据库中删除
-                    const { sqliteDB } = await import('./services/storage/sqlite-db.js');
-                    sqliteDB.deleteProvider(providerUuid);
-                    console.log(`[UI API] Synced deletion to SQLite: ${providerUuid}`);
-                } else {
-                    const providerPools = {
-                        [DEFAULT_PROVIDER_TYPE_FOR_ACCOUNTS]: accountPool.accounts
-                    };
-                    providerPoolManager.providerPools = providerPools;
-                    providerPoolManager.initializeProviderStatus();
-                }
-            }
 
             // 广播更新事件
             broadcastEvent('config_update', {
@@ -2252,25 +1833,6 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
             writeFileSync(filePath, JSON.stringify(accountPool, null, 2), 'utf8');
             console.log(`[Batch Delete] Deleted ${deleteResults.success.length} providers from ${providerType}`);
 
-            // 更新 provider pool manager
-            const accountPoolManager = getAccountPoolManager();
-            if (accountPoolManager) {
-                if (isSQLiteMode()) {
-                    // SQLite 模式：从数据库中删除
-                    const { sqliteDB } = await import('./services/storage/sqlite-db.js');
-                    for (const item of deleteResults.success) {
-                        sqliteDB.deleteProvider(item.uuid);
-                    }
-                    console.log(`[Batch Delete] Synced deletions to SQLite`);
-                } else {
-                    const providerPools = {
-                        [DEFAULT_PROVIDER_TYPE_FOR_ACCOUNTS]: accountPool.accounts
-                    };
-                    accountPoolManager.providerPools = providerPools;
-                    accountPoolManager.initializeProviderStatus();
-                }
-            }
-
             // 广播更新事件
             broadcastEvent('provider_update', {
                 action: 'batch_delete',
@@ -2366,80 +1928,6 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
                 success: true,
                 message: `Provider ${action}d successfully`,
                 provider: provider
-            }));
-            return true;
-        } catch (error) {
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: { message: error.message } }));
-            return true;
-        }
-    }
-
-    // Reset all providers health status for a specific provider type
-    const resetHealthMatch = pathParam.match(/^\/api\/providers\/([^\/]+)\/reset-health$/);
-    if (method === 'POST' && resetHealthMatch) {
-        const providerType = decodeURIComponent(resetHealthMatch[1]);
-
-        try {
-            const filePath = currentConfig.PROVIDER_POOLS_FILE_PATH || PROVIDER_POOLS_FILE;
-            let providerPools = {};
-            
-            // Load existing pools
-            if (existsSync(filePath)) {
-                try {
-                    const fileContent = readFileSync(filePath, 'utf8');
-                    providerPools = JSON.parse(fileContent);
-                } catch (readError) {
-                    res.writeHead(404, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({ error: { message: 'Provider pools file not found' } }));
-                    return true;
-                }
-            }
-
-            // Reset health status for all providers of this type
-            const providers = providerPools[providerType] || [];
-            
-            if (providers.length === 0) {
-                res.writeHead(404, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: { message: 'No providers found for this type' } }));
-                return true;
-            }
-
-            let resetCount = 0;
-            providers.forEach(provider => {
-                if (!provider.isHealthy) {
-                    provider.isHealthy = true;
-                    provider.errorCount = 0;
-                    provider.lastErrorTime = null;
-                    resetCount++;
-                }
-            });
-
-            // Save to file
-            writeFileSync(filePath, JSON.stringify(providerPools, null, 2), 'utf8');
-            console.log(`[UI API] Reset health status for ${resetCount} providers in ${providerType}`);
-
-            // Update provider pool manager if available
-            if (providerPoolManager) {
-                providerPoolManager.providerPools = providerPools;
-                providerPoolManager.initializeProviderStatus();
-            }
-
-            // 广播更新事件
-            broadcastEvent('config_update', {
-                action: 'reset_health',
-                filePath: filePath,
-                providerType,
-                resetCount,
-                timestamp: new Date().toISOString()
-            });
-
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                success: true,
-                message: `成功重置 ${resetCount} 个节点的健康状态`,
-                resetCount,
-                totalCount: providers.length
             }));
             return true;
         } catch (error) {
@@ -3580,71 +3068,11 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
                     fs.writeFile(tokenFilePath, JSON.stringify(credentialsData, null, 2))
                         .then(async () => {
                             console.log(`[AWS SSO] Token saved to: ${tokenFilePath}`);
-
                             // 自动添加到 provider_pools.json
                             try {
-                                const poolsFilePath = currentConfig.PROVIDER_POOLS_FILE_PATH || PROVIDER_POOLS_FILE;
-                                let providerPools = {};
-
-                                // 读取现有池
-                                if (existsSync(poolsFilePath)) {
-                                    const fileContent = readFileSync(poolsFilePath, 'utf8');
-                                    providerPools = JSON.parse(fileContent);
-                                }
-
-                                // 确保 claude-kiro-oauth 数组存在
-                                if (!providerPools['claude-kiro-oauth']) {
-                                    providerPools['claude-kiro-oauth'] = [];
-                                }
-
-                                // 检查是否已存在相同路径的配置
-                                const relativePath = path.relative(process.cwd(), tokenFilePath);
-                                const normalizedPath = relativePath.replace(/\\/g, '/');
-                                const exists = providerPools['claude-kiro-oauth'].some(p => {
-                                    const existingPath = (p.KIRO_OAUTH_CREDS_FILE_PATH || '').replace(/\\/g, '/');
-                                    return existingPath === normalizedPath || existingPath === './' + normalizedPath;
-                                });
-
-                                if (!exists) {
-                                    // 创建新的提供商配置
-                                    const newProvider = {
-                                        uuid: generateUUID(),
-                                        KIRO_OAUTH_CREDS_FILE_PATH: normalizedPath,
-                                        isHealthy: true,
-                                        usageCount: 0,
-                                        errorCount: 0,
-                                        lastUsed: null,
-                                        lastErrorTime: null,
-                                        isDisabled: false,
-                                        lastHealthCheckTime: new Date().toISOString(),
-                                        lastHealthCheckModel: 'claude-haiku-4-5',
-                                        lastErrorMessage: null,
-                                        checkModelName: '',
-                                        checkHealth: true,
-                                        notSupportedModels: []
-                                    };
-
-                                    providerPools['claude-kiro-oauth'].push(newProvider);
-
-                                    // 保存到文件
-                                    writeFileSync(poolsFilePath, JSON.stringify(providerPools, null, 2), 'utf8');
-                                    console.log(`[AWS SSO] Auto-added to provider pool with UUID: ${newProvider.uuid}`);
-
-                                    // 更新 provider pool manager（区分 SQLite 和 JSON 模式）
-                                    if (providerPoolManager) {
-                                        if (isSQLiteMode()) {
-                                            // SQLite 模式：直接插入数据库
-                                            sqliteDB.upsertProvider({
-                                                ...newProvider,
-                                                providerType: 'claude-kiro-oauth'
-                                            });
-                                        } else {
-                                            // JSON 模式：重新初始化状态
-                                            providerPoolManager.providerPools = providerPools;
-                                            providerPoolManager.initializeProviderStatus();
-                                        }
-                                    }
-
+                                const result = providerPoolManager.addTokenFile(tokenFilePath);
+                                console.log(`[AWS SSO] Token added to provider_pools.json: ${result}`);
+                                if(result === 1) {
                                     // 广播提供商更新事件
                                     broadcastEvent('provider_update', {
                                         action: 'add',
@@ -3652,52 +3080,9 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
                                         providerConfig: newProvider,
                                         timestamp: new Date().toISOString()
                                     });
-                                } else {
-                                    // 已存在的账号，重置健康状态（因为 token 已刷新）
-                                    const existingProvider = providerPools['claude-kiro-oauth'].find(p => {
-                                        const existingPath = (p.KIRO_OAUTH_CREDS_FILE_PATH || '').replace(/\\/g, '/');
-                                        return existingPath === normalizedPath || existingPath === './' + normalizedPath;
-                                    });
-                                    if (existingProvider) {
-                                        existingProvider.isHealthy = true;
-                                        existingProvider.errorCount = 0;
-                                        existingProvider.lastErrorTime = null;
-                                        existingProvider.lastErrorMessage = null;
-                                        existingProvider.lastHealthCheckTime = new Date().toISOString();
-
-                                        // 保存到文件
-                                        writeFileSync(poolsFilePath, JSON.stringify(providerPools, null, 2), 'utf8');
-                                        console.log(`[AWS SSO] Reset health status for existing provider: ${existingProvider.uuid}`);
-
-                                        // 更新 provider pool manager（区分 SQLite 和 JSON 模式）
-                                        if (providerPoolManager) {
-                                            if (isSQLiteMode()) {
-                                                // SQLite 模式：更新数据库
-                                                sqliteDB.updateProviderHealth(existingProvider.uuid, true, {
-                                                    errorCount: 0,
-                                                    lastErrorTime: null,
-                                                    lastErrorMessage: null,
-                                                    lastHealthCheckTime: new Date().toISOString()
-                                                });
-                                            } else {
-                                                // JSON 模式：重新初始化状态
-                                                providerPoolManager.providerPools = providerPools;
-                                                providerPoolManager.initializeProviderStatus();
-                                            }
-                                        }
-
-                                        // 广播提供商更新事件
-                                        broadcastEvent('provider_update', {
-                                            action: 'update',
-                                            providerType: 'claude-kiro-oauth',
-                                            providerConfig: existingProvider,
-                                            timestamp: new Date().toISOString()
-                                        });
-                                    }
                                 }
                             } catch (error) {
-                                console.error('[AWS SSO] Failed to auto-add to provider pool:', error.message);
-                                // 不阻止OAuth成功，继续执行
+                                console.error(`[AWS SSO] Failed to add token to provider_pools.json: ${error.message}`);
                             }
 
                             // 广播OAuth成功事件
@@ -3752,7 +3137,7 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
     if (method === 'POST' && pathParam === '/api/reload-config') {
         try {
             // 调用重载配置函数
-            const newConfig = await reloadConfig(providerPoolManager);
+            const newConfig = await reloadConfig();
 
             // 广播更新事件
             broadcastEvent('config_update', {
@@ -3801,10 +3186,10 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
 /**
  * Scan and analyze configuration files
  * @param {Object} currentConfig - The current configuration object
- * @param {Object} providerPoolManager - Provider pool manager instance
+ * @param {Object} accountPoolManager - Account pool manager instance
  * @returns {Promise<Array>} Array of configuration file objects
  */
-async function scanConfigFiles(currentConfig, providerPoolManager) {
+async function scanConfigFiles(currentConfig, accountPoolManager) {
     const configFiles = [];
     
     // 只扫描configs目录
@@ -3816,22 +3201,16 @@ async function scanConfigFiles(currentConfig, providerPoolManager) {
     }
 
     const usedPaths = new Set(); // 存储已使用的路径，用于判断关联状态
-
-    // 从配置中提取所有OAuth凭据文件路径 - 标准化路径格式
-    addToUsedPaths(usedPaths, currentConfig.KIRO_OAUTH_CREDS_FILE_PATH);
-
     // 使用最新的提供商池数据
-    let providerPools = currentConfig.providerPools;
-    if (providerPoolManager && providerPoolManager.providerPools) {
-        providerPools = providerPoolManager.providerPools;
+    let accounts = currentConfig.accountPool.accounts;
+    if (accountPoolManager && accountPoolManager.accountPools) {
+        accounts = accountPoolManager.accountPools.accounts;
     }
 
     // 检查提供商池文件中的所有OAuth凭据路径 - 标准化路径格式
-    if (providerPools) {
-        for (const [providerType, providers] of Object.entries(providerPools)) {
-            for (const provider of providers) {
-                addToUsedPaths(usedPaths, provider.KIRO_OAUTH_CREDS_FILE_PATH);
-            }
+    if (accounts) {
+        for (const account of accounts) {
+            addToUsedPaths(usedPaths, account.KIRO_OAUTH_CREDS_FILE_PATH);
         }
     }
 

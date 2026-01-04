@@ -12,6 +12,7 @@
     "google-auth-library": "^10.1.0",
     "lodash": "^4.17.21",
     "multer": "^2.0.2",
+    "next": "^16.1.1",
     "open": "^10.2.0",
     "redis": "^4.7.0",
     "undici": "^7.12.0",

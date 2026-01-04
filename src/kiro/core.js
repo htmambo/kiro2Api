@@ -4915,15 +4915,8 @@ export function getServiceAdapter(config) {
     const providerKey = config.uuid ? provider + config.uuid : provider;
 
     if (!serviceInstances[providerKey] || !(serviceInstances[providerKey] instanceof KiroService)) {
-        if (provider === MODEL_PROVIDER.KIRO_API || provider === 'claude-kiro-oauth') {
-            serviceInstances[providerKey] = new KiroService(config);
-        } else {
-            // Default to Kiro adapter for any provider
-            console.warn(`[Adapter] Unknown provider ${provider}, defaulting to Kiro adapter`);
-            serviceInstances[providerKey] = new KiroService(config);
-        }
+        serviceInstances[providerKey] = new KiroService(config);
     } else {
-        // 更新缓存实例的 config（确保 ENABLE_THINKING_BY_DEFAULT 等配置被正确传递）
         serviceInstances[providerKey].config = config;
     }
     return serviceInstances[providerKey];

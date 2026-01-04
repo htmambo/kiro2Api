@@ -35,11 +35,10 @@ async function startServer() {
         console.log(`  Required API Key: ${CONFIG.REQUIRED_API_KEY}`);
         console.log(`  Prompt Logging: ${CONFIG.PROMPT_LOG_MODE}${CONFIG.PROMPT_LOG_FILENAME ? ` (to ${CONFIG.PROMPT_LOG_FILENAME})` : ''}`);
         console.log(`------------------------------------------`);
-        console.log(`\nUnified API Server running on http://${CONFIG.HOST}:${CONFIG.SERVER_PORT}`);
-        console.log(`Supports multiple API formats:`);
-        console.log(`  • Claude-compatible: /v1/messages`);
-        console.log(`  • Health check: /health`);
-        console.log(`  • UI Management Console: http://${CONFIG.HOST}:${CONFIG.SERVER_PORT}/`);
+        console.log(`Unified API Server running on http://${CONFIG.HOST}:${CONFIG.SERVER_PORT}`);
+        console.log(`  Claude-compatible: /v1/messages`);
+        console.log(`  Health check: /health`);
+        console.log(`  UI Management Console: http://${CONFIG.HOST}:${CONFIG.SERVER_PORT}/`);
 
         // Auto-open browser to UI (only if host is localhost or 127.0.0.1)
         if (CONFIG.HOST === 'localhost' || CONFIG.HOST === '127.0.0.1') {

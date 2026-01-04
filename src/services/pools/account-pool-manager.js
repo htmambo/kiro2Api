@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { getServiceAdapter } from '../../kiro/core.js';
+import { v4 as uuidv4 } from 'uuid';
 
 /**
  * Account Pool Manager - 单一账号池管理器（移除 providerType 概念）
@@ -112,6 +113,34 @@ export class AccountPoolManager {
 
     listAccounts() {
         return this.accountPool.accounts;
+    }
+
+    addTokenFile(tokenFilePath) {
+        const relativePath = path.relative(process.cwd(), tokenFilePath);
+        const normalizedPath = relativePath.replace(/\\/g, '/');
+        const exists = this.accountPool.accounts.some(p => {
+            const existingPath = (p.KIRO_OAUTH_CREDS_FILE_PATH || '').replace(/\\/g, '/');
+            return existingPath === normalizedPath || existingPath === './' + normalizedPath;
+        });
+
+        if (!exists) {
+            const newAccount = {
+                uuid: uuidv4(),
+                KIRO_OAUTH_CREDS_FILE_PATH: normalizedPath,
+                isHealthy: true,
+                isDisabled: false,
+                lastUsed: null,
+                usageCount: 0,
+                errorCount: 0,
+                lastErrorTime: null,
+                lastHealthCheckTime: null,
+                lastHealthCheckModel: null,
+                lastErrorMessage: null,
+            };
+            this.accountPool.accounts.push(newAccount);
+        }
+        this._initializeAccountDefaults();
+        this._debouncedSave();
     }
 
     /**
@@ -272,6 +301,28 @@ export class AccountPoolManager {
         this._debouncedSave();
     }
 
+    markAllAccountsUnhealthy() {
+        this.accountPool.accounts.forEach((account) => {
+            account.isHealthy = false;
+            account.errorCount = 0;
+            account.lastErrorTime = null;
+            account.lastErrorMessage = null;
+            account.lastHealthCheckTime = new Date().toISOString();
+        });
+        this._debouncedSave();
+    }
+    
+    markAllAccountsHealthy() {
+        this.accountPool.accounts.forEach((account) => {
+            account.isHealthy = true;
+            account.errorCount = 0;
+            account.lastErrorTime = null;
+            account.lastErrorMessage = null;
+            account.lastHealthCheckTime = new Date().toISOString();
+        });
+        this._debouncedSave();
+    }
+
     disableAccount(uuid) {
         const account = this._findAccount(uuid);
         if (!account) {
@@ -387,7 +438,7 @@ export class AccountPoolManager {
                     return { success: false, modelName, errorMessage: 'Service adapter does not support generateContent()' };
                 }
                 await adapter.generateContent(modelName, req);
-                return { success: true, modelName, errorMessage: null, userInfo: null };
+                return { success: true, modelName, errorMessage: null };
             } catch (error) {
                 lastError = error;
             }

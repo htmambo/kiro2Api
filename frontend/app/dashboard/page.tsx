@@ -12,7 +12,8 @@ import {
   IconRocket,
   IconCode,
   IconBrandOpenai,
-  IconBrandAws
+  IconBrandAws,
+  IconPower
 } from '@tabler/icons-react';
 import { CardSpotlight } from '@/components/ui/card-spotlight';
 import { PageLoadingSkeleton } from '@/components/ui/skeleton';
@@ -23,6 +24,7 @@ interface SystemInfo {
   nodeVersion: string;
   serverTime: string;
   memoryUsage: string;
+  isWorker?: boolean;
 }
 
 interface PoolStats {
@@ -161,6 +163,30 @@ export default function DashboardPage() {
   const [quotaSummary, setQuotaSummary] = useState<QuotaSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [restarting, setRestarting] = useState(false);
+
+  const handleRestart = async () => {
+    if (!confirm('确定要重启服务器吗？服务将暂时不可用。页面将在5秒后刷新。')) return;
+
+    setRestarting(true);
+    try {
+      const res = await fetchWithAuth('/api/restart', { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        // Show success state briefly before reload
+        setTimeout(() => {
+          window.location.reload();
+        }, 5000);
+      } else {
+        alert('重启失败: ' + (data.message || '未知错误'));
+        setRestarting(false);
+      }
+    } catch (error) {
+       console.error('Restart failed:', error);
+       alert('重启请求发送失败');
+       setRestarting(false);
+    }
+  };
 
   const greeting = useMemo(() => getGreeting(), []);
 
@@ -258,7 +284,19 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        <button
+        <div className="flex items-center gap-2">
+          {systemInfo?.isWorker && (
+            <button
+              onClick={handleRestart}
+              disabled={restarting}
+              className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500/20 transition-all disabled:opacity-50"
+            >
+              {restarting ? <IconLoader2 className="w-4 h-4 animate-spin" /> : <IconPower className="w-4 h-4" />}
+              {restarting ? '重启中...' : '重启'}
+            </button>
+          )}
+
+          <button
           onClick={fetchAllData}
           disabled={refreshing}
           className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-white/5 border border-white/10 hover:bg-white/10 transition-all disabled:opacity-50"
@@ -267,6 +305,7 @@ export default function DashboardPage() {
           {refreshing ? '刷新中...' : '刷新'}
         </button>
       </div>
+    </div>
 
       {/* 额度概览 */}
       {quotaSummary && quotaSummary.accountsWithQuota > 0 && (

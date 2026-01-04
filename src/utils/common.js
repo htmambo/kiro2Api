@@ -684,3 +684,11 @@ function createStreamErrorResponse(error, fromProvider) {
             return `data: ${JSON.stringify(defaultError)}\n\n`;
     }
 }
+
+function _log(level, message) {
+    const levels = { debug: 0, info: 1, warn: 2, error: 3 };
+    if (levels[level] >= levels[this.logLevel]) {
+        const logMethod = level === 'debug' ? 'log' : level;
+        console[logMethod](`[AccountPoolManager] ${message}`);
+    }
+}
