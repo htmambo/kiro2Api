@@ -2345,14 +2345,8 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
             // Broadcast update event
             broadcastEvent('config_update', {
                 action: 'quick_link',
-                filePath: accountsFilePath,
+                filePath: filePath,
                 newProvider,
-                timestamp: new Date().toISOString()
-            });
-
-            broadcastEvent('provider_update', {
-                action: 'add',
-                providerConfig: newProvider,
                 timestamp: new Date().toISOString()
             });
 

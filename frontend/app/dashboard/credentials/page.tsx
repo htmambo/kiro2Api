@@ -12,7 +12,8 @@ import {
   IconKey,
   IconLock,
   IconFileText,
-  IconLoader2
+  IconLoader2,
+  IconLink
 } from '@tabler/icons-react';
 import { CardSpotlight } from '@/components/ui/card-spotlight';
 import { Badge } from '@/components/ui/badge';
@@ -56,6 +57,7 @@ export default function CredentialsPage() {
   const [selectedFile, setSelectedFile] = useState<CredentialFile | null>(null);
   const [fileContent, setFileContent] = useState<string>('');
   const [showModal, setShowModal] = useState(false);
+  const [linkingPaths, setLinkingPaths] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     loadCredentials();
@@ -155,6 +157,53 @@ export default function CredentialsPage() {
       }
       console.error('Failed to delete file:', error);
       toast.error('删除失败', error instanceof Error ? error.message : undefined);
+    }
+  };
+
+  const linkFile = async (filePath: string) => {
+    // 防止重复点击
+    setLinkingPaths(prev => {
+      if (prev.has(filePath)) return prev;
+      const next = new Set(prev);
+      next.add(filePath);
+      return next;
+    });
+
+    try {
+      const response = await fetchWithAuth('/api/quick-link-provider', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ filePath }),
+      });
+
+      if (!response.ok) {
+        const message = await getErrorMessage(response, '关联失败');
+        throw new Error(message);
+      }
+
+      const data = await response.json();
+
+      // 检查响应体中的 success 字段
+      if (!data?.success) {
+        throw new Error(data?.message || data?.error?.message || '关联失败');
+      }
+
+      await loadCredentials();
+      toast.success('关联成功', data?.message || '凭据已关联');
+    } catch (error) {
+      if (isUnauthorizedError(error)) {
+        return;
+      }
+      console.error('Failed to link credential file:', error);
+      toast.error('关联失败', error instanceof Error ? error.message : undefined);
+    } finally {
+      setLinkingPaths(prev => {
+        const next = new Set(prev);
+        next.delete(filePath);
+        return next;
+      });
     }
   };
 
@@ -364,6 +413,20 @@ export default function CredentialsPage() {
                 </div>
 
                 <div className="flex items-center gap-2">
+                  {!file.isUsed && (
+                    <button
+                      onClick={() => linkFile(file.path)}
+                      disabled={linkingPaths.has(file.path)}
+                      className="px-3 py-1.5 text-sm rounded-lg border border-blue-500/50 text-blue-400 hover:bg-blue-500/10 transition-colors flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {linkingPaths.has(file.path) ? (
+                        <IconLoader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <IconLink className="w-4 h-4" />
+                      )}
+                      <span>{linkingPaths.has(file.path) ? '关联中' : '关联'}</span>
+                    </button>
+                  )}
                   <button
                     onClick={() => viewFile(file)}
                     className="px-3 py-1.5 text-sm rounded-lg border border-white/10 hover:bg-white/5 transition-colors flex items-center gap-1"
