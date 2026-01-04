@@ -109,10 +109,6 @@ export function getAccountPoolManager() {
     return accountPoolManager;
 }
 
-export function getActivePoolManager() {
-    return accountPoolManager;
-}
-
 export function getAccountPoolMode() {
     return accountPoolMode;
 }

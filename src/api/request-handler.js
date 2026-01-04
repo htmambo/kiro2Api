@@ -3,17 +3,17 @@ import { handleError, isAuthorized } from '../utils/common.js';
 import { handleUIApiRequests, serveStaticFiles } from '../ui-manager.js';
 import { handleAPIRequests } from './manager.js';
 import { getApiService } from '../services/manager.js';
-import { getActivePoolManager } from '../services/manager.js';
+import { getAccountPoolManager } from '../services/manager.js';
 import { MODEL_PROVIDER } from '../utils/common.js';
 import { PROMPT_LOG_FILENAME } from '../config/manager.js';
 /**
  * Main request handler. It authenticates the request, determines the endpoint type,
  * and delegates to the appropriate specialized handler function.
  * @param {Object} config - The server configuration
- * @param {Object} poolManager - Pool manager instance (provider/account)
+ * @param {Object} accountPoolManager - Pool manager instance (provider/account)
  * @returns {Function} - The request handler function
  */
-export function createRequestHandler(config, poolManager) {
+export function createRequestHandler(config, accountPoolManager) {
     return async function requestHandler(req, res) {
         // Deep copy the config for each request to allow dynamic modification
         const currentConfig = deepmerge({}, config);
@@ -37,7 +37,7 @@ export function createRequestHandler(config, poolManager) {
             if (served) return;
         }
 
-        const uiHandled = await handleUIApiRequests(method, path, req, res, currentConfig, poolManager);
+        const uiHandled = await handleUIApiRequests(method, path, req, res, currentConfig, accountPoolManager);
         if (uiHandled) return;
 
         console.log(`\n${new Date().toLocaleString()}`);
@@ -96,30 +96,16 @@ export function createRequestHandler(config, poolManager) {
             return true;
         }
 
-        // Handle API requests
-        // Allow overriding MODEL_PROVIDER via request header
-        const modelProviderHeader = req.headers['model-provider'];
-        if (modelProviderHeader) {
-            currentConfig.MODEL_PROVIDER = modelProviderHeader;
-            console.log(`[Config] MODEL_PROVIDER overridden by header to: ${currentConfig.MODEL_PROVIDER}`);
-        }
-          
+        currentConfig.MODEL_PROVIDER = 'claude-kiro-oauth';
         // Check if the first path segment matches a MODEL_PROVIDER and switch if it does
         const pathSegments = path.split('/').filter(segment => segment.length > 0);
         if (pathSegments.length > 0) {
             const firstSegment = pathSegments[0];
-            const isValidProvider = Object.values(MODEL_PROVIDER).includes(firstSegment);
+            const isValidProvider = firstSegment === 'claude-kiro-oauth';
             if (firstSegment && isValidProvider) {
-                currentConfig.MODEL_PROVIDER = firstSegment;
-                console.log(`[Config] MODEL_PROVIDER overridden by path segment to: ${currentConfig.MODEL_PROVIDER}`);
                 pathSegments.shift();
                 path = '/' + pathSegments.join('/');
                 requestUrl.pathname = path;
-            } else if (firstSegment === 'v1') {
-                currentConfig.MODEL_PROVIDER = 'claude-kiro-oauth';
-                console.log(`[Config] MODEL_PROVIDER overridden by path segment to: ${currentConfig.MODEL_PROVIDER}`);
-            } else if (firstSegment && !isValidProvider) {
-                console.log(`[Config] Ignoring invalid MODEL_PROVIDER in path segment: ${firstSegment}`);
             }
         }
 
@@ -129,13 +115,10 @@ export function createRequestHandler(config, poolManager) {
             apiService = await getApiService(currentConfig);
         } catch (error) {
             handleError(res, { statusCode: 500, message: `Failed to get API service: ${error.message}` });
-            const activePoolManager = poolManager || getActivePoolManager();
-            if (activePoolManager && currentConfig.uuid) {
-                if (typeof activePoolManager.markAccountUnhealthy === 'function') {
-                    activePoolManager.markAccountUnhealthy(currentConfig.uuid, error);
-                } else if (typeof activePoolManager.markProviderUnhealthy === 'function') {
-                    // 传递完整的 error 对象,让 health check 识别限流错误
-                    activePoolManager.markProviderUnhealthy(currentConfig.MODEL_PROVIDER, { uuid: currentConfig.uuid }, error);
+            const activeAccountPoolManager = poolManager || getAccountPoolManager();
+            if (activeAccountPoolManager && currentConfig.uuid) {
+                if (typeof activeAccountPoolManager.markAccountUnhealthy === 'function') {
+                    activeAccountPoolManager.markAccountUnhealthy(currentConfig.uuid, error);
                 }
             }
             return;

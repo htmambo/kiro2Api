@@ -106,7 +106,6 @@ export async function logConversation(type, content, logMode, logFilename) {
 export function isAuthorized(req, requestUrl, REQUIRED_API_KEY) {
     const authHeader = req.headers['authorization'];
     const queryKey = requestUrl.searchParams.get('key');
-    const googApiKey = req.headers['x-goog-api-key'];
     const claudeApiKey = req.headers['x-api-key']; // Claude-specific header
 
     // Check for Bearer token in Authorization header
@@ -122,7 +121,7 @@ export function isAuthorized(req, requestUrl, REQUIRED_API_KEY) {
         return true;
     }
 
-    console.log(`[Auth] Unauthorized request denied. Bearer: "${authHeader ? 'present' : 'N/A'}", Query Key: "${queryKey}", x-goog-api-key: "${googApiKey}", x-api-key: "${claudeApiKey}"`);
+    console.log(`[Auth] Unauthorized request denied. Bearer: "${authHeader ? 'present' : 'N/A'}", Query Key: "${queryKey}", x-api-key: "${claudeApiKey}"`);
     return false;
 }
 
@@ -157,9 +156,6 @@ function _markPoolHealthy(toProvider, poolManager, uuid) {
         poolManager.markAccountHealthy(uuid);
         return;
     }
-    if (typeof poolManager.markProviderHealthy === 'function') {
-        poolManager.markProviderHealthy(toProvider, { uuid });
-    }
 }
 
 function _markPoolUnhealthy(toProvider, poolManager, uuid, error) {
@@ -167,9 +163,6 @@ function _markPoolUnhealthy(toProvider, poolManager, uuid, error) {
     if (typeof poolManager.markAccountUnhealthy === 'function') {
         poolManager.markAccountUnhealthy(uuid, error);
         return;
-    }
-    if (typeof poolManager.markProviderUnhealthy === 'function') {
-        poolManager.markProviderUnhealthy(toProvider, { uuid }, error);
     }
 }
 
@@ -503,7 +496,7 @@ export function handleError(res, error) {
             suggestions = [
                 'Verify your OAuth credentials are valid',
                 'Try re-authenticating by deleting the credentials file',
-                'Check if your Google Cloud project has the necessary permissions'
+                'Check if your Cloud project has the necessary permissions'
             ];
             break;
         case 403:

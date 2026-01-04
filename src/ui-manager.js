@@ -6,7 +6,7 @@ import crypto from 'crypto';
 import { getRequestBody } from './utils/common.js';
 import { CONFIG } from './config/manager.js';
 import { serviceInstances, getServiceAdapter } from './kiro/core.js';
-import { initApiService, getActivePoolManager, isSQLiteMode } from './services/manager.js';
+import { initApiService, getAccountPoolManager, isSQLiteMode } from './services/manager.js';
 import { sqliteDB } from './services/storage/sqlite-db.js';
 import { handleKiroOAuth } from './services/oauth-handlers.js';
 import {
@@ -65,32 +65,32 @@ function readAccountsFromStorage(currentConfig, poolManager = null) {
     }
 
     // legacy：从 provider_pools.json 中读取默认 providerType 的账号列表
-    const filePath = currentConfig.PROVIDER_POOLS_FILE_PATH || PROVIDER_POOLS_FILE;
-    let providerPools = {};
+    const filePath = currentConfig.ACCOUNT_POOL_FILE_PATH || ACCOUNT_POOL_FILE;
+    let accountPools = {};
     if (poolManager && typeof poolManager.exportToJson === 'function' && isSQLiteMode()) {
         try {
-            providerPools = poolManager.exportToJson();
+            accountPools = poolManager.exportToJson();
         } catch (error) {
             console.warn('[UI API] Failed to export providers from SQLite:', error.message);
         }
     }
 
-    if (Object.keys(providerPools).length === 0 && filePath && existsSync(filePath)) {
+    if (Object.keys(accountPools).length === 0 && filePath && existsSync(filePath)) {
         try {
-            providerPools = JSON.parse(readFileSync(filePath, 'utf-8'));
+            accountPools = JSON.parse(readFileSync(filePath, 'utf-8'));
         } catch (error) {
-            console.warn('[UI API] Failed to read provider pools:', error.message);
+            console.warn('[UI API] Failed to read account pools:', error.message);
         }
     }
 
-    const accounts = Array.isArray(providerPools[DEFAULT_PROVIDER_TYPE_FOR_ACCOUNTS])
-        ? providerPools[DEFAULT_PROVIDER_TYPE_FOR_ACCOUNTS]
+    const accounts = Array.isArray(accountPools)
+        ? accountPools
         : [];
 
     return {
         accountMode: false,
         filePath,
-        providerPools,
+        accountPools,
         accountPool: { accounts }
     };
 }
@@ -102,12 +102,12 @@ function writeAccountsToStorage(currentConfig, accountPool, legacyProviderPools 
         return filePath;
     }
 
-    const filePath = currentConfig.PROVIDER_POOLS_FILE_PATH || PROVIDER_POOLS_FILE;
-    const providerPools = legacyProviderPools && typeof legacyProviderPools === 'object'
+    const filePath = currentConfig.ACCOUNT_POOL_FILE_PATH || ACCOUNT_POOL_FILE;
+    const accountPools = legacyProviderPools && typeof legacyProviderPools === 'object'
         ? legacyProviderPools
         : {};
-    providerPools[DEFAULT_PROVIDER_TYPE_FOR_ACCOUNTS] = accountPool.accounts;
-    writeFileSync(filePath, JSON.stringify(providerPools, null, 2), 'utf8');
+    accountPools = accountPool.accounts;
+    writeFileSync(filePath, JSON.stringify(accountPools, null, 2), 'utf8');
     return filePath;
 }
 
@@ -873,7 +873,22 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
     }
 
     // Handle UI management API requests (需要token验证，除了登录接口、健康检查、Events接口、Logs接口、OAuth相关和清理重复接口)
-    if (pathParam.startsWith('/api/') && pathParam !== '/api/login' && pathParam !== '/api/health' && pathParam !== '/api/events' && pathParam !== '/api/logs' && pathParam !== '/api/kiro/oauth/callback' && pathParam !== '/api/kiro/oauth/manual-import' && pathParam !== '/api/kiro/oauth/aws-sso/start' && pathParam !== '/api/providers/cleanup-duplicates' && pathParam !== '/api/providers' && pathParam !== '/api/accounts/cleanup-duplicates' && pathParam !== '/api/accounts') {
+    const authExcludedPaths = [
+        '/api/login',
+        '/api/health',
+        '/api/events',
+        '/api/logs',
+        '/api/kiro/oauth/callback',
+        '/api/kiro/oauth/manual-import',
+        '/api/kiro/oauth/aws-sso/start',
+        '/api/providers/cleanup-duplicates',
+        '/api/providers',
+        '/api/accounts/cleanup-duplicates',
+        '/api/accounts'
+    ];
+
+    // Handle UI management API requests (需要token验证，除了登录接口、健康检查、Events接口、Logs接口、OAuth相关和清理重复接口)
+    if (pathParam.startsWith('/api/') && !authExcludedPaths.includes(pathParam)) {
         // 检查token验证
         const isAuth = await checkAuth(req);
         if (!isAuth) {
@@ -1448,24 +1463,12 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
                             providerPoolManager.markAccountUnhealthy(acc.uuid, healthResult?.errorMessage || '检测失败');
                             results.push({ uuid: acc.uuid, success: false, modelName: healthResult?.modelName, message: healthResult?.errorMessage || '检测失败' });
                         }
-                    } else if (typeof providerPoolManager?._checkProviderHealth === 'function') {
-                        const providerType = DEFAULT_PROVIDER_TYPE_FOR_ACCOUNTS;
-                        const healthResult = await providerPoolManager._checkProviderHealth(providerType, acc, true);
-                        if (healthResult && healthResult.success) {
-                            providerPoolManager.markProviderHealthy(providerType, acc, false, healthResult.modelName, healthResult.userInfo);
-                            results.push({ uuid: acc.uuid, success: true, modelName: healthResult.modelName });
-                        } else {
-                            providerPoolManager.markProviderUnhealthy(providerType, acc, healthResult?.errorMessage || '检测失败');
-                            results.push({ uuid: acc.uuid, success: false, modelName: healthResult?.modelName, message: healthResult?.errorMessage || '检测失败' });
-                        }
                     } else {
                         results.push({ uuid: acc.uuid, success: null, message: 'No pool manager available' });
                     }
                 } catch (error) {
                     if (typeof providerPoolManager?.markAccountUnhealthy === 'function') {
                         providerPoolManager.markAccountUnhealthy(acc.uuid, error.message);
-                    } else if (typeof providerPoolManager?.markProviderUnhealthy === 'function') {
-                        providerPoolManager.markProviderUnhealthy(DEFAULT_PROVIDER_TYPE_FOR_ACCOUNTS, acc, error.message);
                     }
                     results.push({ uuid: acc.uuid, success: false, message: error.message });
                 }
@@ -1516,14 +1519,6 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
                     providerPoolManager.markAccountHealthy(acc.uuid, { resetUsageCount: true, healthCheckModel: healthResult.modelName, userInfo: healthResult.userInfo });
                 } else {
                     providerPoolManager.markAccountUnhealthy(acc.uuid, healthResult?.errorMessage || '检测失败');
-                }
-          } else if (typeof providerPoolManager?._checkProviderHealth === 'function') {
-                const providerType = DEFAULT_PROVIDER_TYPE_FOR_ACCOUNTS;
-                healthResult = await providerPoolManager._checkProviderHealth(providerType, acc, true);
-                if (healthResult && healthResult.success) {
-                    providerPoolManager.markProviderHealthy(providerType, acc, false, healthResult.modelName, healthResult.userInfo);
-                } else {
-                    providerPoolManager.markProviderUnhealthy(providerType, acc, healthResult?.errorMessage || '检测失败');
                 }
             }
 
@@ -1891,7 +1886,7 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
             console.log(`[UI API] Added new provider to ${providerType}: ${providerConfig.uuid}`);
 
             // Update provider pool manager if available
-            const providerPoolManager = getActivePoolManager();
+            const providerPoolManager = getAccountPoolManager();
             if (providerPoolManager) {
                 if (isSQLiteMode()) {
                     // SQLite 模式：直接插入到数据库
@@ -2112,7 +2107,7 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
             console.log(`[UI API] Deleted provider ${providerUuid} from ${providerType}`);
 
             // Update provider pool manager if available
-            const providerPoolManager = getActivePoolManager();
+            const providerPoolManager = getAccountPoolManager();
             if (providerPoolManager) {
                 if (isSQLiteMode()) {
                     // SQLite 模式：从数据库中删除
@@ -2258,8 +2253,8 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
             console.log(`[Batch Delete] Deleted ${deleteResults.success.length} providers from ${providerType}`);
 
             // 更新 provider pool manager
-            const providerPoolManager = getActivePoolManager();
-            if (providerPoolManager) {
+            const accountPoolManager = getAccountPoolManager();
+            if (accountPoolManager) {
                 if (isSQLiteMode()) {
                     // SQLite 模式：从数据库中删除
                     const { sqliteDB } = await import('./services/storage/sqlite-db.js');
@@ -2271,8 +2266,8 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
                     const providerPools = {
                         [DEFAULT_PROVIDER_TYPE_FOR_ACCOUNTS]: accountPool.accounts
                     };
-                    providerPoolManager.providerPools = providerPools;
-                    providerPoolManager.initializeProviderStatus();
+                    accountPoolManager.providerPools = providerPools;
+                    accountPoolManager.initializeProviderStatus();
                 }
             }
 
@@ -2587,7 +2582,6 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
                     }
 
                     if (healthResult.success) {
-                        providerPoolManager.markProviderHealthy(providerType, providerConfig, false, healthResult.modelName, healthResult.userInfo);
                         results.push({
                             uuid: providerConfig.uuid,
                             success: true,
@@ -2596,7 +2590,6 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
                             message: '健康'
                         });
                     } else {
-                        providerPoolManager.markProviderUnhealthy(providerType, providerConfig, healthResult.errorMessage);
                         results.push({
                             uuid: providerConfig.uuid,
                             success: false,
@@ -2605,7 +2598,6 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
                         });
                     }
                 } catch (error) {
-                    providerPoolManager.markProviderUnhealthy(providerType, providerConfig, error.message);
                     results.push({
                         uuid: providerConfig.uuid,
                         success: false,
@@ -2896,48 +2888,39 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
             }
 
             const normalizedPath = filePath.replace(/\\/g, '/').toLowerCase();
-            
-            // 根据文件路径自动识别提供商类型
-            const providerMapping = detectProviderFromPath(normalizedPath);
-            
-            if (!providerMapping) {
-                res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({
-                    error: {
-                        message: '无法识别配置文件对应的提供商类型，请确保文件位于 configs/kiro/ 目录下'
-                    }
-                }));
-                return true;
-            }
 
-            const { providerType, credPathKey, defaultCheckModel, displayName } = providerMapping;
-            const poolsFilePath = currentConfig.PROVIDER_POOLS_FILE_PATH || PROVIDER_POOLS_FILE;
+            const accountsFilePath = currentConfig.ACCOUNT_POOL_FILE_PATH || ACCOUNT_POOL_FILE;
             
             // Load existing pools
-            let providerPools = {};
-            if (existsSync(poolsFilePath)) {
+            let accountPool = { accounts: [] };
+            if (existsSync(accountsFilePath)) {
                 try {
-                    const fileContent = readFileSync(poolsFilePath, 'utf8');
-                    providerPools = JSON.parse(fileContent);
+                    const fileContent = readFileSync(accountsFilePath, 'utf8');
+                    const parsed = JSON.parse(fileContent);
+                    if (Array.isArray(parsed)) {
+                        accountPool.accounts = parsed;
+                    } else if (parsed && Array.isArray(parsed.accounts)) {
+                        accountPool = parsed;
+                    }
                 } catch (readError) {
-                    console.warn('[UI API] Failed to read existing provider pools:', readError.message);
+                    console.warn('[UI API] Failed to read existing account pools:', readError.message);
                 }
             }
 
-            // Ensure provider type array exists
-            if (!providerPools[providerType]) {
-                providerPools[providerType] = [];
-            }
+            // Defaults for Kiro OAuth
+            const providerType = DEFAULT_PROVIDER_TYPE_FOR_ACCOUNTS;
+            const credPathKey = 'KIRO_OAUTH_CREDS_FILE_PATH';
+            const defaultCheckModel = KIRO_MODELS[0];
+            const displayName = 'Claude Kiro Account';
+            const needsProjectId = false;
 
-            // Check if already linked - 使用标准化路径进行比较
-            const normalizedForComparison = filePath.replace(/\\/g, '/');
-            const isAlreadyLinked = providerPools[providerType].some(p => {
-                const existingPath = p[credPathKey];
+            // Check if already linked - 使用 path.resolve 进行更准确的路径比较
+            const targetAbsPath = path.resolve(process.cwd(), filePath);
+            const isAlreadyLinked = accountPool.accounts.some(p => {
+                const existingPath = p.path || p[credPathKey]; // Support both key formats
                 if (!existingPath) return false;
-                const normalizedExistingPath = existingPath.replace(/\\/g, '/');
-                return normalizedExistingPath === normalizedForComparison ||
-                       normalizedExistingPath === './' + normalizedForComparison ||
-                       './' + normalizedExistingPath === normalizedForComparison;
+                const existingAbsPath = path.resolve(process.cwd(), existingPath);
+                return existingAbsPath.toLowerCase() === targetAbsPath.toLowerCase();
             });
 
             if (isAlreadyLinked) {
@@ -2951,33 +2934,31 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
                 credPathKey,
                 credPath: formatSystemPath(filePath),
                 defaultCheckModel,
-                needsProjectId: providerMapping.needsProjectId
+                needsProjectId
             });
 
-            providerPools[providerType].push(newProvider);
+            accountPool.accounts.push(newProvider);
 
             // Save to file
-            writeFileSync(poolsFilePath, JSON.stringify(providerPools, null, 2), 'utf8');
-            console.log(`[UI API] Quick linked config: ${filePath} -> ${providerType}`);
+            writeFileSync(accountsFilePath, JSON.stringify(accountPool, null, 2), 'utf8');
+            console.log(`[UI API] Quick linked config: ${filePath}`);
 
             // Update provider pool manager if available
+            // Update provider pool manager if available
             if (providerPoolManager) {
-                providerPoolManager.providerPools = providerPools;
-                providerPoolManager.initializeProviderStatus();
+                await syncPoolManagerAfterAccountsChange(currentConfig, providerPoolManager, accountPool);
             }
 
             // Broadcast update event
             broadcastEvent('config_update', {
                 action: 'quick_link',
-                filePath: poolsFilePath,
-                providerType,
+                filePath: accountsFilePath,
                 newProvider,
                 timestamp: new Date().toISOString()
             });
 
             broadcastEvent('provider_update', {
                 action: 'add',
-                providerType,
                 providerConfig: newProvider,
                 timestamp: new Date().toISOString()
             });
