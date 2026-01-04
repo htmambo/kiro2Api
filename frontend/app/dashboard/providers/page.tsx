@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import {
   IconCheck,
   IconX,
@@ -143,8 +143,91 @@ export default function ProvidersPage() {
   const [selectedAccounts, setSelectedAccounts] = useState<Set<string>>(new Set());
   const [batchDeleting, setBatchDeleting] = useState(false);
 
+  // SSE 连接引用
+  const eventSourceRef = useRef<EventSource | null>(null);
+
   useEffect(() => {
     loadProviders();
+
+    // 建立持久的 SSE 连接，监听实时事件
+    const eventSource = new EventSource('/api/events');
+    eventSourceRef.current = eventSource;
+
+    // 监听账号更新事件
+    eventSource.addEventListener('account_update', (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        console.log('Account update event received:', data);
+        // 自动刷新账号列表
+        loadProviders();
+      } catch (e) {
+        console.error('Failed to parse account_update event:', e);
+      }
+    });
+
+    // 监听配置更新事件
+    eventSource.addEventListener('config_update', (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        console.log('Config update event received:', data);
+        // 如果是账号池相关的配置更新，刷新列表
+        if (data.type === 'account_pool' || data.filePath?.includes('account_pool')) {
+          loadProviders();
+        }
+      } catch (e) {
+        console.error('Failed to parse config_update event:', e);
+      }
+    });
+
+    // 监听 OAuth 成功事件
+    eventSource.addEventListener('oauth_success', (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        console.log('OAuth success event received:', data);
+        if (data.provider === 'claude-kiro-oauth-builderid') {
+          setShowAWSAuthModal(false);
+          setDeviceAuthResult(null);
+          toast.success('AWS 授权成功！', data.credPath ? `Token 已保存: ${data.credPath}` : '');
+          loadProviders();
+        }
+      } catch (e) {
+        console.error('Failed to parse oauth_success event:', e);
+      }
+    });
+
+    // 监听 OAuth 错误事件
+    eventSource.addEventListener('oauth_error', (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        console.log('OAuth error event received:', data);
+        if (data.provider === 'claude-kiro-oauth-builderid') {
+          toast.error('AWS 授权失败', data.error || '未知错误');
+          setDeviceAuthResult(null);
+        }
+      } catch (e) {
+        console.error('Failed to parse oauth_error event:', e);
+      }
+    });
+
+    // 监听提供商更新事件
+    eventSource.addEventListener('provider_update', (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        console.log('Provider update event received:', data);
+        // 自动刷新提供商列表
+        loadProviders();
+      } catch (e) {
+        console.error('Failed to parse provider_update event:', e);
+      }
+    });
+
+    eventSource.onerror = (err) => {
+      console.error('SSE connection error:', err);
+    };
+
+    return () => {
+      eventSource.close();
+    };
   }, []);
 
 	  const loadProviders = async () => {
@@ -254,49 +337,6 @@ export default function ProvidersPage() {
   const [manualProfileArn, setManualProfileArn] = useState('');
   const [awsStartUrl, setAwsStartUrl] = useState('https://view.awsapps.com/start');
   const [deviceAuthResult, setDeviceAuthResult] = useState<any>(null);
-
-  // SSE 监听 OAuth 成功事件（用于 AWS SSO 等后台轮询的场景）
-  useEffect(() => {
-    if (!showAWSAuthModal || !deviceAuthResult) return;
-
-    const eventSource = new EventSource('/api/events');
-
-    eventSource.addEventListener('oauth_success', (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        // 检查是否是 AWS Builder ID 授权成功
-        if (data.provider === 'claude-kiro-oauth-builderid') {
-          setShowAWSAuthModal(false);
-          setDeviceAuthResult(null);
-          toast.success('AWS 授权成功！', `Token 已保存: ${data.credPath}`);
-          loadProviders();
-        }
-      } catch (e) {
-        console.error('Failed to parse oauth_success event:', e);
-      }
-    });
-
-    eventSource.addEventListener('oauth_error', (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.provider === 'claude-kiro-oauth-builderid') {
-          toast.error('AWS 授权失败', data.error || '未知错误');
-          setDeviceAuthResult(null);
-        }
-      } catch (e) {
-        console.error('Failed to parse oauth_error event:', e);
-      }
-    });
-
-    eventSource.onerror = () => {
-      // SSE 连接错误，静默处理
-      console.warn('SSE connection error');
-    };
-
-    return () => {
-      eventSource.close();
-    };
-  }, [showAWSAuthModal, deviceAuthResult]);
 
   // 打开授权方式选择
   const generateAuthUrl = async () => {

@@ -1,10 +1,5 @@
 import fs from 'fs';
 import path from 'path';
-import os from 'os';
-import { existsSync, readFileSync, writeFileSync } from 'fs';
-import { v4 as uuidv4 } from 'uuid';
-import { isSQLiteMode } from './manager.js';
-import { sqliteDB } from './storage/sqlite-db.js';
 
 // 延迟导入 broadcastEvent 避免循环依赖
 let _broadcastEvent = null;
@@ -145,72 +140,44 @@ export async function handleKiroOAuth(currentConfig, poolManager = null) {
             try {
                 const relativePath = path.relative(process.cwd(), tokenFilePath);
                 const normalizedPath = relativePath.replace(/\\/g, '/');
-                const poolsFilePath = currentConfig.ACCOUNT_POOL_FILE_PATH || './configs/account_pool.json';
-                let accountPool = { accounts: [] };
 
-                    if (existsSync(poolsFilePath)) {
-                        const fileContent = readFileSync(poolsFilePath, 'utf8');
-                        const parsed = JSON.parse(fileContent);
-                        if (parsed && typeof parsed === 'object' && Array.isArray(parsed.accounts)) {
-                            accountPool = parsed;
-                        }
-                    }
+                const newAccount = {
+                    KIRO_OAUTH_CREDS_FILE_PATH: normalizedPath,
+                    isHealthy: true,
+                    usageCount: 0,
+                    errorCount: 0,
+                    lastUsed: null,
+                    lastErrorTime: null,
+                    isDisabled: false,
+                    lastHealthCheckTime: new Date().toISOString(),
+                    lastHealthCheckModel: 'claude-haiku-4-5',
+                    lastErrorMessage: null,
+                    checkModelName: '',
+                    checkHealth: true,
+                    notSupportedModels: []
+                };
 
-                    const exists = accountPool.accounts.some((a) => {
-                        const existingPath = (a.KIRO_OAUTH_CREDS_FILE_PATH || '').replace(/\\/g, '/');
-                        return existingPath === normalizedPath || existingPath === './' + normalizedPath;
+                const addedAccount = poolManager.addAccount(newAccount);
+                console.log(`${KIRO_OAUTH_CONFIG.logPrefix} Auto-added to account pool with UUID: ${addedAccount.uuid}`);
+
+                const broadcast = await getBroadcastEvent();
+                if (broadcast) {
+                    broadcast('account_update', {
+                        action: 'add',
+                        uuid: addedAccount.uuid,
+                        accountConfig: addedAccount,
+                        timestamp: new Date().toISOString()
                     });
-
-                    if (!exists) {
-                        const newAccount = {
-                            uuid: uuidv4(),
-                            KIRO_OAUTH_CREDS_FILE_PATH: normalizedPath,
-                            isHealthy: true,
-                            usageCount: 0,
-                            errorCount: 0,
-                            lastUsed: null,
-                            lastErrorTime: null,
-                            isDisabled: false,
-                            lastHealthCheckTime: new Date().toISOString(),
-                            lastHealthCheckModel: 'claude-haiku-4-5',
-                            lastErrorMessage: null,
-                            checkModelName: '',
-                            checkHealth: true,
-                            notSupportedModels: []
-                        };
-
-                        accountPool.accounts.push(newAccount);
-                        writeFileSync(poolsFilePath, JSON.stringify(accountPool, null, 2), 'utf8');
-                        console.log(`${KIRO_OAUTH_CONFIG.logPrefix} Auto-added to account pool with UUID: ${newAccount.uuid}`);
-
-                        // 更新池管理器（SQLite 在 T07 迁移后启用）
-                        if (poolManager) {
-                            if (isSQLiteMode() && typeof sqliteDB.upsertAccount === 'function') {
-                                sqliteDB.upsertAccount(newAccount);
-                            } else if (typeof poolManager.setAccountPool === 'function') {
-                                poolManager.setAccountPool(accountPool);
-                            }
-                        }
-
-                        const broadcast = await getBroadcastEvent();
-                        if (broadcast) {
-                            broadcast('account_update', {
-                                action: 'add',
-                                uuid: newAccount.uuid,
-                                timestamp: new Date().toISOString()
-                            });
-                        }
                 }
             } catch (poolError) {
-                console.error(`${KIRO_OAUTH_CONFIG.logPrefix} Failed to update account pool:`, poolError);
+                console.error(`${KIRO_OAUTH_CONFIG.logPrefix} Failed to add to account pool:`, poolError.message);
             }
 
-            // 广播授权完成事件
+            // 广播授权成功事件
             const broadcast = await getBroadcastEvent();
             if (broadcast) {
-                broadcast('oauth_complete', {
+                broadcast('oauth_success', {
                     provider: 'claude-kiro-oauth',
-                    success: true,
                     timestamp: new Date().toISOString()
                 });
             }
@@ -218,23 +185,13 @@ export async function handleKiroOAuth(currentConfig, poolManager = null) {
             console.error(`${KIRO_OAUTH_CONFIG.logPrefix} Background polling failed:`, error.message);
             const broadcast = await getBroadcastEvent();
             if (broadcast) {
-                broadcast('oauth_complete', {
+                broadcast('oauth_error', {
                     provider: 'claude-kiro-oauth',
-                    success: false,
                     error: error.message,
                     timestamp: new Date().toISOString()
                 });
             }
         });
-
-        // 广播授权开始事件
-        const broadcast = await getBroadcastEvent();
-        if (broadcast) {
-            broadcast('oauth_start', {
-                provider: 'claude-kiro-oauth',
-                timestamp: new Date().toISOString()
-            });
-        }
 
         return {
             authUrl: deviceAuthInfo.verificationUriComplete,

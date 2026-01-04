@@ -111,8 +111,450 @@ export class AccountPoolManager {
         }, this.saveDebounceTime);
     }
 
+    /**
+     * 列出所有账号
+     * @returns {Array} 账号数组
+     */
     listAccounts() {
         return this.accountPool.accounts;
+    }
+
+    /**
+     * 获取单个账号
+     * @param {string} uuid - 账号 UUID
+     * @returns {Object|null} 账号对象或 null
+     */
+    getAccount(uuid) {
+        if (!uuid) {
+            this._log('warn', 'getAccount: uuid is required');
+            return null;
+        }
+        return this._findAccount(uuid);
+    }
+
+    /**
+     * 按条件查找账号
+     * @param {Function} predicate - 查找条件函数
+     * @returns {Object|null} 找到的账号或 null
+     */
+    findAccount(predicate) {
+        if (typeof predicate !== 'function') {
+            this._log('warn', 'findAccount: predicate must be a function');
+            return null;
+        }
+        try {
+            return this.accountPool.accounts.find(predicate) || null;
+        } catch (error) {
+            this._log('error', `findAccount: predicate threw error: ${error.message}`);
+            return null;
+        }
+    }
+
+    /**
+     * 添加完整账号配置
+     * @param {Object} accountConfig - 账号配置对象
+     * @returns {Object} 添加的账号对象（包含生成的 UUID）
+     */
+    addAccount(accountConfig) {
+        if (!accountConfig || typeof accountConfig !== 'object') {
+            this._log('error', 'addAccount: accountConfig must be an object');
+            throw new Error('accountConfig must be an object');
+        }
+
+        try {
+            // 创建副本避免修改原对象
+            const sanitizedConfig = { ...accountConfig };
+
+            // 生成 UUID（如果没有提供）
+            if (!sanitizedConfig.uuid) {
+                sanitizedConfig.uuid = uuidv4();
+            }
+
+            // 设置默认值
+            const newAccount = {
+                ...sanitizedConfig,
+                uuid: sanitizedConfig.uuid,
+                isHealthy: sanitizedConfig.isHealthy !== undefined ? sanitizedConfig.isHealthy : true,
+                isDisabled: sanitizedConfig.isDisabled !== undefined ? sanitizedConfig.isDisabled : false,
+                lastUsed: sanitizedConfig.lastUsed || null,
+                usageCount: sanitizedConfig.usageCount || 0,
+                errorCount: sanitizedConfig.errorCount || 0,
+                lastErrorTime: sanitizedConfig.lastErrorTime || null,
+                lastHealthCheckTime: sanitizedConfig.lastHealthCheckTime || null,
+                lastHealthCheckModel: sanitizedConfig.lastHealthCheckModel || null,
+                lastErrorMessage: sanitizedConfig.lastErrorMessage || null,
+                notSupportedModels: Array.isArray(sanitizedConfig.notSupportedModels)
+                    ? sanitizedConfig.notSupportedModels
+                    : []
+            };
+
+            this.accountPool.accounts.push(newAccount);
+            this._log('info', `Added account: ${newAccount.uuid}`);
+            this._debouncedSave();
+            return newAccount;
+        } catch (error) {
+            this._log('error', `addAccount failed: ${error.message}`);
+            throw error;
+        }
+    }
+
+    /**
+     * 删除账号
+     * @param {string} uuid - 账号 UUID
+     * @returns {boolean} 是否成功删除
+     */
+    removeAccount(uuid) {
+        if (!uuid) {
+            this._log('warn', 'removeAccount: uuid is required');
+            return false;
+        }
+
+        const initialLength = this.accountPool.accounts.length;
+        this.accountPool.accounts = this.accountPool.accounts.filter(a => a.uuid !== uuid);
+        const removed = this.accountPool.accounts.length < initialLength;
+
+        if (removed) {
+            this._log('info', `Removed account: ${uuid}`);
+            this._debouncedSave();
+        } else {
+            this._log('warn', `Account not found for removal: ${uuid}`);
+        }
+
+        return removed;
+    }
+
+    /**
+     * 更新账号属性
+     * @param {string} uuid - 账号 UUID
+     * @param {Object} updates - 要更新的属性对象
+     * @returns {boolean} 是否成功更新
+     */
+    updateAccount(uuid, updates) {
+        if (!uuid) {
+            this._log('warn', 'updateAccount: uuid is required');
+            return false;
+        }
+
+        const account = this._findAccount(uuid);
+        if (!account) {
+            this._log('warn', `Account not found for update: ${uuid}`);
+            return false;
+        }
+
+        if (!updates || typeof updates !== 'object') {
+            this._log('warn', 'updateAccount: updates must be an object');
+            return false;
+        }
+
+        try {
+            // 合并更新
+            Object.assign(account, updates);
+            this._log('info', `Updated account: ${uuid}`);
+            this._debouncedSave();
+            return true;
+        } catch (error) {
+            this._log('error', `updateAccount failed for ${uuid}: ${error.message}`);
+            return false;
+        }
+    }
+
+    /**
+     * 切换账号启用/禁用状态
+     * @param {string} uuid - 账号 UUID
+     * @returns {boolean} 切换后的 isDisabled 状态，如果账号不存在返回 null
+     */
+    toggleAccount(uuid) {
+        if (!uuid) {
+            this._log('warn', 'toggleAccount: uuid is required');
+            return null;
+        }
+
+        const account = this._findAccount(uuid);
+        if (!account) {
+            this._log('warn', `Account not found in toggleAccount: ${uuid}`);
+            return null;
+        }
+
+        account.isDisabled = !account.isDisabled;
+        this._log('info', `Toggled account ${uuid}: isDisabled=${account.isDisabled}`);
+        this._debouncedSave();
+        return account.isDisabled;
+    }
+
+    /**
+     * 批量删除账号
+     * @param {Array<string>} uuids - 账号 UUID 数组
+     * @returns {number} 删除的账号数量
+     */
+    batchDeleteAccounts(uuids) {
+        if (!Array.isArray(uuids)) {
+            this._log('warn', 'batchDeleteAccounts: uuids must be an array');
+            return 0;
+        }
+
+        const initialLength = this.accountPool.accounts.length;
+        const uuidSet = new Set(uuids);
+        this.accountPool.accounts = this.accountPool.accounts.filter(a => !uuidSet.has(a.uuid));
+        const removed = initialLength - this.accountPool.accounts.length;
+
+        if (removed > 0) {
+            this._log('info', `Batch deleted ${removed} account(s)`);
+            this._debouncedSave();
+        }
+
+        return removed;
+    }
+
+    /**
+     * 按状态批量删除账号
+     * @param {Array<string>} statusTypes - 状态类型数组 ['banned', 'expired', 'quota_exceeded', etc.]
+     * @returns {Object} { removed: number, uuids: Array<string> }
+     */
+    batchDeleteByStatus(statusTypes) {
+        if (!Array.isArray(statusTypes)) {
+            this._log('warn', 'batchDeleteByStatus: statusTypes must be an array');
+            return { removed: 0, uuids: [] };
+        }
+
+        if (statusTypes.length === 0) {
+            this._log('warn', 'batchDeleteByStatus: statusTypes array is empty');
+            return { removed: 0, uuids: [] };
+        }
+
+        const toDelete = [];
+
+        for (const account of this.accountPool.accounts) {
+            const errorStatus = this._parseErrorStatus(account.lastErrorMessage);
+
+            // 检查是否匹配任一指定状态
+            if (statusTypes.includes(errorStatus.statusType)) {
+                toDelete.push(account.uuid);
+            } else if (statusTypes.includes('banned') && (account.isDisabled || !account.isHealthy)) {
+                toDelete.push(account.uuid);
+            } else if (statusTypes.includes('disabled') && account.isDisabled) {
+                toDelete.push(account.uuid);
+            }
+        }
+
+        const removed = this.batchDeleteAccounts(toDelete);
+        return { removed, uuids: toDelete };
+    }
+
+    /**
+     * 解析错误消息，返回状态类型
+     * @param {string} errorMessage - 错误消息
+     * @returns {Object} { status, message, statusType }
+     */
+    _parseErrorStatus(errorMessage) {
+        if (!errorMessage) {
+            return { status: '正常', message: '', statusType: 'ok' };
+        }
+
+        const msg = errorMessage.toLowerCase();
+
+        if (msg.includes('403') || msg.includes('forbidden') || msg.includes('suspended') || msg.includes('locked')) {
+            return { status: '封禁', message: '账号已被封禁，无法使用', statusType: 'banned' };
+        }
+        if (msg.includes('402') || msg.includes('payment') || msg.includes('quota') || msg.includes('limit exceeded')) {
+            return { status: '额度用尽', message: '账号额度已用完', statusType: 'quota_exceeded' };
+        }
+        if (msg.includes('401') || msg.includes('unauthorized') || msg.includes('invalid token') || msg.includes('expired')) {
+            return { status: '过期', message: 'Token 已失效，需要重新授权', statusType: 'expired' };
+        }
+        if (msg.includes('429') || msg.includes('rate limit') || msg.includes('too many requests')) {
+            return { status: '限流', message: '请求过于频繁，稍后自动恢复', statusType: 'rate_limit' };
+        }
+        if (msg.includes('500') || msg.includes('502') || msg.includes('503') || msg.includes('server error')) {
+            return { status: '服务异常', message: '服务器暂时不可用', statusType: 'server_error' };
+        }
+        if (msg.includes('timeout') || msg.includes('network') || msg.includes('econnrefused')) {
+            return { status: '网络错误', message: '网络连接失败', statusType: 'network_error' };
+        }
+
+        return { status: '异常', message: errorMessage, statusType: 'unknown' };
+    }
+
+    /**
+     * 重置单个账号健康状态
+     * @param {string} uuid - 账号 UUID
+     * @returns {boolean} 是否成功重置
+     */
+    resetAccountHealth(uuid) {
+        const account = this._findAccount(uuid);
+        if (!account) {
+            this._log('warn', `Account not found in resetAccountHealth: ${uuid}`);
+            return false;
+        }
+
+        account.isHealthy = true;
+        account.errorCount = 0;
+        account.lastErrorTime = null;
+        account.lastErrorMessage = null;
+        account.lastHealthCheckTime = new Date().toISOString();
+
+        this._log('info', `Reset health for account: ${uuid}`);
+        this._debouncedSave();
+        return true;
+    }
+
+    /**
+     * 按状态获取账号列表
+     * @param {string} statusType - 状态类型 ('healthy', 'unhealthy', 'disabled', 'banned', 'checking')
+     * @returns {Array} 符合条件的账号数组
+     */
+    getAccountsByStatus(statusType) {
+        if (!statusType || typeof statusType !== 'string') {
+            this._log('warn', 'getAccountsByStatus: statusType must be a non-empty string');
+            return [];
+        }
+
+        switch (statusType) {
+            case 'healthy':
+                return this.accountPool.accounts.filter(a =>
+                    a.isHealthy && !a.isDisabled && (!a.errorCount || a.errorCount === 0)
+                );
+            case 'unhealthy':
+                return this.accountPool.accounts.filter(a => !a.isHealthy);
+            case 'disabled':
+                return this.accountPool.accounts.filter(a => a.isDisabled);
+            case 'banned':
+                return this.accountPool.accounts.filter(a => a.isDisabled || !a.isHealthy);
+            case 'checking':
+                return this.accountPool.accounts.filter(a =>
+                    a.isHealthy && !a.isDisabled && a.errorCount > 0
+                );
+            default:
+                this._log('warn', `Unknown status type: ${statusType}`);
+                return [];
+        }
+    }
+
+    /**
+     * 查找重复账号（相同 cachedUserId）
+     * @returns {Object} { duplicates: Array, summary: Object }
+     */
+    findDuplicateAccounts() {
+        try {
+            const userIdGroups = {};
+            const noUserIdAccounts = [];
+
+            for (const account of this.accountPool.accounts) {
+                if (account.cachedUserId) {
+                    if (!userIdGroups[account.cachedUserId]) {
+                        userIdGroups[account.cachedUserId] = [];
+                    }
+                    userIdGroups[account.cachedUserId].push(account);
+                } else {
+                    noUserIdAccounts.push(account);
+                }
+            }
+
+            const duplicates = [];
+            for (const [userId, accounts] of Object.entries(userIdGroups)) {
+                if (accounts.length > 1) {
+                    duplicates.push({
+                        userId,
+                        email: accounts[0].cachedEmail,
+                        accounts: accounts.map(a => ({
+                            uuid: a.uuid,
+                            path: a.KIRO_OAUTH_CREDS_FILE_PATH,
+                            email: a.cachedEmail,
+                            isHealthy: a.isHealthy,
+                            isDisabled: a.isDisabled
+                        }))
+                    });
+                }
+            }
+
+            return {
+                duplicates,
+                summary: {
+                    totalAccounts: this.accountPool.accounts.length,
+                    accountsWithUserId: Object.values(userIdGroups).reduce((sum, g) => sum + g.length, 0),
+                    accountsWithoutUserId: noUserIdAccounts.length,
+                    duplicateCount: duplicates.reduce((sum, d) => sum + d.accounts.length - 1, 0)
+                }
+            };
+        } catch (error) {
+            this._log('error', `findDuplicateAccounts failed: ${error.message}`);
+            return {
+                duplicates: [],
+                summary: {
+                    totalAccounts: this.accountPool.accounts.length,
+                    accountsWithUserId: 0,
+                    accountsWithoutUserId: 0,
+                    duplicateCount: 0
+                }
+            };
+        }
+    }
+
+    /**
+     * 从文件显式加载账号池
+     * @returns {boolean} 是否成功加载
+     */
+    loadFromFile() {
+        try {
+            if (!fs.existsSync(this.accountPoolFilePath)) {
+                this._log('warn', `Account pool file not found: ${this.accountPoolFilePath}`);
+                return false;
+            }
+
+            const fileContent = fs.readFileSync(this.accountPoolFilePath, 'utf8');
+            const parsed = JSON.parse(fileContent);
+
+            if (parsed && typeof parsed === 'object' && Array.isArray(parsed.accounts)) {
+                this.accountPool = parsed;
+                this._initializeAccountDefaults();
+                this._log('info', `Loaded account pool from file: ${this.accountPool.accounts.length} account(s)`);
+                return true;
+            } else {
+                this._log('error', 'Invalid account pool file format');
+                return false;
+            }
+        } catch (error) {
+            this._log('error', `Failed to load account pool from file: ${error.message}`);
+            return false;
+        }
+    }
+
+    /**
+     * 显式保存到文件（非防抖，立即保存）
+     * @returns {boolean} 是否成功保存
+     */
+    saveToFile() {
+        try {
+            const dirName = path.dirname(this.accountPoolFilePath);
+            if (dirName && dirName !== '.' && !fs.existsSync(dirName)) {
+                fs.mkdirSync(dirName, { recursive: true });
+            }
+            fs.writeFileSync(this.accountPoolFilePath, JSON.stringify(this.accountPool, null, 2), 'utf8');
+            this._log('info', `Saved account pool to file: ${this.accountPoolFilePath}`);
+            return true;
+        } catch (error) {
+            this._log('error', `Failed to save account pool to file: ${error.message}`);
+            return false;
+        }
+    }
+
+    /**
+     * 重新加载文件（丢弃内存中的更改）
+     * @returns {boolean} 是否成功重新加载
+     */
+    reloadFromFile() {
+        // 清除防抖定时器
+        if (this.saveTimer) {
+            clearTimeout(this.saveTimer);
+            this.saveTimer = null;
+        }
+
+        const success = this.loadFromFile();
+        if (success) {
+            this._log('info', 'Reloaded account pool from disk');
+        } else {
+            this._log('error', 'Failed to reload account pool from disk');
+        }
+        return success;
     }
 
     addTokenFile(tokenFilePath) {

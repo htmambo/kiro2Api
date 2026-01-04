@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import {
   IconCheck,
   IconRefresh,
@@ -179,8 +179,37 @@ export default function ConfigPage() {
   const [saving, setSaving] = useState(false);
   const [kiroCredsType, setKiroCredsType] = useState<'base64' | 'file'>('file');
 
+  // SSE 连接引用
+  const eventSourceRef = useRef<EventSource | null>(null);
+
   useEffect(() => {
     loadConfig();
+
+    // 建立持久的 SSE 连接，监听配置更新事件
+    const eventSource = new EventSource('/api/events');
+    eventSourceRef.current = eventSource;
+
+    // 监听配置更新事件
+    eventSource.addEventListener('config_update', (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        console.log('Config update event received:', data);
+        // 如果是主配置或系统提示词更新，自动刷新
+        if (data.type === 'main_config' || data.type === 'system_prompt') {
+          loadConfig();
+        }
+      } catch (e) {
+        console.error('Failed to parse config_update event:', e);
+      }
+    });
+
+    eventSource.onerror = (err) => {
+      console.error('SSE connection error:', err);
+    };
+
+    return () => {
+      eventSource.close();
+    };
   }, []);
 
   const loadConfig = async () => {
