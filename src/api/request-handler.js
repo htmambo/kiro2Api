@@ -32,7 +32,7 @@ export function createRequestHandler(config, accountPoolManager) {
         }
 
         // Serve static files for UI (除了登录页面需要认证)
-        if (path.startsWith('/static/') || path === '/' || path === '/favicon.ico' || path === '/index.html' || path.startsWith('/app/') || path === '/login.html' || path.startsWith('/_next/') || path.startsWith('/dashboard') || path.endsWith('.png') || path.endsWith('.jpg') || path.endsWith('.svg')) {
+        if (path.startsWith('/static/') ||path.startsWith('/assets/') ||  path.startsWith('/static-site/') || path === '/' || path === '/favicon.ico' || path === '/index.html' || path.startsWith('/app/') || path === '/login.html' || path.startsWith('/_next/') || path.startsWith('/dashboard') || path.endsWith('.png') || path.endsWith('.jpg') || path.endsWith('.svg')) {
             const served = await serveStaticFiles(path, res);
             if (served) return;
         }

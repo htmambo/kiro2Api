@@ -1512,8 +1512,13 @@ export class KiroService {
             return summarizedContent.length > 0 ? summarizedContent : [{ type: 'text', text: '...' }];
         }
 
-        // 字符串格式，直接截断
-        return `${content.substring(0, TRUNCATE_LENGTH)}...`;
+        // 字符串格式，直接截断（使用 TEXT_TRUNCATE_LENGTH，并保留未截断的原文）但是这里的字符串有可能是json字符串，直接截断会出问题
+        if (typeof content === 'string') {
+            return content.length > TEXT_TRUNCATE_LENGTH
+                ? content.substring(0, TEXT_TRUNCATE_LENGTH) + '...'
+                : content;
+        }
+        return String(content).substring(0, TEXT_TRUNCATE_LENGTH) + '...';
     }
 
     /**

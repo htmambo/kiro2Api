@@ -182,7 +182,7 @@ function updateTimeDisplay() {
  */
 async function loadProviders() {
     // try {
-        const data = await window.apiClient.get('/providers');
+        const data = await window.apiClient.get('/accounts');
         renderProviders(data);
     // } catch (error) {
     //     console.error('Failed to load providers:', error);
@@ -234,7 +234,7 @@ async function loadAndRenderProviderDetails(providerType, { force = false } = {}
 
     try {
         setProviderDetailsLoading(container, providerType);
-        const data = await window.apiClient.get(`/providers/${encodeURIComponent(providerType)}`);
+        const data = await window.apiClient.get(`/accounts`);
         renderProviderDetailsInline(container, data);
         inlineDetailsProviderType = providerType;
         inlineDetailsLoadedOnce = true;
@@ -408,7 +408,7 @@ async function executeGenerateAuthUrl(providerType = 'claude-kiro-oauth', extraO
         const providerDir = fileUploadHandler.getProviderKey(providerType);
 
         const response = await window.apiClient.post(
-            `/providers/${encodeURIComponent(providerType)}/generate-auth-url`,
+            `/accounts/generate-auth-url`,
             {
                 saveToConfigs: true,
                 providerDir: providerDir,

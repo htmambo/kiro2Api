@@ -15,11 +15,17 @@ import path from 'path';
 export async function serveStaticFiles(pathParam, res) {
     // 处理不同类型的路径
     let relativePath;
+    console.log('Serving static file for path:', pathParam);
     if (pathParam === '/' || pathParam === '/index.html') {
         relativePath = 'index.html';
     } else if (pathParam === '/favicon.ico') {
         relativePath = 'favicon.ico';
-    } else if (pathParam.startsWith('/_next/') || pathParam.startsWith('/dashboard') || pathParam.startsWith('/login') || pathParam.startsWith('/app/')) {
+    } else if (
+        pathParam.startsWith('/_next/') ||
+        pathParam.startsWith('/assets/') ||
+        pathParam.startsWith('/dashboard') ||
+        pathParam.startsWith('/login') ||
+        pathParam.startsWith('/app/')) {
         // Next.js 静态资源直接使用路径（去掉开头的 /）
         relativePath = pathParam.substring(1);
     } else if (pathParam.startsWith('/')) {
@@ -27,10 +33,10 @@ export async function serveStaticFiles(pathParam, res) {
         relativePath = pathParam.substring(1);
     } else {
         // 其他路径移除 /static/ 前缀
-        relativePath = pathParam.replace('/static/', '');
+        relativePath = pathParam.replace('/static-site/', '');
     }
-
-    let filePath = path.join(process.cwd(), 'static', relativePath);
+    console.log('Resolved relative path:', relativePath);
+    let filePath = path.join(process.cwd(), 'static-site', relativePath);
 
     // 首先尝试添加 .html 扩展名（优先于目录处理）
     const ext = path.extname(filePath);
@@ -50,7 +56,7 @@ export async function serveStaticFiles(pathParam, res) {
 
     // 如果文件不存在，检查是否是目录并尝试添加 index.html
     if (!existsSync(filePath) || (existsSync(filePath) && statSync(filePath).isDirectory())) {
-        const currentPath = path.join(process.cwd(), 'static', relativePath);
+        const currentPath = path.join(process.cwd(), 'static-site', relativePath);
         if (existsSync(currentPath)) {
             try {
                 const stats = statSync(currentPath);

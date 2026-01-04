@@ -216,7 +216,7 @@ async function loadModelsForProviderType(providerType, providers) {
         }
         
         // 只调用一次API获取模型列表
-        const response = await window.apiClient.get(`/provider-models/cloud-kiro-api`);
+        const response = await window.apiClient.get(`/full-models`);
         const models = response.models || [];
         
         // 缓存模型列表
@@ -892,7 +892,7 @@ async function saveProvider(uuid, event) {
     providerConfig.notSupportedModels = notSupportedModels;
     
     try {
-        await window.apiClient.put(`/providers/${encodeURIComponent(providerType)}/${uuid}`, { providerConfig });
+        await window.apiClient.put(`/accounts/${uuid}`, { providerConfig });
         await window.apiClient.post('/reload-config');
         showToast(t('common.success'), t('modal.provider.save.success'), 'success');
         // 重新获取该提供商类型的最新配置
@@ -919,7 +919,7 @@ async function deleteProvider(uuid, event) {
     const providerType = providerDetail.closest('.provider-list').getAttribute('data-provider-type');
     
     try {
-        await window.apiClient.delete(`/providers/${encodeURIComponent(providerType)}/${uuid}`);
+        await window.apiClient.delete(`/accounts/${uuid}`);
         await window.apiClient.post('/reload-config');
         showToast(t('common.success'), t('modal.provider.delete.success'), 'success');
         // 重新获取最新配置
@@ -937,7 +937,7 @@ async function deleteProvider(uuid, event) {
 async function refreshProviderConfig(providerType) {
     try {
         // 重新获取该提供商类型的最新数据
-        const data = await window.apiClient.get(`/providers/${encodeURIComponent(providerType)}`);
+        const data = await window.apiClient.get(`/accounts`);
         
         // 如果当前显示的是该提供商类型的模态框，则更新模态框
         const modal = document.querySelector('#providers');
@@ -1234,7 +1234,7 @@ async function addProvider(providerType) {
     });
     
     try {
-        await window.apiClient.post('/providers', {
+        await window.apiClient.post('/accounts', {
             providerType,
             providerConfig
         });
@@ -1277,7 +1277,7 @@ async function toggleProviderStatus(uuid, event) {
     }
     
     try {
-        await window.apiClient.post(`/providers/${encodeURIComponent(providerType)}/${uuid}/${action}`, { action });
+        await window.apiClient.post(`/accounts/${uuid}/${action}`, { action });
         await window.apiClient.post('/reload-config');
         showToast(t('common.success'), t('common.success'), 'success');
         // 重新获取该提供商类型的最新配置
@@ -1301,7 +1301,7 @@ async function resetAllProvidersHealth(providerType) {
         showToast(t('common.info'), t('modal.provider.resetHealth') + '...', 'info');
         
         const response = await window.apiClient.post(
-            `/providers/${encodeURIComponent(providerType)}/reset-health`,
+            `/accounts/reset-health`,
             {}
         );
         
@@ -1335,7 +1335,7 @@ async function performHealthCheck(providerType) {
         showToast(t('common.info'), t('modal.provider.healthCheck') + '...', 'info');
         
         const response = await window.apiClient.post(
-            `/providers/${encodeURIComponent(providerType)}/health-check`,
+            `/accounts/health-check`,
             {}
         );
         
@@ -1389,7 +1389,7 @@ async function checkSingleProvider(uuid, event) {
         }
 
         const response = await window.apiClient.post(
-            `/providers/${encodeURIComponent(providerType)}/${uuid}/health-check`,
+            `/accounts/${uuid}/health-check`,
             {}
         );
 
