@@ -30,7 +30,7 @@ export async function initApiService(config) {
     }
 
     if (useSQLiteMode) {
-        const { SQLiteAccountPoolManager } = await import('./pools/sqlite-account-pool-manager.js');
+        const { SQLiteAccountPoolManager } = await import('./pools/sqlite.js');
         const { sqliteDB } = await import('./storage/sqlite-db.js');
 
         accountPoolManager = new SQLiteAccountPoolManager({
@@ -48,7 +48,7 @@ export async function initApiService(config) {
             }
         }
     } else {
-        const { getAccountPoolManager } = await import('./pools/account-pool-manager.js');
+        const { getAccountPoolManager } = await import('./pools/json.js');
         accountPoolManager = getAccountPoolManager({
             accountPool,
             globalConfig: config,

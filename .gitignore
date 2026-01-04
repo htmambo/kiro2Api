@@ -23,6 +23,7 @@ yarn-error.log*
 # Next.js
 .next/
 out/
+/static/
 
 # Temporary/Runtime files
 *.pid
