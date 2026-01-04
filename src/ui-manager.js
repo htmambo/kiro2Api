@@ -1568,97 +1568,6 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
         return true;
     }
 
-    // Delete specific provider configuration
-    if (method === 'DELETE' && updateProviderMatch) {
-        const providerType = decodeURIComponent(updateProviderMatch[1]);
-        const providerUuid = updateProviderMatch[2];
-
-        try {
-            const accountPoolPath = currentConfig.ACCOUNT_POOL_FILE_PATH || ACCOUNT_POOL_FILE;
-            const filePath = accountPoolPath;
-            let accountPool = { accounts: [] };
-
-            // Load existing account pool
-            if (existsSync(accountPoolPath)) {
-                try {
-                    const fileContent = readFileSync(accountPoolPath, 'utf8');
-                    accountPool = JSON.parse(fileContent);
-                } catch (readError) {
-                    res.writeHead(404, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({ error: { message: 'Account pool file not found' } }));
-                    return true;
-                }
-            }
-
-            // Find and remove the provider
-            const providers = accountPool.accounts || [];
-            const providerIndex = providers.findIndex(p => p.uuid === providerUuid);
-            
-            if (providerIndex === -1) {
-                res.writeHead(404, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: { message: 'Provider not found' } }));
-                return true;
-            }
-
-            const deletedProvider = providers[providerIndex];
-            providers.splice(providerIndex, 1);
-
-            // 尝试删除对应的token文件（仅当该文件不被其他provider使用时）
-            const tokenFilePath = deletedProvider.KIRO_OAUTH_CREDS_FILE_PATH;
-
-            if (tokenFilePath) {
-                // 检查是否还有其他provider使用同一个token文件
-                const isFileUsedByOthers = providers.some(p => {
-                    if (p.uuid === providerUuid) return false; // 跳过当前要删除的provider
-                    return (p.KIRO_OAUTH_CREDS_FILE_PATH === tokenFilePath);
-                });
-
-                if (!isFileUsedByOthers) {
-                    // 没有其他provider使用此文件，可以安全删除
-                    try {
-                        const fullTokenPath = path.join(process.cwd(), tokenFilePath);
-                        if (existsSync(fullTokenPath)) {
-                            await fs.unlink(fullTokenPath);
-                            console.log(`[UI API] Deleted token file: ${tokenFilePath}`);
-                        }
-                    } catch (deleteError) {
-                        console.warn(`[UI API] Failed to delete token file ${tokenFilePath}:`, deleteError.message);
-                        // 不阻止provider配置的删除
-                    }
-                } else {
-                    console.log(`[UI API] Token file ${tokenFilePath} is still used by other providers, keeping it`);
-                }
-            }
-
-            accountPool.accounts = providers;
-
-            // Save to file
-            writeFileSync(filePath, JSON.stringify(accountPool, null, 2), 'utf8');
-            console.log(`[UI API] Deleted provider ${providerUuid} from ${providerType}`);
-
-            // 广播更新事件
-            broadcastEvent('config_update', {
-                action: 'delete',
-                filePath: filePath,
-                providerType,
-                providerConfig: deletedProvider,
-                timestamp: new Date().toISOString()
-            });
-
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                success: true,
-                message: 'Provider deleted successfully',
-                deletedProvider
-            }));
-            return true;
-        } catch (error) {
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: { message: error.message } }));
-            return true;
-        }
-    }
-
     // Batch delete providers by UUIDs
     if (method === 'POST' && pathParam === '/api/providers/batch-delete') {
         try {
@@ -2295,18 +2204,13 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
         }
     }
 
-    // Quick link config to corresponding provider based on directory
-    if (method === 'POST' && pathParam === '/api/quick-link-provider') {
+    // Helper function to attempt quick link for a single file
+    const attemptQuickLinkFile = (filePath) => {
+        if (!filePath) {
+            return { success: false, message: 'filePath is required' };
+        }
+
         try {
-            const body = await getRequestBody(req);
-            const { filePath } = body;
-
-            if (!filePath) {
-                res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: { message: 'filePath is required' } }));
-                return true;
-            }
-
             // Defaults for Kiro OAuth
             const providerType = DEFAULT_PROVIDER_TYPE_FOR_ACCOUNTS;
             const credPathKey = 'KIRO_OAUTH_CREDS_FILE_PATH';
@@ -2325,9 +2229,7 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
             });
 
             if (isAlreadyLinked) {
-                res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: { message: '该配置文件已关联' } }));
-                return true;
+                return { success: false, message: '该配置文件已关联', alreadyLinked: true };
             }
 
             // Create new provider config based on provider type
@@ -2350,12 +2252,44 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
                 timestamp: new Date().toISOString()
             });
 
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
+            broadcastEvent('provider_update', {
+                action: 'add',
+                providerConfig: newProvider,
+                timestamp: new Date().toISOString()
+            });
+
+            return {
                 success: true,
                 message: `配置已成功关联到 ${displayName}`,
                 provider: newProvider,
                 providerType: providerType
+            };
+        } catch (error) {
+            console.error(`[UI API] Quick link for ${filePath} failed:`, error);
+            return { success: false, message: '关联失败: ' + error.message };
+        }
+    };
+
+    // Quick link config to corresponding provider based on directory
+    if (method === 'POST' && pathParam === '/api/quick-link-provider') {
+        try {
+            const body = await getRequestBody(req);
+            const { filePath } = body;
+
+            const result = attemptQuickLinkFile(filePath);
+
+            if (!result.success) {
+                res.writeHead(result.alreadyLinked ? 400 : 500, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: { message: result.message } }));
+                return true;
+            }
+
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+                success: true,
+                message: result.message,
+                provider: result.provider,
+                providerType: result.providerType
             }));
             return true;
         } catch (error) {
@@ -2364,6 +2298,73 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
             res.end(JSON.stringify({
                 error: {
                     message: '关联失败: ' + error.message
+                }
+            }));
+            return true;
+        }
+    }
+
+    // Bulk quick link multiple config files
+    if (method === 'POST' && pathParam === '/api/quick-link-provider/bulk') {
+        try {
+            const body = await getRequestBody(req);
+            const { filePaths } = body;
+
+            if (!Array.isArray(filePaths) || filePaths.length === 0) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: { message: '需要提供至少一个文件路径' } }));
+                return true;
+            }
+
+            // 去重并过滤空值
+            const uniquePaths = Array.from(new Set(filePaths.filter(Boolean)));
+
+            if (uniquePaths.length === 0) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: { message: '未提供有效的文件路径' } }));
+                return true;
+            }
+
+            console.log(`[UI API] Bulk quick link started for ${uniquePaths.length} files`);
+
+            // 批量处理每个文件
+            const results = uniquePaths.map(filePath => {
+                const result = attemptQuickLinkFile(filePath);
+                return {
+                    filePath,
+                    success: result.success,
+                    message: result.message,
+                    alreadyLinked: result.alreadyLinked || false,
+                    provider: result.provider || null
+                };
+            });
+
+            // 统计结果
+            const successCount = results.filter(r => r.success).length;
+            const failureCount = results.filter(r => !r.success && !r.alreadyLinked).length;
+            const skippedCount = results.filter(r => r.alreadyLinked).length;
+
+            console.log(`[UI API] Bulk quick link completed: ${successCount} succeeded, ${failureCount} failed, ${skippedCount} skipped`);
+
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+                success: true,
+                message: `批量关联完成：成功 ${successCount} 个，失败 ${failureCount} 个，已关联 ${skippedCount} 个`,
+                summary: {
+                    attempted: uniquePaths.length,
+                    successCount,
+                    failureCount,
+                    skippedCount
+                },
+                results
+            }));
+            return true;
+        } catch (error) {
+            console.error('[UI API] Bulk quick link failed:', error);
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+                error: {
+                    message: '批量关联失败: ' + error.message
                 }
             }));
             return true;

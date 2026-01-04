@@ -31,6 +31,21 @@ interface CredentialFile {
   usedBy?: string[];
 }
 
+interface BulkLinkResult {
+  filePath: string;
+  success: boolean;
+  message: string;
+  alreadyLinked?: boolean;
+}
+
+interface BulkLinkSummary {
+  attempted: number;
+  successCount: number;
+  failureCount: number;
+  skippedCount: number;
+  results: BulkLinkResult[];
+}
+
 const getErrorMessage = async (response: Response, fallback: string) => {
   try {
     const payload = await response.clone().json();
@@ -58,6 +73,8 @@ export default function CredentialsPage() {
   const [fileContent, setFileContent] = useState<string>('');
   const [showModal, setShowModal] = useState(false);
   const [linkingPaths, setLinkingPaths] = useState<Set<string>>(new Set());
+  const [bulkLinking, setBulkLinking] = useState(false);
+  const [bulkLinkSummary, setBulkLinkSummary] = useState<BulkLinkSummary | null>(null);
 
   useEffect(() => {
     loadCredentials();
@@ -67,8 +84,11 @@ export default function CredentialsPage() {
     filterCredentials();
   }, [credentials, searchTerm, statusFilter]);
 
-  const loadCredentials = async () => {
+  const loadCredentials = async (options?: { clearBulkSummary?: boolean }) => {
     setRefreshing(true);
+    if (options?.clearBulkSummary !== false) {
+      setBulkLinkSummary(null); // 清除批量关联结果
+    }
     const startTime = Date.now();
     try {
       const response = await fetchWithAuth('/api/upload-configs');
@@ -207,6 +227,85 @@ export default function CredentialsPage() {
     }
   };
 
+  const handleBulkLink = async () => {
+    if (bulkLinking) return;
+
+    // 获取所有未使用的文件
+    const unusedFiles = credentials.filter(file => !file.isUsed);
+
+    if (unusedFiles.length === 0) {
+      toast.info('当前没有未关联的凭据文件');
+      return;
+    }
+
+    setBulkLinking(true);
+    setBulkLinkSummary(null);
+
+    try {
+      const response = await fetchWithAuth('/api/quick-link-provider/bulk', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ filePaths: unusedFiles.map(file => file.path) }),
+      });
+
+      if (!response.ok) {
+        const message = await getErrorMessage(response, '批量关联失败');
+        throw new Error(message);
+      }
+
+      const data = await response.json();
+
+      if (!data?.success) {
+        throw new Error(data?.message || data?.error?.message || '批量关联失败');
+      }
+
+      // 设置汇总信息
+      const summary: BulkLinkSummary = {
+        attempted: data.summary?.attempted || unusedFiles.length,
+        successCount: data.summary?.successCount || 0,
+        failureCount: data.summary?.failureCount || 0,
+        skippedCount: data.summary?.skippedCount || 0,
+        results: data.results || []
+      };
+
+      setBulkLinkSummary(summary);
+
+      // 根据结果显示不同的提示
+      if (summary.successCount === 0 && summary.failureCount > 0) {
+        // 全部失败
+        toast.error(
+          '批量关联失败',
+          `所有文件关联失败，请检查失败详情`
+        );
+      } else if (summary.failureCount > 0) {
+        // 部分失败
+        toast.warning(
+          '批量关联部分成功',
+          `成功 ${summary.successCount} 个，失败 ${summary.failureCount} 个，已关联 ${summary.skippedCount} 个`
+        );
+      } else {
+        // 全部成功
+        toast.success(
+          '批量关联完成',
+          data.message || `成功关联 ${summary.successCount} 个文件${summary.skippedCount > 0 ? `，跳过 ${summary.skippedCount} 个已关联文件` : ''}`
+        );
+      }
+
+      // 刷新列表（保留批量关联结果）
+      await loadCredentials({ clearBulkSummary: false });
+    } catch (error) {
+      if (isUnauthorizedError(error)) {
+        return;
+      }
+      console.error('Failed to bulk link credential files:', error);
+      toast.error('批量关联失败', error instanceof Error ? error.message : undefined);
+    } finally {
+      setBulkLinking(false);
+    }
+  };
+
   const formatFileSize = (bytes: number) => {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(2)} KB`;
@@ -248,7 +347,7 @@ export default function CredentialsPage() {
           <p className="text-gray-400">管理 OAuth 凭据和配置文件</p>
         </div>
         <button
-          onClick={loadCredentials}
+          onClick={() => loadCredentials()}
           disabled={refreshing}
           className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 rounded-lg font-semibold transition-all duration-200 hover:shadow-lg hover:shadow-purple-500/50 disabled:opacity-50"
         >
@@ -364,8 +463,65 @@ export default function CredentialsPage() {
             >
               未使用
             </button>
+            <button
+              onClick={handleBulkLink}
+              disabled={bulkLinking || unusedFiles === 0}
+              className={`px-4 py-2 rounded-lg transition-all flex items-center gap-2 ${
+                bulkLinking
+                  ? 'bg-purple-500/80 text-white cursor-wait'
+                  : unusedFiles === 0
+                    ? 'bg-white/10 text-gray-400 cursor-not-allowed'
+                    : 'bg-gradient-to-r from-purple-500 to-pink-500 text-white hover:from-purple-600 hover:to-pink-600'
+              }`}
+            >
+              {bulkLinking ? (
+                <IconLoader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <IconLink className="w-4 h-4" />
+              )}
+              <span>{bulkLinking ? '批量关联中...' : '批量关联'}</span>
+            </button>
           </div>
         </div>
+        {bulkLinkSummary && (
+          <div className="mt-4 p-4 bg-white/5 rounded-lg border border-white/10">
+            <div className="flex items-start justify-between mb-2">
+              <p className="text-sm text-gray-300">
+                批量关联结果：共处理 {bulkLinkSummary.attempted} 个文件，
+                成功 <span className="text-green-400 font-semibold">{bulkLinkSummary.successCount}</span> 个，
+                失败 <span className="text-red-400 font-semibold">{bulkLinkSummary.failureCount}</span> 个，
+                已关联 <span className="text-yellow-400 font-semibold">{bulkLinkSummary.skippedCount}</span> 个
+              </p>
+              <button
+                onClick={() => setBulkLinkSummary(null)}
+                className="text-gray-400 hover:text-white transition-colors"
+                title="清除结果"
+              >
+                <IconX className="w-4 h-4" />
+              </button>
+            </div>
+            {(() => {
+              const failedResults = bulkLinkSummary.results.filter(r => !r.success);
+              return failedResults.length > 0 && (
+                <div className="mt-2 space-y-1">
+                  <p className="text-xs text-red-300 font-semibold">失败详情：</p>
+                  <div className="space-y-1 max-h-32 overflow-y-auto">
+                    {failedResults.slice(0, 5).map((item, index) => (
+                      <p key={index} className="text-xs text-red-300 truncate" title={`${item.filePath}: ${item.message}`}>
+                        • {item.filePath}: {item.message}
+                      </p>
+                    ))}
+                    {failedResults.length > 5 && (
+                      <p className="text-xs text-gray-400 italic">
+                        还有 {failedResults.length - 5} 个失败项未显示
+                      </p>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        )}
       </CardSpotlight>
 
       {/* Files List */}
