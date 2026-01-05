@@ -6,7 +6,7 @@
 
 ## 📚 文档列表
 
-### 1. [项目概览与代理机制](./v1-messages-proxy-analysis.md) (5.7KB)
+### 1. [项目概览与代理机制](./Analysis/v1-messages-proxy-analysis.md) (5.7KB)
 
 **核心内容**：
 - 项目整体功能：Claude API 兼容的代理服务
@@ -22,7 +22,7 @@
 
 ---
 
-### 2. [字段映射与转换规则](./field-mapping-analysis.md) (16KB)
+### 2. [字段映射与转换规则](./Analysis/field-mapping-analysis.md) (16KB)
 
 **核心内容**：
 - Claude Messages API 到 AWS CodeWhisperer 的完整字段映射
@@ -40,7 +40,7 @@
 
 ---
 
-### 3. [流式响应机制](./streaming-response-analysis.md) (14KB)
+### 3. [流式响应机制](./Analysis/streaming-response-analysis.md) (14KB)
 
 **核心内容**：
 - AWS Event Stream 二进制协议解析
@@ -58,7 +58,7 @@
 
 ---
 
-### 4. [Token 刷新流程](./token-refresh-analysis.md) (10KB)
+### 4. [Token 刷新流程](./Analysis/token-refresh-analysis.md) (10KB)
 
 **核心内容**：
 - Token 刷新的完整流程
@@ -75,7 +75,7 @@
 
 ---
 
-### 5. [JSON 文件存储问题分析](./json-storage-issues-analysis.md) (19KB)
+### 5. [JSON 文件存储问题分析](./Analysis/json-storage-issues-analysis.md) (19KB)
 
 **核心内容**：
 - JSON 文件存储的位置和用途：
@@ -96,7 +96,7 @@
 
 ---
 
-### 6. [SQLite 实现分析](./sqlite-implementation-analysis.md) (15KB)
+### 6. [SQLite 实现分析](./Analysis/sqlite-implementation-analysis.md) (15KB)
 
 **核心内容**：
 - SQLite 方案的架构设计与数据模型
@@ -122,23 +122,23 @@
 
 | 场景 | 推荐文档 |
 |---|---|
-| 了解项目整体架构 | [项目概览与代理机制](./v1-messages-proxy-analysis.md) |
-| 调试请求体转换问题 | [字段映射与转换规则](./field-mapping-analysis.md) |
-| 调试流式响应问题 | [流式响应机制](./streaming-response-analysis.md) |
-| 调试认证/Token 问题 | [Token 刷新流程](./token-refresh-analysis.md) |
-| 评估 JSON 存储风险 | [JSON 文件存储问题分析](./json-storage-issues-analysis.md) |
-| 评估 SQLite 实现与迁移 | [SQLite 实现分析](./sqlite-implementation-analysis.md) |
+| 了解项目整体架构 | [项目概览与代理机制](./Analysis/v1-messages-proxy-analysis.md) |
+| 调试请求体转换问题 | [字段映射与转换规则](./Analysis/field-mapping-analysis.md) |
+| 调试流式响应问题 | [流式响应机制](./Analysis/streaming-response-analysis.md) |
+| 调试认证/Token 问题 | [Token 刷新流程](./Analysis/token-refresh-analysis.md) |
+| 评估 JSON 存储风险 | [JSON 文件存储问题分析](./Analysis/json-storage-issues-analysis.md) |
+| 评估 SQLite 实现与迁移 | [SQLite 实现分析](./Analysis/sqlite-implementation-analysis.md) |
 
 ### 按技术栈
 
 | 技术点 | 相关文档 |
 |---|---|
-| HTTP 代理 | [项目概览](./v1-messages-proxy-analysis.md) |
-| 数据转换 | [字段映射](./field-mapping-analysis.md) |
-| 二进制协议 | [流式响应](./streaming-response-analysis.md) |
-| OAuth 2.0 | [Token 刷新](./token-refresh-analysis.md) |
-| JSON 文件存储 | [JSON 存储问题](./json-storage-issues-analysis.md) |
-| SQLite 数据库 | [SQLite 实现分析](./sqlite-implementation-analysis.md) |
+| HTTP 代理 | [项目概览](./Analysis/v1-messages-proxy-analysis.md) |
+| 数据转换 | [字段映射](./Analysis/field-mapping-analysis.md) |
+| 二进制协议 | [流式响应](./Analysis/streaming-response-analysis.md) |
+| OAuth 2.0 | [Token 刷新](./Analysis/token-refresh-analysis.md) |
+| JSON 文件存储 | [JSON 存储问题](./Analysis/json-storage-issues-analysis.md) |
+| SQLite 数据库 | [SQLite 实现分析](./Analysis/sqlite-implementation-analysis.md) |
 
 ---
 
@@ -147,24 +147,24 @@
 ### 1. 上游接口强耦合
 - URL/headers/事件流解析都在模拟 Kiro 官方行为
 - 上游变更会直接影响可用性
-- 相关文档：[项目概览](./v1-messages-proxy-analysis.md)
+- 相关文档：[项目概览](./Analysis/v1-messages-proxy-analysis.md)
 
 ### 2. 并发与数据一致性
 - JSON 文件缺少文件锁和原子写
 - SQLite 模式存在 P0 级别问题（缓存过期逻辑、UI 同步缺失）
 - 多进程/多实例部署需要额外配置（busy_timeout、原子更新）
 - **JSON 模式不建议在生产环境使用 PM2 cluster 模式**
-- 相关文档：[JSON 存储问题](./json-storage-issues-analysis.md)、[SQLite 实现分析](./sqlite-implementation-analysis.md)
+- 相关文档：[JSON 存储问题](./Analysis/json-storage-issues-analysis.md)、[SQLite 实现分析](./Analysis/sqlite-implementation-analysis.md)
 
 ### 3. 鉴权语义分离
 - 对外 API Key 与上游 OAuth token 是两套体系
 - 误配置可能导致安全风险
-- 相关文档：[项目概览](./v1-messages-proxy-analysis.md)
+- 相关文档：[项目概览](./Analysis/v1-messages-proxy-analysis.md)
 
 ### 4. 流式重试限制
 - 流式响应一旦开始，后续失败无法重试
 - 只能返回流式错误
-- 相关文档：[流式响应](./streaming-response-analysis.md)
+- 相关文档：[流式响应](./Analysis/streaming-response-analysis.md)
 
 ---
 
