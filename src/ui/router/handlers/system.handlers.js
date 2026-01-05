@@ -80,12 +80,32 @@ export async function healthCheck({ res }) {
  */
 export async function getSystemInfo({ res }) {
     const memUsage = process.memoryUsage();
+    const { join } = await import('path');
+    const { existsSync, readFileSync } = await import('fs');
+    const { getCpuUsagePercent } = await import('../../../utils/common.js');
+    // 读取版本号
+    let appVersion = 'unknown';
+    try {
+        const versionFilePath = join(process.cwd(), 'VERSION');
+        if (existsSync(versionFilePath)) {
+            appVersion = readFileSync(versionFilePath, 'utf8').trim();
+        } else {
+            throw new Error('VERSION file does not exist: ' + versionFilePath);
+        }
+    } catch (error) {
+        console.warn('[UI API] Failed to read VERSION file:', error.message);
+    }
 
-    res.writeHead(200, getNoCacheHeaders());
+    // 计算 CPU 使用率
+    const cpuUsage = getCpuUsagePercent();
+
+    res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
+        appVersion: appVersion,
         nodeVersion: process.version,
         serverTime: new Date().toLocaleString(),
-        memoryUsage: `${Math.round(memUsage.rss / 1024 / 1024)} MB / ${Math.round(memUsage.rss * 1.5 / 1024 / 1024)} MB`,
+        memoryUsage: `${Math.round(memUsage.heapUsed / 1024 / 1024)} MB / ${Math.round(memUsage.heapTotal / 1024 / 1024)} MB`,
+        cpuUsage: cpuUsage,
         uptime: process.uptime(),
         isWorker: !!process.env.IS_WORKER_PROCESS
     }));

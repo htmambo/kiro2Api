@@ -4,6 +4,7 @@ import * as http from 'http'; // Add http for IncomingMessage and ServerResponse
 import * as crypto from 'crypto'; // Import crypto for MD5 hashing
 import { KiroService } from '../kiro/core.js'; // Import KiroService
 import { KiroStrategy } from '../kiro/strategy.js';
+import os from 'os';
 
 export const API_ACTIONS = {
     GENERATE_CONTENT: 'generateContent',
@@ -13,6 +14,47 @@ export const API_ACTIONS = {
 export const MODEL_PROVIDER = {
     // Model provider constants - Only Kiro OAuth
     KIRO_API: 'claude-kiro-oauth',
+}
+
+// CPU 使用率计算相关变量
+let previousCpuInfo = null;
+
+/**
+ * 获取 CPU 使用率百分比
+ * @returns {string} CPU 使用率字符串，如 "25.5%"
+ */
+export function getCpuUsagePercent() {
+    const cpus = os.cpus();
+
+    let totalIdle = 0;
+    let totalTick = 0;
+
+    for (const cpu of cpus) {
+        for (const type in cpu.times) {
+            totalTick += cpu.times[type];
+        }
+        totalIdle += cpu.times.idle;
+    }
+
+    const currentCpuInfo = {
+        idle: totalIdle,
+        total: totalTick
+    };
+
+    let cpuPercent = 0;
+
+    if (previousCpuInfo) {
+        const idleDiff = currentCpuInfo.idle - previousCpuInfo.idle;
+        const totalDiff = currentCpuInfo.total - previousCpuInfo.total;
+
+        if (totalDiff > 0) {
+            cpuPercent = 100 - (100 * idleDiff / totalDiff);
+        }
+    }
+
+    previousCpuInfo = currentCpuInfo;
+
+    return `${cpuPercent.toFixed(1)}%`;
 }
 
 /**

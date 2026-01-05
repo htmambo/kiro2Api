@@ -310,7 +310,7 @@ export default function LogsPage() {
               {filteredLogs.map((log, index) => (
                 <div
                   key={index}
-                  className="flex gap-3 p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+                  className="flex gap-1 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
                 >
                   {/* 时间戳 */}
                   <div className="flex-shrink-0 text-xs text-gray-500 dark:text-gray-400 font-mono w-36">
@@ -318,7 +318,7 @@ export default function LogsPage() {
                   </div>
 
                   {/* 级别标签 */}
-                  <div className="flex-shrink-0">
+                  <div className="flex-shrink-0 text-xs">
                     <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getLevelStyle(log.level)}`}>
                       {log.level.toUpperCase()}
                     </span>
