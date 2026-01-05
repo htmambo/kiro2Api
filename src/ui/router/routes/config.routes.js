@@ -1,0 +1,36 @@
+/**
+ * 配置路由配置
+ */
+
+import * as configHandlers from '../handlers/config.handlers.js';
+
+/**
+ * 设置配置管理路由
+ *
+ * @param {Router} router - 路由器实例
+ */
+export function setupConfigRoutes(router) {
+    // 获取配置
+    router.addRoute('GET', '/api/config', configHandlers.getConfig, {
+        auth: true,
+        description: '获取当前系统配置'
+    });
+
+    // 更新配置
+    router.addRoute('POST', '/api/config', configHandlers.updateConfig, {
+        auth: true,
+        description: '更新系统配置'
+    });
+
+    // 重载配置文件
+    router.addRoute('POST', '/api/reload-config', configHandlers.reloadConfig, {
+        auth: true,
+        description: '重载配置文件（从磁盘重新读取）'
+    });
+
+    // 更新管理员密码
+    router.addRoute('POST', '/api/admin-password', configHandlers.updateAdminPassword, {
+        auth: true,
+        description: '更新后台管理登录密码'
+    });
+}

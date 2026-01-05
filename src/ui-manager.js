@@ -27,13 +27,22 @@ import { KIRO_MODELS } from './kiro/constants.js';
 import { serveStaticFiles } from './ui/static.js';
 import { initializeUIManagement, broadcastEvent } from './ui/events.js';
 
+// 路由器相关导入
+import { createRouter } from './ui/router/index.js';
+import { requireAuth as routerCheckAuth } from './ui/router/middleware/auth.middleware.js';
+
+// 路由器配置
+export const ROUTER_CONFIG = {
+    ENABLE_ROUTER_LOGGING: true // 启用路由日志
+};
+
 // Token存储到本地文件中
 const TOKEN_STORE_FILE = './configs/token-store.json';
 
 // 用量缓存文件路径
 const USAGE_CACHE_FILE = './configs/usage-cache.json';
 const ACCOUNT_POOL_FILE = './configs/account_pool.json';
-const DEFAULT_PROVIDER_TYPE_FOR_ACCOUNTS = 'claude-kiro-oauth';
+export const DEFAULT_PROVIDER_TYPE_FOR_ACCOUNTS = 'claude-kiro-oauth';
 
 function isAccountMode(config) {
     // Provider 层已彻底移除，始终使用 account 模式
@@ -47,7 +56,7 @@ function isAccountMode(config) {
  * @param {Object} poolManager - AccountPoolManager 实例
  * @returns {Object} { accountMode, filePath, accountPool }
  */
-function readAccountsFromStorage(currentConfig, poolManager = null) {
+export function readAccountsFromStorage(currentConfig, poolManager = null) {
     const filePath = currentConfig.ACCOUNT_POOL_FILE_PATH || ACCOUNT_POOL_FILE;
 
     if (poolManager && typeof poolManager.listAccounts === 'function') {
@@ -88,7 +97,7 @@ function getNoCacheHeaders(additionalHeaders = {}) {
  * @param {string} errorMessage - 原始错误消息
  * @returns {object} { status: '封禁'|'过期'|'额度用尽'|'限流'|'未知错误', message: '友好提示' }
  */
-function parseErrorMessage(errorMessage) {
+export function parseErrorMessage(errorMessage) {
     if (!errorMessage) return { status: '正常', message: '' };
 
     const msg = errorMessage.toLowerCase();
@@ -128,10 +137,10 @@ function parseErrorMessage(errorMessage) {
 }
 
 // Kiro OAuth 状态存储（内存 + 文件持久化）
-const kiroOAuthStates = new Map(); // state -> {code_verifier, machineid, timestamp, accountNumber}
-const kiroOAuthCompletedStates = new Map(); // state -> {accountNumber, completedAt} 已完成的授权，保留5分钟供前端查询
+export const kiroOAuthStates = new Map(); // state -> {code_verifier, machineid, timestamp, accountNumber}
+export const kiroOAuthCompletedStates = new Map(); // state -> {accountNumber, completedAt} 已完成的授权，保留5分钟供前端查询
 const KIRO_OAUTH_STATE_FILE = './configs/kiro-oauth-states.json'; // 持久化文件
-const PROVIDER_POOLS_FILE = './configs/provider_pools.json'
+export const PROVIDER_POOLS_FILE = './configs/provider_pools.json'
 
 // 加载持久化的OAuth状态
 async function loadOAuthStates() {
@@ -175,7 +184,7 @@ loadOAuthStates().catch(err => {
 });
 
 // Kiro OAuth 配置
-const KIRO_OAUTH_CONFIG = {
+export const KIRO_OAUTH_CONFIG = {
     REDIRECT_URI: 'kiro://kiro.kiroAgent/authenticate-success',
     REDIRECT_URI_WEB: null,  // 动态生成，基于实际监听端口
     IDE_VERSION: '0.7.45',  // 更新到最新版本
@@ -186,7 +195,7 @@ const KIRO_OAUTH_CONFIG = {
 /**
  * 生成 OAuth 结果页面 HTML
  */
-function generateOAuthResultPage(success, message, details = null) {
+export function generateOAuthResultPage(success, message, details = null) {
     const iconColor = success ? '#10b981' : '#ef4444';
     const icon = success ? '✓' : '✗';
     const title = success ? '授权成功' : '授权失败';
@@ -276,9 +285,9 @@ function generateOAuthResultPage(success, message, details = null) {
 
 /**
  * 读取用量缓存文件
- * @returns {Promise<Object|null>} 缓存的用量数据，如果不存在或读取失败则返回 null
+ * @returns {Promise<Object|null>} 缓存的用量数据，如果不��在或读取失败则返回 null
  */
-async function readUsageCache() {
+export async function readUsageCache() {
     try {
         if (existsSync(USAGE_CACHE_FILE)) {
             const content = await fs.readFile(USAGE_CACHE_FILE, 'utf8');
@@ -295,7 +304,7 @@ async function readUsageCache() {
  * 写入用量缓存文件
  * @param {Object} usageData - 用量数据
  */
-async function writeUsageCache(usageData) {
+export async function writeUsageCache(usageData) {
     try {
         await fs.writeFile(USAGE_CACHE_FILE, JSON.stringify(usageData, null, 2), 'utf8');
         console.log('[Usage Cache] Usage data cached to', USAGE_CACHE_FILE);
@@ -309,7 +318,7 @@ async function writeUsageCache(usageData) {
  * @param {string} providerType - 提供商类型
  * @returns {Promise<Object|null>} 缓存的用量数据
  */
-async function readProviderUsageCache(providerType) {
+export async function readProviderUsageCache(providerType) {
     const cache = await readUsageCache();
     if (cache && cache.providers && cache.providers[providerType]) {
         return {
@@ -326,7 +335,7 @@ async function readProviderUsageCache(providerType) {
  * @param {string} providerType - 提供商类型
  * @param {Object} usageData - 用量数据
  */
-async function updateProviderUsageCache(providerType, usageData) {
+export async function updateProviderUsageCache(providerType, usageData) {
     let cache = await readUsageCache();
     if (!cache) {
         cache = {
@@ -342,7 +351,7 @@ async function updateProviderUsageCache(providerType, usageData) {
 /**
  * 读取token存储文件
  */
-async function readTokenStore() {
+export async function readTokenStore() {
     try {
         if (existsSync(TOKEN_STORE_FILE)) {
             const content = await fs.readFile(TOKEN_STORE_FILE, 'utf8');
@@ -361,7 +370,7 @@ async function readTokenStore() {
 /**
  * 写入token存储文件
  */
-async function writeTokenStore(tokenStore) {
+export async function writeTokenStore(tokenStore) {
     try {
         await fs.writeFile(TOKEN_STORE_FILE, JSON.stringify(tokenStore, null, 2), 'utf8');
     } catch (error) {
@@ -372,14 +381,14 @@ async function writeTokenStore(tokenStore) {
 /**
  * 生成简单的token
  */
-function generateToken() {
+export function generateToken() {
     return crypto.randomBytes(32).toString('hex');
 }
 
 /**
  * 生成token过期时间
  */
-function getExpiryTime() {
+export function getExpiryTime() {
     const now = Date.now();
     const expiry = 60 * 60 * 1000; // 1小时
     return now + expiry;
@@ -407,7 +416,7 @@ async function verifyToken(token) {
 /**
  * 保存token到本地文件
  */
-async function saveToken(token, tokenInfo) {
+export async function saveToken(token, tokenInfo) {
     const tokenStore = await readTokenStore();
     tokenStore.tokens[token] = tokenInfo;
     await writeTokenStore(tokenStore);
@@ -461,7 +470,7 @@ async function readPasswordFile() {
 /**
  * 验证登录凭据
  */
-async function validateCredentials(password) {
+export async function validateCredentials(password) {
     const storedPassword = await readPasswordFile();
     return storedPassword && password === storedPassword;
 }
@@ -469,7 +478,7 @@ async function validateCredentials(password) {
 /**
  * 解析请求体JSON
  */
-function parseRequestBody(req) {
+export function parseRequestBody(req) {
     return new Promise((resolve, reject) => {
         let body = '';
         req.on('data', chunk => {
@@ -627,7 +636,7 @@ const upload = multer({
  * 动态导入config-manager并重新初始化配置
  * @returns {Promise<Object>} 返回重载后的配置对象
  */
-async function reloadConfig() {
+export async function reloadConfig() {
     try {
         // Import config manager dynamically
         const { initializeConfig } = await import('./config/manager.js');
@@ -653,173 +662,11 @@ async function reloadConfig() {
 }
 
 export async function handleUIApiRequests(method, pathParam, req, res, currentConfig, providerPoolManager) {
-    // 处理登录接口
-    if (method === 'POST' && pathParam === '/api/login') {
-        const handled = await handleLoginRequest(req, res);
-        if (handled) return true;
-    }
-
-    // 健康检查接口（用于前端token验证）
-    if (method === 'GET' && pathParam === '/api/health') {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ status: 'ok', timestamp: Date.now() }));
-        return true;
-    }
-
-    // Kiro OAuth 网页回调
-    if (method === 'GET' && pathParam === '/kiro/oauth/web-callback') {
-        try {
-            const urlObj = new URL(req.url, `http://${req.headers.host}`);
-            const code = urlObj.searchParams.get('code');
-            const state = urlObj.searchParams.get('state');
-
-            console.log(`[Kiro OAuth Web] Received callback: code=${code?.substring(0, 10)}..., state=${state?.substring(0, 10)}...`);
-
-            if (!code || !state) {
-                res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
-                res.end(generateOAuthResultPage(false, '缺少必要参数 (code 或 state)'));
-                return true;
-            }
-
-            // 查找对应的 state
-            const stateData = kiroOAuthStates.get(state);
-            if (!stateData) {
-                res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
-                res.end(generateOAuthResultPage(false, 'State 无效或已过期，请重新生成授权链接'));
-                return true;
-            }
-
-            // 检查是否过期（30分钟）
-            if (Date.now() - stateData.timestamp > 30 * 60 * 1000) {
-                kiroOAuthStates.delete(state);
-                res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
-                res.end(generateOAuthResultPage(false, '授权已过期（超过30分钟），请重新生成授权链接'));
-                return true;
-            }
-
-            // 使用存储的 redirect_uri（确保与生成时完全一致）
-            const redirectUri = stateData.redirectUri;
-
-            // 交换 code 获取 token
-            console.log('[Kiro OAuth Web] Exchanging code for token...');
-            const tokenResponse = await fetch(KIRO_OAUTH_CONFIG.TOKEN_ENDPOINT, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                    'User-Agent': `Kiro/${KIRO_OAUTH_CONFIG.IDE_VERSION}`,
-                    'x-machineid': stateData.machineid
-                },
-                body: new URLSearchParams({
-                    grant_type: 'authorization_code',
-                    code: code,
-                    redirect_uri: redirectUri,
-                    code_verifier: stateData.code_verifier
-                }).toString()
-            });
-
-            if (!tokenResponse.ok) {
-                const errorText = await tokenResponse.text();
-                console.error('[Kiro OAuth Web] Token exchange failed:', errorText);
-                res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
-                res.end(generateOAuthResultPage(false, `Token 交换失败: ${tokenResponse.status} - ${errorText}`));
-                return true;
-            }
-
-            const tokenData = await tokenResponse.json();
-            console.log('[Kiro OAuth Web] Token exchange successful!');
-
-            // 保存 token 到文件
-            const accountNumber = stateData.accountNumber || 1;
-            const tokenFileName = `kiro-auth-token-${accountNumber}.json`;
-            const tokenFilePath = path.join(process.cwd(), 'configs', 'kiro', tokenFileName);
-
-            // 确保目录存在
-            const tokenDir = path.dirname(tokenFilePath);
-            if (!fs.existsSync(tokenDir)) {
-                fs.mkdirSync(tokenDir, { recursive: true });
-            }
-
-            // 构建完整的 token 数据
-            const fullTokenData = {
-                accessToken: tokenData.access_token,
-                refreshToken: tokenData.refresh_token,
-                expiresAt: Date.now() + (tokenData.expires_in * 1000),
-                machineid: stateData.machineid,
-                provider: stateData.provider,
-                createdAt: new Date().toISOString(),
-                createdBy: 'web-oauth'
-            };
-
-            fs.writeFileSync(tokenFilePath, JSON.stringify(fullTokenData, null, 2));
-            console.log(`[Kiro OAuth Web] Token saved to: ${tokenFilePath}`);
-
-            // 保存完成状态供前端查询（5分钟后自动清理）
-            kiroOAuthCompletedStates.set(state, {
-                accountNumber: accountNumber,
-                completedAt: Date.now()
-            });
-            setTimeout(() => kiroOAuthCompletedStates.delete(state), 5 * 60 * 1000);
-
-            // 清理使用过的 state
-            kiroOAuthStates.delete(state);
-            saveOAuthStates().catch(err => {
-                console.error('[Kiro OAuth] Failed to persist after cleanup:', err.message);
-            });
-
-            res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-            res.end(generateOAuthResultPage(true, `账号 #${accountNumber} 授权成功！`, {
-                accountNumber,
-                tokenFile: tokenFileName,
-                provider: stateData.provider
-            }));
-            return true;
-        } catch (error) {
-            console.error('[Kiro OAuth Web] Callback handling error:', error);
-            res.writeHead(500, { 'Content-Type': 'text/html; charset=utf-8' });
-            res.end(generateOAuthResultPage(false, `处理失败: ${error.message}`));
-            return true;
-        }
-    }
-
-    // Handle UI management API requests (需要token验证，除了登录接口、健康检查、Events接口、Logs接口、OAuth相关和清理重复接口)
-    const authExcludedPaths = [
-        '/api/login',
-        '/api/health',
-        '/api/events',
-        '/api/logs',
-        '/api/kiro/oauth/callback',
-        '/api/kiro/oauth/manual-import',
-        '/api/kiro/oauth/aws-sso/start',
-        '/api/providers/cleanup-duplicates',
-        '/api/providers',
-        '/api/accounts/cleanup-duplicates',
-        '/api/accounts'
-    ];
-
-    // Handle UI management API requests (需要token验证，除了登录接口、健康检查、Events接口、Logs接口、OAuth相关和清理重复接口)
-    if (pathParam.startsWith('/api/') && !authExcludedPaths.includes(pathParam)) {
-        // 检查token验证
-        const isAuth = await checkAuth(req);
-        if (!isAuth) {
-            res.writeHead(401, {
-                'Content-Type': 'application/json',
-                'Access-Control-Allow-Origin': '*',
-                'Access-Control-Allow-Headers': 'Content-Type, Authorization'
-            });
-            res.end(JSON.stringify({
-                error: {
-                    message: '未授权访问，请先登录',
-                    code: 'UNAUTHORIZED'
-                }
-            }));
-            return true;
-        }
-    }
-
-    // 文件上传API
+    // ========== 文件上传特殊处理（需要在路由器之前） ==========
     if (method === 'POST' && pathParam === '/api/upload-oauth-credentials') {
+        // 使用 multer 中间件处理文件上传
         const uploadMiddleware = upload.single('file');
-        
+
         uploadMiddleware(req, res, async (err) => {
             if (err) {
                 console.error('文件上传错误:', err.message);
@@ -843,2253 +690,82 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
                     return;
                 }
 
-                // multer执行完成后，表单字段已解析到req.body中
-                const provider = req.body.provider || 'common';
-                const tempFilePath = req.file.path;
-                
-                // 根据实际的provider移动文件到正确的目录
-                let targetDir = path.join(process.cwd(), 'configs', provider);
-                
-                // 如果是kiro类型的凭证，需要再包裹一层文件夹
-                if (provider === 'kiro') {
-                    // 使用时间戳作为子文件夹名称，确保每个上传的文件都有独立的目录
-                    const timestamp = Date.now();
-                    const originalNameWithoutExt = path.parse(req.file.originalname).name;
-                    const subFolder = `${timestamp}_${originalNameWithoutExt}`;
-                    targetDir = path.join(targetDir, subFolder);
-                }
-                
-                await fs.mkdir(targetDir, { recursive: true });
-                
-                const targetFilePath = path.join(targetDir, req.file.filename);
-                await fs.rename(tempFilePath, targetFilePath);
-                
-                const relativePath = path.relative(process.cwd(), targetFilePath);
-
-                // 广播更新事件
-                broadcastEvent('config_update', {
-                    action: 'add',
-                    filePath: relativePath,
-                    provider: provider,
-                    timestamp: new Date().toISOString()
-                });
-
-                console.log(`[UI API] OAuth凭据文件已上传: ${targetFilePath} (提供商: ${provider})`);
-
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({
-                    success: true,
-                    message: '文件上传成功',
-                    filePath: relativePath,
-                    originalName: req.file.originalname,
-                    provider: provider
-                }));
-
+                // 调用handler处理上传后的逻辑
+                const { uploadCredentials } = await import('./ui/router/handlers/upload.handlers.js');
+                await uploadCredentials({ req, res, currentConfig });
             } catch (error) {
-                console.error('文件上传处理错误:', error);
+                console.error('[Router] Upload handler error:', error);
+                if (!res.headersSent) {
+                    res.writeHead(500, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({
+                        error: { message: '文件上传处理失败: ' + error.message }
+                    }));
+                }
+            }
+        });
+        return true;
+    }
+
+    // ========== 路由器处理逻辑 ==========
+    // 创建路由器实例（开发模式下每次重新创建以获取最新路由）
+    if (!global.uiRouter || process.env.NODE_ENV === 'development') {
+        global.uiRouter = createRouter();
+        if (ROUTER_CONFIG.ENABLE_ROUTER_LOGGING) {
+            console.log('[Router] Router initialized with', global.uiRouter.getRoutes().length, 'routes');
+        }
+    }
+
+    // 匹配路由
+    const matched = global.uiRouter.match(method, pathParam);
+
+    if (matched) {
+        const { route, match } = matched;
+
+        if (ROUTER_CONFIG.ENABLE_ROUTER_LOGGING) {
+            console.log(`[Router] Matched: ${method} ${pathParam} -> ${route.description || '(no description)'}`);
+        }
+
+        // 认证检查
+        if (route.auth) {
+            const isAuth = await routerCheckAuth(req, res);
+            if (!isAuth) {
+                // routerCheckAuth 已经发送了 401 响应
+                return true;
+            }
+        }
+
+        // 调用 handler
+        try {
+            await route.handler({
+                req,
+                res,
+                currentConfig,
+                providerPoolManager,
+                match
+            });
+
+            if (ROUTER_CONFIG.ENABLE_ROUTER_LOGGING) {
+                console.log(`[Router] Handler completed: ${method} ${pathParam}`);
+            }
+
+            return true;
+        } catch (error) {
+            console.error(`[Router] Error handling ${method} ${pathParam}:`, error);
+            if (!res.headersSent) {
                 res.writeHead(500, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({
-                    error: {
-                        message: '文件上传处理失败: ' + error.message
-                    }
-                }));
+                res.end(JSON.stringify({ error: { message: 'Internal Server Error' } }));
             }
-        });
-        return true;
-    }
-
-    // Update admin password
-    if (method === 'POST' && pathParam === '/api/admin-password') {
-        try {
-            const body = await getRequestBody(req);
-            const { password } = body;
-
-            if (!password || password.trim() === '') {
-                res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({
-                    error: {
-                        message: '密码不能为空'
-                    }
-                }));
-                return true;
-            }
-
-            // 写入密码到 pwd 文件
-            const pwdFilePath = path.join(process.cwd(), 'pwd');
-            await fs.writeFile(pwdFilePath, password.trim(), 'utf8');
-            
-            console.log('[UI API] Admin password updated successfully');
-
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                success: true,
-                message: '后台登录密码已更新'
-            }));
-            return true;
-        } catch (error) {
-            console.error('[UI API] Failed to update admin password:', error);
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                error: {
-                    message: '更新密码失败: ' + error.message
-                }
-            }));
             return true;
         }
     }
 
-    // Get configuration
-    if (method === 'GET' && pathParam === '/api/config') {
-        let systemPrompt = '';
-
-        if (currentConfig.SYSTEM_PROMPT_FILE_PATH && existsSync(currentConfig.SYSTEM_PROMPT_FILE_PATH)) {
-            try {
-                systemPrompt = readFileSync(currentConfig.SYSTEM_PROMPT_FILE_PATH, 'utf-8');
-            } catch (e) {
-                console.warn('[UI API] Failed to read system prompt file:', e.message);
-            }
-        }
-
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-            ...currentConfig,
-            systemPrompt
-        }));
-        return true;
+    // 未匹配到路由，返回 false 继续处理
+    if (ROUTER_CONFIG.ENABLE_ROUTER_LOGGING) {
+        console.log(`[Router] No match found for: ${method} ${pathParam}`);
     }
-
-    // Update configuration
-    if (method === 'POST' && pathParam === '/api/config') {
-        try {
-            const body = await getRequestBody(req);
-            const newConfig = body;
-
-            // Update config values in memory
-            if (newConfig.REQUIRED_API_KEY !== undefined) currentConfig.REQUIRED_API_KEY = newConfig.REQUIRED_API_KEY;
-            if (newConfig.HOST !== undefined) currentConfig.HOST = newConfig.HOST;
-            if (newConfig.SERVER_PORT !== undefined) currentConfig.SERVER_PORT = newConfig.SERVER_PORT;
-            if (newConfig.MODEL_PROVIDER !== undefined) currentConfig.MODEL_PROVIDER = newConfig.MODEL_PROVIDER;
-            if (newConfig.PROJECT_ID !== undefined) currentConfig.PROJECT_ID = newConfig.PROJECT_ID;
-            if (newConfig.KIRO_OAUTH_CREDS_BASE64 !== undefined) currentConfig.KIRO_OAUTH_CREDS_BASE64 = newConfig.KIRO_OAUTH_CREDS_BASE64;
-            if (newConfig.SYSTEM_PROMPT_FILE_PATH !== undefined) currentConfig.SYSTEM_PROMPT_FILE_PATH = newConfig.SYSTEM_PROMPT_FILE_PATH;
-            if (newConfig.SYSTEM_PROMPT_MODE !== undefined) currentConfig.SYSTEM_PROMPT_MODE = newConfig.SYSTEM_PROMPT_MODE;
-            if (newConfig.PROMPT_LOG_BASE_NAME !== undefined) currentConfig.PROMPT_LOG_BASE_NAME = newConfig.PROMPT_LOG_BASE_NAME;
-            if (newConfig.PROMPT_LOG_MODE !== undefined) currentConfig.PROMPT_LOG_MODE = newConfig.PROMPT_LOG_MODE;
-            if (newConfig.REQUEST_MAX_RETRIES !== undefined) currentConfig.REQUEST_MAX_RETRIES = newConfig.REQUEST_MAX_RETRIES;
-            if (newConfig.REQUEST_BASE_DELAY !== undefined) currentConfig.REQUEST_BASE_DELAY = newConfig.REQUEST_BASE_DELAY;
-            if (newConfig.CRON_NEAR_MINUTES !== undefined) currentConfig.CRON_NEAR_MINUTES = newConfig.CRON_NEAR_MINUTES;
-            if (newConfig.CRON_REFRESH_TOKEN !== undefined) currentConfig.CRON_REFRESH_TOKEN = newConfig.CRON_REFRESH_TOKEN;
-            if (newConfig.PROVIDER_POOLS_FILE_PATH !== undefined) currentConfig.PROVIDER_POOLS_FILE_PATH = newConfig.PROVIDER_POOLS_FILE_PATH;
-            if (newConfig.MAX_ERROR_COUNT !== undefined) currentConfig.MAX_ERROR_COUNT = newConfig.MAX_ERROR_COUNT;
-            if (newConfig.ENABLE_THINKING_BY_DEFAULT !== undefined) currentConfig.ENABLE_THINKING_BY_DEFAULT = newConfig.ENABLE_THINKING_BY_DEFAULT;
-            // SQLite 配置
-            if (newConfig.USE_SQLITE_POOL !== undefined) currentConfig.USE_SQLITE_POOL = newConfig.USE_SQLITE_POOL;
-            if (newConfig.SQLITE_DB_PATH !== undefined) currentConfig.SQLITE_DB_PATH = newConfig.SQLITE_DB_PATH;
-            if (newConfig.HEALTH_CHECK_CONCURRENCY !== undefined) currentConfig.HEALTH_CHECK_CONCURRENCY = newConfig.HEALTH_CHECK_CONCURRENCY;
-            if (newConfig.USAGE_QUERY_CONCURRENCY !== undefined) currentConfig.USAGE_QUERY_CONCURRENCY = newConfig.USAGE_QUERY_CONCURRENCY;
-
-            // Handle system prompt update
-            if (newConfig.systemPrompt !== undefined) {
-                const promptPath = currentConfig.SYSTEM_PROMPT_FILE_PATH || 'input_system_prompt.txt';
-                try {
-                    const relativePath = path.relative(process.cwd(), promptPath);
-                    writeFileSync(promptPath, newConfig.systemPrompt, 'utf-8');
-
-                    // 广播更新事件
-                    broadcastEvent('config_update', {
-                        action: 'update',
-                        filePath: relativePath,
-                        type: 'system_prompt',
-                        timestamp: new Date().toISOString()
-                    });
-                    
-                    console.log('[UI API] System prompt updated');
-                } catch (e) {
-                    console.warn('[UI API] Failed to write system prompt:', e.message);
-                }
-            }
-
-            // Update config.json file
-            try {
-                const configPath = 'configs/config.json';
-                
-                // Create a clean config object for saving (exclude runtime-only properties)
-                const configToSave = {
-                    REQUIRED_API_KEY: currentConfig.REQUIRED_API_KEY,
-                    SERVER_PORT: currentConfig.SERVER_PORT,
-                    HOST: currentConfig.HOST,
-                    MODEL_PROVIDER: currentConfig.MODEL_PROVIDER,
-                    PROJECT_ID: currentConfig.PROJECT_ID,
-                    KIRO_OAUTH_CREDS_BASE64: currentConfig.KIRO_OAUTH_CREDS_BASE64,
-                    SYSTEM_PROMPT_FILE_PATH: currentConfig.SYSTEM_PROMPT_FILE_PATH,
-                    SYSTEM_PROMPT_MODE: currentConfig.SYSTEM_PROMPT_MODE,
-                    PROMPT_LOG_BASE_NAME: currentConfig.PROMPT_LOG_BASE_NAME,
-                    PROMPT_LOG_MODE: currentConfig.PROMPT_LOG_MODE,
-                    REQUEST_MAX_RETRIES: currentConfig.REQUEST_MAX_RETRIES,
-                    REQUEST_BASE_DELAY: currentConfig.REQUEST_BASE_DELAY,
-                    CRON_NEAR_MINUTES: currentConfig.CRON_NEAR_MINUTES,
-                    CRON_REFRESH_TOKEN: currentConfig.CRON_REFRESH_TOKEN,
-                    PROVIDER_POOLS_FILE_PATH: currentConfig.PROVIDER_POOLS_FILE_PATH,
-                    MAX_ERROR_COUNT: currentConfig.MAX_ERROR_COUNT,
-                    ENABLE_THINKING_BY_DEFAULT: currentConfig.ENABLE_THINKING_BY_DEFAULT,
-                    // SQLite 配置
-                    USE_SQLITE_POOL: currentConfig.USE_SQLITE_POOL,
-                    SQLITE_DB_PATH: currentConfig.SQLITE_DB_PATH,
-                    HEALTH_CHECK_CONCURRENCY: currentConfig.HEALTH_CHECK_CONCURRENCY,
-                    USAGE_QUERY_CONCURRENCY: currentConfig.USAGE_QUERY_CONCURRENCY
-                };
-
-                writeFileSync(configPath, JSON.stringify(configToSave, null, 2), 'utf-8');
-                console.log('[UI API] Configuration saved to config.json');
-                
-                // 广播更新事件
-                broadcastEvent('config_update', {
-                    action: 'update',
-                    filePath: 'configs/config.json',
-                    type: 'main_config',
-                    timestamp: new Date().toISOString()
-                });
-            } catch (error) {
-                console.error('[UI API] Failed to save configuration to file:', error.message);
-                res.writeHead(500, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({
-                    error: {
-                        message: 'Failed to save configuration to file: ' + error.message,
-                        partial: true  // Indicate that memory config was updated but not saved
-                    }
-                }));
-                return true;
-            }
-
-            // Update the global CONFIG object to reflect changes immediately
-            Object.assign(CONFIG, currentConfig);
-
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                success: true,
-                message: 'Configuration updated successfully',
-                details: 'Configuration has been updated in both memory and config.json file'
-            }));
-            return true;
-        } catch (error) {
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: { message: error.message } }));
-            return true;
-        }
-    }
-
-    // Get system information
-    if (method === 'GET' && pathParam === '/api/system') {
-        const memUsage = process.memoryUsage();
-        res.writeHead(200, getNoCacheHeaders());
-        res.end(JSON.stringify({
-            nodeVersion: process.version,
-            serverTime: new Date().toLocaleString(),
-            memoryUsage: `${Math.round(memUsage.rss / 1024 / 1024)} MB / ${Math.round(memUsage.rss * 1.5 / 1024 / 1024)} MB`,
-            uptime: process.uptime(),
-            isWorker: !!process.env.IS_WORKER_PROCESS // 告知前端是否运行在 Worker 模式
-        }));
-        return true;
-    }
-
-    // Restart server (Worker mode only)
-    if (method === 'POST' && pathParam === '/api/restart') {
-        if (process.send && process.env.IS_WORKER_PROCESS) {
-            console.log('[UI API] Sending restart request to master...');
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ 
-                success: true, 
-                message: '服务器正在重启...' 
-            }));
-            
-            // 稍微延迟发送，让响应先返回
-            setTimeout(() => {
-                process.send({ type: 'restart_request' });
-            }, 100);
-        } else {
-            res.writeHead(400, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ 
-                success: false, 
-                message: '当前未运行在 Cluster Worker 模式，无法自动重启。请手动重启服务。' 
-            }));
-        }
-        return true;
-    }
-
-    // Get accounts summary (providerType removed)
-    if (method === 'GET' && pathParam === '/api/accounts') {
-        const { accountPool, filePath } = readAccountsFromStorage(currentConfig, providerPoolManager);
-
-        // 兼容旧 Providers UI：补充 errorStatus/poolType 并计算统计
-        let healthyCount = 0;
-        let checkingCount = 0;
-        let bannedCount = 0;
-        let totalUsageCount = 0;
-        let totalErrorCount = 0;
-
-        for (const account of accountPool.accounts) {
-            totalUsageCount += account.usageCount || 0;
-            totalErrorCount += account.errorCount || 0;
-
-            if (account.lastErrorMessage) {
-                account.errorStatus = parseErrorMessage(account.lastErrorMessage);
-            } else {
-                account.errorStatus = { status: '正常', message: '', statusType: 'ok' };
-            }
-
-            if (account.isDisabled) {
-                account.poolType = 'disabled';
-                bannedCount++;
-            } else if (!account.isHealthy) {
-                account.poolType = 'banned';
-                bannedCount++;
-            } else if (account.errorCount > 0 && account.isHealthy) {
-                account.poolType = 'checking';
-                checkingCount++;
-            } else {
-                account.poolType = 'healthy';
-                healthyCount++;
-            }
-        }
-
-        const stats = {
-            healthy: healthyCount,
-            checking: checkingCount,
-            banned: bannedCount,
-            total: healthyCount + checkingCount + bannedCount,
-            totalUsageCount,
-            totalErrorCount,
-            cacheHitRate: '0%'
-        };
-
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-            accounts: accountPool.accounts,
-            _accountPoolStats: stats,
-            _filePath: filePath
-        }));
-        return true;
-    }
-
-    // Add new account configuration
-    if (method === 'POST' && pathParam === '/api/accounts') {
-        try {
-            const body = await getRequestBody(req);
-            const accountConfig = body?.accountConfig || body;
-
-            if (!accountConfig || typeof accountConfig !== 'object') {
-                res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: { message: 'accountConfig is required' } }));
-                return true;
-            }
-
-            // 使用 AccountPoolManager 添加账号
-            const newAccount = providerPoolManager.addAccount(accountConfig);
-
-            broadcastEvent('account_update', {
-                action: 'add',
-                uuid: newAccount.uuid,
-                accountConfig: newAccount,
-                timestamp: new Date().toISOString()
-            });
-
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ success: true, account: newAccount }));
-            return true;
-        } catch (error) {
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: { message: error.message } }));
-            return true;
-        }
-    }
-
-    // Delete account
-    const deleteAccountMatch = pathParam.match(/^\/api\/accounts\/([^\/]+)$/);
-    if (method === 'DELETE' && deleteAccountMatch) {
-        const uuid = decodeURIComponent(deleteAccountMatch[1]);
-        try {
-            // 使用 AccountPoolManager 删除账号
-            const removed = providerPoolManager.removeAccount(uuid);
-
-            if (!removed) {
-                res.writeHead(404, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: { message: 'Account not found' } }));
-                return true;
-            }
-
-            broadcastEvent('account_update', { action: 'delete', uuid, timestamp: new Date().toISOString() });
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ success: true }));
-            return true;
-        } catch (error) {
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: { message: error.message } }));
-            return true;
-        }
-    }
-
-    // Toggle account enable/disable
-    const toggleAccountMatch = pathParam.match(/^\/api\/accounts\/([^\/]+)\/toggle$/);
-    if (method === 'POST' && toggleAccountMatch) {
-        const uuid = decodeURIComponent(toggleAccountMatch[1]);
-        try {
-            // 使用 AccountPoolManager 切换账号状态
-            const isDisabled = providerPoolManager.toggleAccount(uuid);
-
-            if (isDisabled === null) {
-                res.writeHead(404, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: { message: 'Account not found' } }));
-                return true;
-            }
-
-            broadcastEvent('account_update', {
-                action: 'toggle',
-                uuid,
-                isDisabled,
-                timestamp: new Date().toISOString()
-            });
-
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ success: true, account }));
-            return true;
-        } catch (error) {
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: { message: error.message } }));
-            return true;
-        }
-    }
-
-    // Batch delete accounts
-    if (method === 'POST' && pathParam === '/api/accounts/batch-delete') {
-        try {
-            const body = await getRequestBody(req);
-            const uuids = Array.isArray(body?.uuids) ? body.uuids : [];
-            const deleteByStatus = Array.isArray(body?.deleteByStatus) ? body.deleteByStatus : [];
-
-            if (uuids.length === 0 && deleteByStatus.length === 0) {
-                res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: { message: 'uuids or deleteByStatus is required' } }));
-                return true;
-            }
-
-            let removed = 0;
-            let targetUuids = [];
-
-            // 使用 AccountPoolManager 批量删除
-            if (deleteByStatus.length > 0) {
-                const result = providerPoolManager.batchDeleteByStatus(deleteByStatus);
-                removed = result.removed;
-                targetUuids = result.uuids;
-            } else if (uuids.length > 0) {
-                removed = providerPoolManager.batchDeleteAccounts(uuids);
-                targetUuids = uuids;
-            }
-
-            broadcastEvent('account_update', {
-                action: 'batch_delete',
-                uuids: targetUuids,
-                removed,
-                timestamp: new Date().toISOString()
-            });
-
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ success: true, removed, message: `已删除 ${removed} 个账号` }));
-            return true;
-        } catch (error) {
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: { message: error.message } }));
-            return true;
-        }
-    }
-
-    // Reset all accounts health status
-    if (method === 'POST' && pathParam === '/api/accounts/reset-health') {
-        try {
-            providerPoolManager.markAllAccountsHealthy();
-            const resetCount = providerPoolManager.accountPool.accounts.length;
-
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ success: true, resetCount }));
-            return true;
-        } catch (error) {
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: { message: error.message } }));
-            return true;
-        }
-    }
-
-    // Reset all accounts health status for a specific provider type
-    const resetHealthMatch = pathParam.match(/^\/api\/accounts\/([^\/]+)\/reset-health$/);
-    if (method === 'POST' && resetHealthMatch) {
-        const accountUuid = resetHealthMatch[1];
-
-        try {
-            const result = providerPoolManager.markAccountHealthy(accountUuid);
-            const resetCount = result ? 1 : 0;
-            if(result) {
-                // 广播更新事件
-                broadcastEvent('config_update', {
-                    action: 'reset_health',
-                    resetCount,
-                    timestamp: new Date().toISOString()
-                });
-            }
-
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                success: true,
-                message: `成功重置 ${resetCount} 个节点的健康状态`,
-            }));
-            return true;
-        } catch (error) {
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: { message: error.message } }));
-            return true;
-        }
-    }
-
-    // Health check all accounts (batch)
-    if (method === 'POST' && pathParam === '/api/accounts/health-check') {
-        try {
-            const accounts = providerPoolManager.listAccounts();
-            const results = [];
-
-            for (const acc of accounts) {
-                if (acc.isDisabled) continue;
-                try {
-                    if (typeof providerPoolManager?._checkAccountHealth === 'function' && typeof providerPoolManager.markAccountHealthy === 'function') {
-                        const healthResult = await providerPoolManager._checkAccountHealth(acc, true);
-                        if (healthResult && healthResult.success) {
-                            providerPoolManager.markAccountHealthy(acc.uuid, {
-                                resetUsageCount: true,
-                                healthCheckModel: healthResult.modelName,
-                                userInfo: healthResult.userInfo
-                            });
-                            results.push({ uuid: acc.uuid, success: true, modelName: healthResult.modelName });
-                        } else {
-                            providerPoolManager.markAccountUnhealthy(acc.uuid, healthResult?.errorMessage || '检测失败');
-                            results.push({ uuid: acc.uuid, success: false, modelName: healthResult?.modelName, message: healthResult?.errorMessage || '检测失败' });
-                        }
-                    } else {
-                        results.push({ uuid: acc.uuid, success: null, message: 'No pool manager available' });
-                    }
-                } catch (error) {
-                    if (typeof providerPoolManager?.markAccountUnhealthy === 'function') {
-                        providerPoolManager.markAccountUnhealthy(acc.uuid, error.message);
-                    }
-                    results.push({ uuid: acc.uuid, success: false, message: error.message });
-                }
-            }
-
-            const successCount = results.filter(r => r.success === true).length;
-            const failCount = results.filter(r => r.success === false).length;
-
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                success: true,
-                message: `健康检测完成: ${successCount} 个健康, ${failCount} 个异常`,
-                successCount,
-                failCount,
-                totalCount: accounts.length,
-                results
-            }));
-            return true;
-        } catch (error) {
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: { message: error.message } }));
-            return true;
-        }
-    }
-
-    // Health check single account (force) - 必须在批量检查之前
-    const accountHealthCheckMatch = pathParam.match(/^\/api\/accounts\/([^\/]+)\/health-check$/);
-    if (method === 'POST' && accountHealthCheckMatch) {
-        const uuid = decodeURIComponent(accountHealthCheckMatch[1]);
-        try {
-            const { accountPool, providerPools } = readAccountsFromStorage(currentConfig, providerPoolManager);
-            const acc = accountPool.accounts.find(a => a.uuid === uuid);
-            if (!acc) {
-                res.writeHead(404, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: { message: 'Account not found' } }));
-                return true;
-            }
-
-            let healthResult = null;
-
-            if (typeof providerPoolManager?._checkAccountHealth === 'function' && typeof providerPoolManager.markAccountHealthy === 'function') {
-                healthResult = await providerPoolManager._checkAccountHealth(acc, true);
-                if (healthResult && healthResult.success) {
-                    providerPoolManager.markAccountHealthy(acc.uuid, { resetUsageCount: true, healthCheckModel: healthResult.modelName, userInfo: healthResult.userInfo });
-                } else {
-                    providerPoolManager.markAccountUnhealthy(acc.uuid, healthResult?.errorMessage || '检测失败');
-                }
-            }
-
-            // 返回详细的健康检查结果
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                success: healthResult?.success || false,
-                isHealthy: healthResult?.success || false,
-                uuid,
-                modelName: healthResult?.modelName || null,
-                error: healthResult?.errorMessage || healthResult?.error || null
-            }));
-            return true;
-        } catch (error) {
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: { message: error.message } }));
-            return true;
-        }
-    }
-
-    // Test single account (minimal request)
-    const accountTestMatch = pathParam.match(/^\/api\/accounts\/([^\/]+)\/test$/);
-    if (method === 'POST' && accountTestMatch) {
-        const uuid = decodeURIComponent(accountTestMatch[1]);
-        try {
-            const { accountPool } = readAccountsFromStorage(currentConfig, providerPoolManager);
-            const acc = accountPool.accounts.find(a => a.uuid === uuid);
-            if (!acc) {
-                res.writeHead(404, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: { message: 'Account not found' } }));
-                return true;
-            }
-
-            const adapter = getServiceAdapter({ ...currentConfig, ...acc, MODEL_PROVIDER: currentConfig.MODEL_PROVIDER });
-            await adapter.generateContent('claude-sonnet-4-20250514', {
-                messages: [{ role: 'user', content: 'Hi' }],
-                model: 'claude-sonnet-4-20250514',
-                max_tokens: 1
-            });
-
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ success: true, uuid }));
-            return true;
-        } catch (error) {
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: { message: error.message } }));
-            return true;
-        }
-    }
-
-    // Generate OAuth authorization URL for accounts (Kiro only)
-    if (method === 'POST' && pathParam === '/api/accounts/generate-auth-url') {
-        try {
-            const result = await handleKiroOAuth(currentConfig, providerPoolManager);
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ success: true, authUrl: result.authUrl, authInfo: result.authInfo }));
-            return true;
-        } catch (error) {
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: { message: `生成授权链接失败: ${error.message}` } }));
-            return true;
-        }
-    }
-
-    // Cleanup duplicate accounts (same cachedUserId)
-    if (method === 'POST' && pathParam === '/api/accounts/cleanup-duplicates') {
-        try {
-            const body = await parseRequestBody(req);
-            const { dryRun = true } = body;
-
-            const { accountPool, providerPools } = readAccountsFromStorage(currentConfig, providerPoolManager);
-            const accounts = accountPool.accounts;
-
-            const userIdGroups = {};
-            const noUserIdAccounts = [];
-
-            for (const account of accounts) {
-                if (account.cachedUserId) {
-                    if (!userIdGroups[account.cachedUserId]) {
-                        userIdGroups[account.cachedUserId] = [];
-                    }
-                    userIdGroups[account.cachedUserId].push(account);
-                } else {
-                    noUserIdAccounts.push(account);
-                }
-            }
-
-            const duplicates = [];
-            const toKeep = [];
-            const toRemove = [];
-
-            for (const [userId, group] of Object.entries(userIdGroups)) {
-                if (group.length > 1) {
-                    toKeep.push(group[0]);
-                    for (let i = 1; i < group.length; i++) {
-                        duplicates.push({
-                            uuid: group[i].uuid,
-                            path: group[i].KIRO_OAUTH_CREDS_FILE_PATH,
-                            email: group[i].cachedEmail,
-                            userId,
-                            duplicateOf: group[0].KIRO_OAUTH_CREDS_FILE_PATH
-                        });
-                        toRemove.push(group[i]);
-                    }
-                } else {
-                    toKeep.push(group[0]);
-                }
-            }
-
-            let removedCount = 0;
-            if (!dryRun && toRemove.length > 0) {
-                const removeUuids = toRemove.map(a => a.uuid);
-                removedCount = providerPoolManager.batchDeleteAccounts(removeUuids);
-                broadcastEvent('account_update', { action: 'cleanup_duplicates', removedCount, timestamp: new Date().toISOString() });
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ success: true, dryRun: false, removedCount, duplicates }));
-                return true;
-            }
-
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                success: true,
-                dryRun: true,
-                duplicates,
-                summary: {
-                    totalAccounts: accounts.length,
-                    accountsWithUserId: Object.values(userIdGroups).reduce((sum, g) => sum + g.length, 0),
-                    accountsWithoutUserId: noUserIdAccounts.length,
-                    duplicateCount: duplicates.length
-                }
-            }));
-            return true;
-        } catch (error) {
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: { message: error.message } }));
-            return true;
-        }
-    }
-
-    // Get available models for all providers or specific provider type
-    if (method === 'GET' && pathParam === '/api/full-models') {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(KIRO_MODELS));
-        return true;
-    }
-
-    // Batch delete providers by UUIDs
-    if (method === 'POST' && pathParam === '/api/providers/batch-delete') {
-        try {
-            const body = await getRequestBody(req);
-            const { providerType, uuids, deleteByStatus } = body;
-
-            if (!providerType) {
-                res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: { message: 'providerType is required' } }));
-                return true;
-            }
-
-            const accountPoolPath = currentConfig.ACCOUNT_POOL_FILE_PATH || ACCOUNT_POOL_FILE;
-            const filePath = accountPoolPath;
-            let accountPool = { accounts: [] };
-
-            if (existsSync(accountPoolPath)) {
-                try {
-                    const fileContent = readFileSync(accountPoolPath, 'utf8');
-                    accountPool = JSON.parse(fileContent);
-                } catch (readError) {
-                    res.writeHead(404, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({ error: { message: 'Account pool file not found' } }));
-                    return true;
-                }
-            }
-
-            const providers = accountPool.accounts || [];
-            let toDelete = [];
-
-            // 如果指定了 deleteByStatus，按状态筛选要删除的账号
-            if (deleteByStatus && Array.isArray(deleteByStatus)) {
-                for (const provider of providers) {
-                    const errorStatus = parseErrorMessage(provider.lastErrorMessage);
-                    // 检查是否匹配任一指定状态
-                    if (deleteByStatus.includes(errorStatus.statusType) ||
-                        (deleteByStatus.includes('banned') && (!provider.isHealthy || provider.isDisabled)) ||
-                        (deleteByStatus.includes('disabled') && provider.isDisabled)) {
-                        toDelete.push(provider.uuid);
-                    }
-                }
-            } else if (uuids && Array.isArray(uuids)) {
-                toDelete = uuids;
-            } else {
-                res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: { message: 'Either uuids array or deleteByStatus array is required' } }));
-                return true;
-            }
-
-            const deleteResults = {
-                success: [],
-                failed: [],
-                tokenFilesDeleted: []
-            };
-
-            // 遍历要删除的UUID
-            for (const uuid of toDelete) {
-                const providerIndex = providers.findIndex(p => p.uuid === uuid);
-                if (providerIndex === -1) {
-                    deleteResults.failed.push({ uuid, reason: 'Provider not found' });
-                    continue;
-                }
-
-                const deletedProvider = providers[providerIndex];
-
-                // 尝试删除对应的token文件
-                const tokenFilePath = deletedProvider.KIRO_OAUTH_CREDS_FILE_PATH;
-
-                if (tokenFilePath) {
-                    // 检查是否还有其他provider使用同一个token文件
-                    const isFileUsedByOthers = providers.some((p, idx) => {
-                        if (idx === providerIndex) return false;
-                        if (toDelete.includes(p.uuid)) return false; // 也会被删除的不算
-                        return (p.KIRO_OAUTH_CREDS_FILE_PATH === tokenFilePath);
-                    });
-
-                    if (!isFileUsedByOthers) {
-                        try {
-                            const fullTokenPath = path.join(process.cwd(), tokenFilePath);
-                            if (existsSync(fullTokenPath)) {
-                                await fs.unlink(fullTokenPath);
-                                deleteResults.tokenFilesDeleted.push(tokenFilePath);
-                                console.log(`[Batch Delete] Deleted token file: ${tokenFilePath}`);
-                            }
-                        } catch (deleteError) {
-                            console.warn(`[Batch Delete] Failed to delete token file ${tokenFilePath}:`, deleteError.message);
-                        }
-                    }
-                }
-
-                // 从数组中移除
-                providers.splice(providerIndex, 1);
-                deleteResults.success.push({
-                    uuid,
-                    email: deletedProvider.cachedEmail || 'unknown',
-                    tokenFile: tokenFilePath
-                });
-            }
-
-            // 更新 providers 数组（重新获取索引后的）
-            accountPool.accounts = providers;
-
-            // 保存到文件
-            writeFileSync(filePath, JSON.stringify(accountPool, null, 2), 'utf8');
-            console.log(`[Batch Delete] Deleted ${deleteResults.success.length} providers from ${providerType}`);
-
-            // 广播更新事件
-            broadcastEvent('provider_update', {
-                action: 'batch_delete',
-                providerType,
-                deletedCount: deleteResults.success.length,
-                timestamp: new Date().toISOString()
-            });
-
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                success: true,
-                message: `成功删除 ${deleteResults.success.length} 个账号，失败 ${deleteResults.failed.length} 个`,
-                results: deleteResults
-            }));
-            return true;
-        } catch (error) {
-            console.error('[Batch Delete] Error:', error);
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: { message: error.message } }));
-            return true;
-        }
-    }
-
-    // Disable/Enable specific provider configuration
-    const disableEnableProviderMatch = pathParam.match(/^\/api\/providers\/([^\/]+)\/([^\/]+)\/(disable|enable)$/);
-    if (disableEnableProviderMatch) {
-        const providerType = decodeURIComponent(disableEnableProviderMatch[1]);
-        const providerUuid = disableEnableProviderMatch[2];
-        const action = disableEnableProviderMatch[3];
-
-        try {
-            const accountPoolPath = currentConfig.ACCOUNT_POOL_FILE_PATH || ACCOUNT_POOL_FILE;
-            const filePath = accountPoolPath;
-            let accountPool = { accounts: [] };
-
-            // Load existing account pool
-            if (existsSync(accountPoolPath)) {
-                try {
-                    const fileContent = readFileSync(accountPoolPath, 'utf8');
-                    accountPool = JSON.parse(fileContent);
-                } catch (readError) {
-                    res.writeHead(404, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({ error: { message: 'Account pool file not found' } }));
-                    return true;
-                }
-            }
-
-            // Find and update the provider
-            const providers = accountPool.accounts || [];
-            const providerIndex = providers.findIndex(p => p.uuid === providerUuid);
-            
-            if (providerIndex === -1) {
-                res.writeHead(404, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: { message: 'Provider not found' } }));
-                return true;
-            }
-
-            // Update isDisabled field
-            const provider = providers[providerIndex];
-            provider.isDisabled = action === 'disable';
-            accountPool.accounts = providers;
-
-            // Save to file
-            writeFileSync(filePath, JSON.stringify(accountPool, null, 2), 'utf8');
-            console.log(`[UI API] ${action === 'disable' ? 'Disabled' : 'Enabled'} provider ${providerUuid} in ${providerType}`);
-
-            // Update provider pool manager if available
-            if (providerPoolManager) {
-                const providerPools = {
-                    [DEFAULT_PROVIDER_TYPE_FOR_ACCOUNTS]: accountPool.accounts
-                };
-                providerPoolManager.providerPools = providerPools;
-
-                // Call the appropriate method
-                if (action === 'disable') {
-                    providerPoolManager.disableProvider(providerType, provider);
-                } else {
-                    providerPoolManager.enableProvider(providerType, provider);
-                }
-            }
-
-            // 广播更新事件
-            broadcastEvent('config_update', {
-                action: action,
-                filePath: filePath,
-                providerType,
-                providerConfig: provider,
-                timestamp: new Date().toISOString()
-            });
-
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                success: true,
-                message: `Provider ${action}d successfully`,
-                provider: provider
-            }));
-            return true;
-        } catch (error) {
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: { message: error.message } }));
-            return true;
-        }
-    }
-
-    // Toggle specific provider status (enable/disable)
-    const toggleProviderMatch = pathParam.match(/^\/api\/providers\/([^\/]+)\/([^\/]+)\/toggle$/);
-    if (method === 'POST' && toggleProviderMatch) {
-        const providerType = decodeURIComponent(toggleProviderMatch[1]);
-        const providerUuid = toggleProviderMatch[2];
-
-        try {
-            const body = await parseRequestBody(req);
-            const isDisabled = body.isDisabled;
-
-            const accountPoolPath = currentConfig.ACCOUNT_POOL_FILE_PATH || ACCOUNT_POOL_FILE;
-            const filePath = accountPoolPath;
-            let accountPool = { accounts: [] };
-
-            if (existsSync(accountPoolPath)) {
-                const fileContent = readFileSync(accountPoolPath, 'utf8');
-                accountPool = JSON.parse(fileContent);
-            }
-
-            const providers = accountPool.accounts || [];
-            const providerIndex = providers.findIndex(p => p.uuid === providerUuid);
-
-            if (providerIndex === -1) {
-                res.writeHead(404, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: { message: 'Provider not found' } }));
-                return true;
-            }
-
-            const provider = providers[providerIndex];
-            provider.isDisabled = isDisabled;
-            accountPool.accounts = providers;
-
-            writeFileSync(filePath, JSON.stringify(accountPool, null, 2), 'utf8');
-            console.log(`[UI API] Toggled provider ${providerUuid}: isDisabled=${isDisabled}`);
-
-            if (providerPoolManager) {
-                const providerPools = {
-                    [DEFAULT_PROVIDER_TYPE_FOR_ACCOUNTS]: accountPool.accounts
-                };
-                providerPoolManager.providerPools = providerPools;
-                if (isDisabled) {
-                    providerPoolManager.disableProvider(providerType, provider);
-                } else {
-                    providerPoolManager.enableProvider(providerType, provider);
-                }
-            }
-
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ success: true, isDisabled }));
-            return true;
-        } catch (error) {
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: { message: error.message } }));
-            return true;
-        }
-    }
-
-    // Perform health check for all providers of a specific type
-    const healthCheckMatch = pathParam.match(/^\/api\/providers\/([^\/]+)\/health-check$/);
-    if (method === 'POST' && healthCheckMatch) {
-        const providerType = decodeURIComponent(healthCheckMatch[1]);
-
-        try {
-            if (!providerPoolManager) {
-                res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: { message: 'Provider pool manager not initialized' } }));
-                return true;
-            }
-
-            // 解析请求体获取可选的池类型筛选参数
-            let poolFilter = null; // 'healthy', 'checking', 'banned', or null for all
-            try {
-                const bodyStr = await collectRequestBody(req);
-                if (bodyStr) {
-                    const body = JSON.parse(bodyStr);
-                    poolFilter = body.pool || null;
-                }
-            } catch (e) {
-                // 没有请求体或解析失败，使用默认值（检查全部）
-            }
-
-            // 获取提供商列表（支持 SQLite 和 JSON 两种模式）
-            let providerConfigs = [];
-            if (isSQLiteMode()) {
-                providerConfigs = providerPoolManager.getProviderPools(providerType);
-            } else {
-                const providers = providerPoolManager.providerStatus?.[providerType] || [];
-                providerConfigs = providers.map(ps => ps.config);
-            }
-
-            // 如果指定了池类型筛选，则过滤账号
-            if (poolFilter) {
-                providerConfigs = providerConfigs.filter(config => {
-                    if (poolFilter === 'banned') {
-                        // 异常池：禁用或不健康的账号
-                        return config.isDisabled || !config.isHealthy;
-                    } else if (poolFilter === 'checking') {
-                        // 检查池：健康但有错误记录的账号
-                        return config.isHealthy && !config.isDisabled && config.errorCount > 0;
-                    } else if (poolFilter === 'healthy') {
-                        // 健康池：健康且无错误的账号
-                        return config.isHealthy && !config.isDisabled && (!config.errorCount || config.errorCount === 0);
-                    }
-                    return true;
-                });
-            }
-
-            if (providerConfigs.length === 0) {
-                res.writeHead(404, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: { message: poolFilter ? `${poolFilter === 'banned' ? '异常池' : poolFilter === 'checking' ? '检查池' : '健康池'}中没有账号` : 'No providers found for this type' } }));
-                return true;
-            }
-
-            const poolName = poolFilter === 'banned' ? '异常池' : poolFilter === 'checking' ? '检查池' : poolFilter === 'healthy' ? '健康池' : '全部';
-            console.log(`[UI API] Starting health check for ${providerConfigs.length} providers in ${providerType} (${poolName})`);
-
-            // 执行健康检测（强制检查，忽略 checkHealth 配置）
-            const results = [];
-            for (const providerConfig of providerConfigs) {
-                try {
-                    // 传递 forceCheck = true 强制执行健康检查，忽略 checkHealth 配置
-                    const healthResult = await providerPoolManager._checkProviderHealth(providerType, providerConfig, true);
-
-                    if (healthResult === null) {
-                        results.push({
-                            uuid: providerConfig.uuid,
-                            success: null,
-                            message: '健康检测不支持此提供商类型'
-                        });
-                        continue;
-                    }
-
-                    if (healthResult.success) {
-                        results.push({
-                            uuid: providerConfig.uuid,
-                            success: true,
-                            modelName: healthResult.modelName,
-                            email: healthResult.userInfo?.email,
-                            message: '健康'
-                        });
-                    } else {
-                        results.push({
-                            uuid: providerConfig.uuid,
-                            success: false,
-                            modelName: healthResult.modelName,
-                            message: healthResult.errorMessage || '检测失败'
-                        });
-                    }
-                } catch (error) {
-                    results.push({
-                        uuid: providerConfig.uuid,
-                        success: false,
-                        message: error.message
-                    });
-                }
-            }
-
-            // 非 SQLite 模式时保存更新后的状态到文件
-            const filePath = currentConfig.PROVIDER_POOLS_FILE_PATH || PROVIDER_POOLS_FILE;
-            if (!isSQLiteMode()) {
-                const providerPools = {};
-                for (const pType in providerPoolManager.providerStatus) {
-                    providerPools[pType] = providerPoolManager.providerStatus[pType].map(ps => ps.config);
-                }
-                writeFileSync(filePath, JSON.stringify(providerPools, null, 2), 'utf8');
-            }
-
-            const successCount = results.filter(r => r.success === true).length;
-            const failCount = results.filter(r => r.success === false).length;
-
-            console.log(`[UI API] Health check completed for ${providerType}: ${successCount} healthy, ${failCount} unhealthy`);
-
-            // 广播更新事件
-            broadcastEvent('config_update', {
-                action: 'health_check',
-                filePath: filePath,
-                providerType,
-                results,
-                timestamp: new Date().toISOString()
-            });
-
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                success: true,
-                message: `健康检测完成: ${successCount} 个健康, ${failCount} 个异常`,
-                successCount,
-                failCount,
-                totalCount: providerConfigs.length,
-                results
-            }));
-            return true;
-        } catch (error) {
-            console.error('[UI API] Health check error:', error);
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: { message: error.message } }));
-            return true;
-        }
-    }
-
-    // Generate OAuth authorization URL for providers
-    const generateAuthUrlMatch = pathParam.match(/^\/api\/providers\/([^\/]+)\/generate-auth-url$/);
-    if (method === 'POST' && generateAuthUrlMatch) {
-        const providerType = decodeURIComponent(generateAuthUrlMatch[1]);
-
-        try {
-            let authUrl = '';
-            let authInfo = {};
-
-            // 只支持 Kiro OAuth
-            if (providerType === 'claude-kiro-oauth') {
-                const result = await handleKiroOAuth(currentConfig, providerPoolManager);
-                authUrl = result.authUrl;
-                authInfo = result.authInfo;
-            } else {
-                res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({
-                    error: {
-                        message: `不支持的提供商类型: ${providerType}`
-                    }
-                }));
-                return true;
-            }
-
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                success: true,
-                authUrl: authUrl,
-                authInfo: authInfo
-            }));
-            return true;
-
-        } catch (error) {
-            console.error(`[UI API] Failed to generate auth URL for ${providerType}:`, error);
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                error: {
-                    message: `生成授权链接失败: ${error.message}`
-                }
-            }));
-            return true;
-        }
-    }
-
-    // Get logs
-    if (method === 'GET' && pathParam === '/api/logs') {
-        res.writeHead(200, getNoCacheHeaders());
-        res.end(JSON.stringify(global.logBuffer || []));
-        return true;
-    }
-
-    // Clear logs
-    if (method === 'DELETE' && pathParam === '/api/logs') {
-        global.logBuffer = [];
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ success: true, message: '日志已清空' }));
-        return true;
-    }
-
-    // Server-Sent Events for real-time updates
-    if (method === 'GET' && pathParam === '/api/events') {
-        res.writeHead(200, {
-            'Content-Type': 'text/event-stream',
-            'Cache-Control': 'no-cache',
-            'Connection': 'keep-alive',
-            'Access-Control-Allow-Origin': '*'
-        });
-
-        // Send initial comment to flush the connection and trigger browser's onopen event
-        // This is critical - SSE spec requires initial data to trigger EventSource.onopen
-        res.write(':\n\n');
-
-        // Store the response object for broadcasting
-        if (!global.eventClients) {
-            global.eventClients = [];
-        }
-        global.eventClients.push(res);
-
-        // Keep connection alive
-        const keepAlive = setInterval(() => {
-            res.write(':\n\n');
-        }, 30000);
-
-        req.on('close', () => {
-            clearInterval(keepAlive);
-            global.eventClients = global.eventClients.filter(r => r !== res);
-        });
-
-        return true;
-    }
-
-    // Get upload configuration files list
-    if (method === 'GET' && pathParam === '/api/upload-configs') {
-        try {
-            const configFiles = await scanConfigFiles(currentConfig, providerPoolManager);
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify(configFiles));
-            return true;
-        } catch (error) {
-            console.error('[UI API] Failed to scan config files:', error);
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                error: {
-                    message: 'Failed to scan config files: ' + error.message
-                }
-            }));
-            return true;
-        }
-    }
-
-    // View specific configuration file
-    const viewConfigMatch = pathParam.match(/^\/api\/upload-configs\/view\/(.+)$/);
-    if (method === 'GET' && viewConfigMatch) {
-        try {
-            const filePath = decodeURIComponent(viewConfigMatch[1]);
-            const fullPath = path.join(process.cwd(), filePath);
-            
-            // 安全检查：确保文件路径在允许的目录内
-            const allowedDirs = ['configs'];
-            const relativePath = path.relative(process.cwd(), fullPath);
-            const isAllowed = allowedDirs.some(dir => relativePath.startsWith(dir + path.sep) || relativePath === dir);
-            
-            if (!isAllowed) {
-                res.writeHead(403, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({
-                    error: {
-                        message: '访问被拒绝：只能查看configs目录下的文件'
-                    }
-                }));
-                return true;
-            }
-            
-            if (!existsSync(fullPath)) {
-                res.writeHead(404, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({
-                    error: {
-                        message: '文件不存在'
-                    }
-                }));
-                return true;
-            }
-            
-            const content = await fs.readFile(fullPath, 'utf8');
-            const stats = await fs.stat(fullPath);
-            
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                path: relativePath,
-                content: content,
-                size: stats.size,
-                modified: stats.mtime.toISOString(),
-                name: path.basename(fullPath)
-            }));
-            return true;
-        } catch (error) {
-            console.error('[UI API] Failed to view config file:', error);
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                error: {
-                    message: 'Failed to view config file: ' + error.message
-                }
-            }));
-            return true;
-        }
-    }
-
-    // Delete specific configuration file
-    const deleteConfigMatch = pathParam.match(/^\/api\/upload-configs\/delete\/(.+)$/);
-    if (method === 'DELETE' && deleteConfigMatch) {
-        try {
-            const filePath = decodeURIComponent(deleteConfigMatch[1]);
-            const fullPath = path.join(process.cwd(), filePath);
-            
-            // 安全检查：确保文件路径在允许的目录内
-            const allowedDirs = ['configs'];
-            const relativePath = path.relative(process.cwd(), fullPath);
-            const isAllowed = allowedDirs.some(dir => relativePath.startsWith(dir + path.sep) || relativePath === dir);
-            
-            if (!isAllowed) {
-                res.writeHead(403, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({
-                    error: {
-                        message: '访问被拒绝：只能删除configs目录下的文件'
-                    }
-                }));
-                return true;
-            }
-            
-            if (!existsSync(fullPath)) {
-                res.writeHead(404, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({
-                    error: {
-                        message: '文件不存在'
-                    }
-                }));
-                return true;
-            }
-            
-            
-            await fs.unlink(fullPath);
-            
-            // 广播更新事件
-            broadcastEvent('config_update', {
-                action: 'delete',
-                filePath: relativePath,
-                timestamp: new Date().toISOString()
-            });
-            
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                success: true,
-                message: '文件删除成功',
-                filePath: relativePath
-            }));
-            return true;
-        } catch (error) {
-            console.error('[UI API] Failed to delete config file:', error);
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                error: {
-                    message: 'Failed to delete config file: ' + error.message
-                }
-            }));
-            return true;
-        }
-    }
-
-    // Helper function to attempt quick link for a single file
-    const attemptQuickLinkFile = (filePath) => {
-        if (!filePath) {
-            return { success: false, message: 'filePath is required' };
-        }
-
-        try {
-            // Defaults for Kiro OAuth
-            const providerType = DEFAULT_PROVIDER_TYPE_FOR_ACCOUNTS;
-            const credPathKey = 'KIRO_OAUTH_CREDS_FILE_PATH';
-            const defaultCheckModel = KIRO_MODELS[0];
-            const displayName = 'Claude Kiro Account';
-            const needsProjectId = false;
-
-            // Check if already linked - 使用 path.resolve 进行更准确的路径比较
-            const targetAbsPath = path.resolve(process.cwd(), filePath);
-            const accounts = providerPoolManager.listAccounts();
-            const isAlreadyLinked = accounts.some(p => {
-                const existingPath = p.path || p[credPathKey]; // Support both key formats
-                if (!existingPath) return false;
-                const existingAbsPath = path.resolve(process.cwd(), existingPath);
-                return existingAbsPath.toLowerCase() === targetAbsPath.toLowerCase();
-            });
-
-            if (isAlreadyLinked) {
-                return { success: false, message: '该配置文件已关联', alreadyLinked: true };
-            }
-
-            // Create new provider config based on provider type
-            const newProviderConfig = createProviderConfig({
-                credPathKey,
-                credPath: formatSystemPath(filePath),
-                defaultCheckModel,
-                needsProjectId
-            });
-
-            // Add account through AccountPoolManager
-            const newProvider = providerPoolManager.addAccount(newProviderConfig);
-            console.log(`[UI API] Quick linked config: ${filePath}`);
-
-            // Broadcast update event
-            broadcastEvent('config_update', {
-                action: 'quick_link',
-                filePath: filePath,
-                newProvider,
-                timestamp: new Date().toISOString()
-            });
-
-            broadcastEvent('provider_update', {
-                action: 'add',
-                providerConfig: newProvider,
-                timestamp: new Date().toISOString()
-            });
-
-            return {
-                success: true,
-                message: `配置已成功关联到 ${displayName}`,
-                provider: newProvider,
-                providerType: providerType
-            };
-        } catch (error) {
-            console.error(`[UI API] Quick link for ${filePath} failed:`, error);
-            return { success: false, message: '关联失败: ' + error.message };
-        }
-    };
-
-    // Quick link config to corresponding provider based on directory
-    if (method === 'POST' && pathParam === '/api/quick-link-provider') {
-        try {
-            const body = await getRequestBody(req);
-            const { filePath } = body;
-
-            const result = attemptQuickLinkFile(filePath);
-
-            if (!result.success) {
-                res.writeHead(result.alreadyLinked ? 400 : 500, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: { message: result.message } }));
-                return true;
-            }
-
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                success: true,
-                message: result.message,
-                provider: result.provider,
-                providerType: result.providerType
-            }));
-            return true;
-        } catch (error) {
-            console.error('[UI API] Quick link failed:', error);
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                error: {
-                    message: '关联失败: ' + error.message
-                }
-            }));
-            return true;
-        }
-    }
-
-    // Bulk quick link multiple config files
-    if (method === 'POST' && pathParam === '/api/quick-link-provider/bulk') {
-        try {
-            const body = await getRequestBody(req);
-            const { filePaths } = body;
-
-            if (!Array.isArray(filePaths) || filePaths.length === 0) {
-                res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: { message: '需要提供至少一个文件路径' } }));
-                return true;
-            }
-
-            // 去重并过滤空值
-            const uniquePaths = Array.from(new Set(filePaths.filter(Boolean)));
-
-            if (uniquePaths.length === 0) {
-                res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: { message: '未提供有效的文件路径' } }));
-                return true;
-            }
-
-            console.log(`[UI API] Bulk quick link started for ${uniquePaths.length} files`);
-
-            // 批量处理每个文件
-            const results = uniquePaths.map(filePath => {
-                const result = attemptQuickLinkFile(filePath);
-                return {
-                    filePath,
-                    success: result.success,
-                    message: result.message,
-                    alreadyLinked: result.alreadyLinked || false,
-                    provider: result.provider || null
-                };
-            });
-
-            // 统计结果
-            const successCount = results.filter(r => r.success).length;
-            const failureCount = results.filter(r => !r.success && !r.alreadyLinked).length;
-            const skippedCount = results.filter(r => r.alreadyLinked).length;
-
-            console.log(`[UI API] Bulk quick link completed: ${successCount} succeeded, ${failureCount} failed, ${skippedCount} skipped`);
-
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                success: true,
-                message: `批量关联完成：成功 ${successCount} 个，失败 ${failureCount} 个，已关联 ${skippedCount} 个`,
-                summary: {
-                    attempted: uniquePaths.length,
-                    successCount,
-                    failureCount,
-                    skippedCount
-                },
-                results
-            }));
-            return true;
-        } catch (error) {
-            console.error('[UI API] Bulk quick link failed:', error);
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                error: {
-                    message: '批量关联失败: ' + error.message
-                }
-            }));
-            return true;
-        }
-    }
-
-    // Get usage limits for all providers
-    if (method === 'GET' && pathParam === '/api/usage') {
-        try {
-            // 解析查询参数，检查是否需要强制刷新
-            const url = new URL(req.url, `http://${req.headers.host}`);
-            const refresh = url.searchParams.get('refresh') === 'true';
-            
-            let usageResults;
-            
-            if (!refresh) {
-                // 优先读取缓存
-                const cachedData = await readUsageCache();
-                if (cachedData) {
-                    console.log('[Usage API] Returning cached usage data');
-                    usageResults = { ...cachedData, fromCache: true };
-                }
-            }
-            
-            if (!usageResults) {
-                // 缓存不存在或需要刷新，重新查询
-                console.log('[Usage API] Fetching fresh usage data');
-                usageResults = await getAllProvidersUsage(currentConfig, providerPoolManager);
-                // 写入缓存
-                await writeUsageCache(usageResults);
-            }
-            
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify(usageResults));
-            return true;
-        } catch (error) {
-            console.error('[UI API] Failed to get usage:', error);
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                error: {
-                    message: '获取用量信息失败: ' + error.message
-                }
-            }));
-            return true;
-        }
-    }
-
-    // Get usage:
-    // - legacy: /api/usage/:providerType
-    // - new:    /api/usage/:uuid
-    const usageSingleSegmentMatch = pathParam.match(/^\/api\/usage\/([^\/]+)$/);
-    if (method === 'GET' && usageSingleSegmentMatch) {
-        const segment = decodeURIComponent(usageSingleSegmentMatch[1]);
-        const isProviderType = segment === DEFAULT_PROVIDER_TYPE_FOR_ACCOUNTS ||
-            (currentConfig.providerPools && currentConfig.providerPools[segment]);
-
-        try {
-            // 解析查询参数，检查是否需要强制刷新
-            const url = new URL(req.url, `http://${req.headers.host}`);
-            const refresh = url.searchParams.get('refresh') === 'true';
-            
-            let usageResults;
-            
-            if (isProviderType) {
-                const providerType = segment;
-                if (!refresh) {
-                    const cachedData = await readProviderUsageCache(providerType);
-                    if (cachedData) {
-                        console.log(`[Usage API] Returning cached usage data for ${providerType}`);
-                        usageResults = cachedData;
-                    }
-                }
-                if (!usageResults) {
-                    console.log(`[Usage API] Fetching fresh usage data for ${providerType}`);
-                    usageResults = await getProviderTypeUsage(providerType, currentConfig, providerPoolManager);
-                    await updateProviderUsageCache(providerType, usageResults);
-                }
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify(usageResults));
-                return true;
-            }
-
-            // 视为 uuid：默认 providerType 取 claude-kiro-oauth
-            const uuid = segment;
-            const providerType = DEFAULT_PROVIDER_TYPE_FOR_ACCOUNTS;
-            console.log(`[Usage API] Fetching usage data for ${uuid} (providerType: ${providerType}, refresh: ${refresh})`);
-
-            const providerUsage = await getProviderTypeUsage(providerType, currentConfig, providerPoolManager);
-            const accountUsage = providerUsage?.instances?.find(i => i.uuid === uuid);
-
-            if (accountUsage) {
-                await updateProviderUsageCache(providerType, providerUsage);
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ success: true, account: accountUsage, timestamp: new Date().toISOString() }));
-                return true;
-            }
-
-            res.writeHead(404, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: { message: `未找到账号 ${uuid}` } }));
-            return true;
-        } catch (error) {
-            console.error(`[UI API] Failed to get usage for ${segment}:`, error);
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                error: {
-                    message: `获取用量信息失败: ` + error.message
-                }
-            }));
-            return true;
-        }
-    }
-
-    // Get usage for a specific account (single account refresh)
-    const usageAccountMatch = pathParam.match(/^\/api\/usage\/([^\/]+)\/([^\/]+)$/);
-    if (method === 'GET' && usageAccountMatch) {
-        const providerType = decodeURIComponent(usageAccountMatch[1]);
-        const uuid = decodeURIComponent(usageAccountMatch[2]);
-        try {
-            // 解析查询参数，检查是否需要强制刷新
-            const url = new URL(req.url, `http://${req.headers.host}`);
-            const refresh = url.searchParams.get('refresh') === 'true';
-
-            console.log(`[Usage API] Fetching usage data for ${providerType}/${uuid} (refresh: ${refresh})`);
-
-            // 获取该提供商的所有账号用量
-            let usageResults = await getProviderTypeUsage(providerType, currentConfig, providerPoolManager);
-
-            // 找到指定的账号
-            const accountUsage = usageResults?.instances?.find(i => i.uuid === uuid);
-
-            if (accountUsage) {
-                // 更新整个提供商的缓存
-                await updateProviderUsageCache(providerType, usageResults);
-
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({
-                    success: true,
-                    account: accountUsage,
-                    timestamp: new Date().toISOString()
-                }));
-            } else {
-                res.writeHead(404, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({
-                    error: { message: `未找到账号 ${uuid}` }
-                }));
-            }
-            return true;
-        } catch (error) {
-            console.error(`[UI API] Failed to get usage for ${providerType}/${uuid}:`, error);
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                error: {
-                    message: `获取账号用量失败: ` + error.message
-                }
-            }));
-            return true;
-        }
-    }
-
-    // 清理重复的 token（相同 userId）
-    if (method === 'POST' && pathParam === '/api/providers/cleanup-duplicates') {
-        try {
-            const body = await parseRequestBody(req);
-            const { providerType = 'claude-kiro-oauth', dryRun = true } = body;
-
-            // 获取提供商池（支持 SQLite 和 JSON 两种模式）
-            let providers = [];
-            if (isSQLiteMode() && providerPoolManager) {
-                providers = providerPoolManager.getProviderPools(providerType);
-            } else if (providerPoolManager && providerPoolManager.providerPools && providerPoolManager.providerPools[providerType]) {
-                providers = providerPoolManager.providerPools[providerType];
-            } else if (currentConfig.providerPools && currentConfig.providerPools[providerType]) {
-                providers = currentConfig.providerPools[providerType];
-            }
-
-            // 按 userId 分组
-            const userIdGroups = {};
-            const noUserIdProviders = [];
-
-            for (const provider of providers) {
-                if (provider.cachedUserId) {
-                    if (!userIdGroups[provider.cachedUserId]) {
-                        userIdGroups[provider.cachedUserId] = [];
-                    }
-                    userIdGroups[provider.cachedUserId].push(provider);
-                } else {
-                    noUserIdProviders.push(provider);
-                }
-            }
-
-            // 找出重复的（同一 userId 有多个 token）
-            const duplicates = [];
-            const toKeep = [];
-            const toRemove = [];
-
-            for (const [userId, group] of Object.entries(userIdGroups)) {
-                if (group.length > 1) {
-                    // 保留第一个，标记其他为重复
-                    toKeep.push(group[0]);
-                    for (let i = 1; i < group.length; i++) {
-                        duplicates.push({
-                            uuid: group[i].uuid,
-                            path: group[i].KIRO_OAUTH_CREDS_FILE_PATH,
-                            email: group[i].cachedEmail,
-                            userId: userId,
-                            duplicateOf: group[0].KIRO_OAUTH_CREDS_FILE_PATH
-                        });
-                        toRemove.push(group[i]);
-                    }
-                } else {
-                    toKeep.push(group[0]);
-                }
-            }
-
-            // 如果不是 dry run，执行删除
-            if (!dryRun && toRemove.length > 0) {
-                const removeUuids = new Set(toRemove.map(p => p.uuid));
-
-                if (isSQLiteMode()) {
-                    // SQLite 模式：直接从数据库删除
-                    for (const uuid of removeUuids) {
-                        sqliteDB.deleteProvider(uuid);
-                    }
-                    console.log(`[Cleanup] Removed ${toRemove.length} duplicate providers from SQLite`);
-                } else {
-                    // JSON 模式：更新文件
-                    const filePath = currentConfig.PROVIDER_POOLS_FILE_PATH || PROVIDER_POOLS_FILE;
-                    const filteredProviders = providers.filter(p => !removeUuids.has(p.uuid));
-
-                    if (providerPoolManager && providerPoolManager.providerPools) {
-                        providerPoolManager.providerPools[providerType] = filteredProviders;
-                    }
-                    if (currentConfig.providerPools) {
-                        currentConfig.providerPools[providerType] = filteredProviders;
-                    }
-
-                    let currentPools = {};
-                    if (existsSync(filePath)) {
-                        currentPools = JSON.parse(readFileSync(filePath, 'utf8'));
-                    }
-                    currentPools[providerType] = filteredProviders;
-                    writeFileSync(filePath, JSON.stringify(currentPools, null, 2), 'utf8');
-
-                    console.log(`[Cleanup] Removed ${toRemove.length} duplicate providers`);
-                }
-            }
-
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                success: true,
-                dryRun,
-                providerType,
-                summary: {
-                    total: providers.length,
-                    unique: toKeep.length + noUserIdProviders.length,
-                    duplicates: duplicates.length,
-                    noUserId: noUserIdProviders.length
-                },
-                duplicates,
-                message: dryRun
-                    ? `发现 ${duplicates.length} 个重复 token，设置 dryRun=false 执行清理`
-                    : `已清理 ${duplicates.length} 个重复 token`
-            }));
-            return true;
-        } catch (error) {
-            console.error('[UI API] Failed to cleanup duplicates:', error);
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                error: {
-                    message: '清理重复 token 失败: ' + error.message
-                }
-            }));
-            return true;
-        }
-    }
-
-    // Kiro OAuth: 检查 state 是否已完成授权
-    if (method === 'GET' && pathParam === '/api/kiro/oauth/check-state') {
-        try {
-            const urlObj = new URL(req.url, `http://${req.headers.host}`);
-            const state = urlObj.searchParams.get('state');
-
-            if (!state) {
-                res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: 'Missing state parameter' }));
-                return true;
-            }
-
-            // 检查 state 是否还存在（存在说明未完成，不存在说明已被消费/完成）
-            const stateData = kiroOAuthStates.get(state);
-
-            if (stateData) {
-                // state 还在，说明授权未完成
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ completed: false }));
-            } else {
-                // state 已被消费，说明授权已完成
-                // 尝试从完成记录中获取账号信息
-                const completedInfo = kiroOAuthCompletedStates?.get(state) || {};
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({
-                    completed: true,
-                    accountNumber: completedInfo.accountNumber
-                }));
-            }
-            return true;
-        } catch (error) {
-            console.error('[Kiro OAuth] Check state error:', error);
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: error.message }));
-            return true;
-        }
-    }
-
-    // AWS SSO BuilderId 设备授权流程 (自动注册Client，无需用户输入)
-    // Manual import of Kiro OAuth refreshToken
-    if (method === 'POST' && pathParam === '/api/kiro/oauth/manual-import') {
-        try {
-            const body = await parseRequestBody(req);
-            const { refreshToken, profileArn, accountNumber = 1 } = body;
-
-            if (!refreshToken) {
-                res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({
-                    success: false,
-                    message: '请提供 refreshToken'
-                }));
-                return true;
-            }
-
-            if (!refreshToken.startsWith('aorAAAAAG')) {
-                res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({
-                    success: false,
-                    message: 'RefreshToken 格式不正确，应该以 aorAAAAAG 开头'
-                }));
-                return true;
-            }
-
-            console.log(`[Kiro Manual Import] Importing refreshToken for account ${accountNumber}`);
-
-            // Test refresh by calling Kiro token refresh API
-            const REFRESH_URL = 'https://prod.us-east-1.auth.desktop.kiro.dev/oauth/token';
-            const axios = (await import('axios')).default;
-
-            try {
-                const refreshResponse = await axios.post(REFRESH_URL, {
-                    grant_type: 'refresh_token',
-                    refresh_token: refreshToken
-                }, {
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Accept': 'application/json'
-                    },
-                    timeout: 30000
-                });
-
-                const { accessToken: newAccessToken, expiresAt, profileArn: fetchedProfileArn } = refreshResponse.data;
-                const finalProfileArn = profileArn || fetchedProfileArn;
-
-                console.log('[Kiro Manual Import] RefreshToken validated and refreshed successfully');
-                console.log(`[Kiro Manual Import] ProfileArn: ${finalProfileArn}`);
-
-                // Save token to configs/kiro directory
-                const kiroConfigDir = path.join(process.cwd(), 'configs', 'kiro');
-                await fs.mkdir(kiroConfigDir, { recursive: true });
-
-                const tokenFilePath = path.join(kiroConfigDir, `kiro-auth-token-${accountNumber}.json`);
-                const credentialsData = {
-                    accessToken: newAccessToken,
-                    refreshToken: refreshToken,
-                    profileArn: finalProfileArn,
-                    expiresAt: expiresAt || new Date(Date.now() + 3600000).toISOString(),
-                    authMethod: 'manual-import',
-                    provider: 'Manual'
-                };
-
-                await fs.writeFile(tokenFilePath, JSON.stringify(credentialsData, null, 2));
-                console.log('[Kiro Manual Import] Token saved to:', tokenFilePath);
-
-                // Check for duplicates and add to provider_pools.json
-                let isDuplicate = false;
-                let duplicateProvider = null;
-
-                try {
-                    const poolsFilePath = currentConfig.PROVIDER_POOLS_FILE_PATH || PROVIDER_POOLS_FILE;
-                    let providerPools = {};
-
-                    if (existsSync(poolsFilePath)) {
-                        const fileContent = readFileSync(poolsFilePath, 'utf8');
-                        providerPools = JSON.parse(fileContent);
-                    }
-
-                    if (!providerPools['claude-kiro-oauth']) {
-                        providerPools['claude-kiro-oauth'] = [];
-                    }
-
-                    // Check duplicate path
-                    const relativePath = path.relative(process.cwd(), tokenFilePath);
-                    const normalizedPath = relativePath.replace(/\\/g, '/');
-                    const pathExists = providerPools['claude-kiro-oauth'].some(p => {
-                        const existingPath = (p.KIRO_OAUTH_CREDS_FILE_PATH || '').replace(/\\/g, '/');
-                        return existingPath === normalizedPath || existingPath === './' + normalizedPath;
-                    });
-
-                    // Check duplicate userId
-                    const { userId } = await findDuplicateUserId(newAccessToken, finalProfileArn, providerPools['claude-kiro-oauth'], currentConfig);
-                    if (userId) {
-                        isDuplicate = true;
-                        duplicateProvider = userId.existingProvider;
-                        console.log(`[Kiro Manual Import] Duplicate account detected: ${userId.userId}`);
-
-                        // Delete the token file
-                        await fs.unlink(tokenFilePath);
-                        console.log(`[Kiro Manual Import] Deleted duplicate token file: ${tokenFilePath}`);
-
-                        res.writeHead(200, { 'Content-Type': 'application/json' });
-                        res.end(JSON.stringify({
-                            success: false,
-                            message: `检测到重复账号 (${userId.email || userId.userId})，已存在 token: ${duplicateProvider.KIRO_OAUTH_CREDS_FILE_PATH}`,
-                            duplicate: true,
-                            userId: userId.userId,
-                            email: userId.email,
-                            existingToken: duplicateProvider.KIRO_OAUTH_CREDS_FILE_PATH
-                        }));
-                        return true;
-                    }
-
-                    if (!pathExists) {
-                        const newProvider = {
-                            uuid: generateUUID(),
-                            KIRO_OAUTH_CREDS_FILE_PATH: normalizedPath,
-                            isHealthy: true,
-                            usageCount: 0,
-                            errorCount: 0,
-                            lastUsed: null,
-                            lastErrorTime: null,
-                            isDisabled: false,
-                            lastHealthCheckTime: new Date().toISOString(),
-                            lastHealthCheckModel: 'claude-haiku-4-5',
-                            lastErrorMessage: null,
-                            checkModelName: '',
-                            checkHealth: true,
-                            notSupportedModels: []
-                        };
-
-                        providerPools['claude-kiro-oauth'].push(newProvider);
-                        writeFileSync(poolsFilePath, JSON.stringify(providerPools, null, 2), 'utf8');
-                        console.log(`[Kiro Manual Import] Added to provider pool with UUID: ${newProvider.uuid}`);
-
-                        if (providerPoolManager) {
-                            providerPoolManager.providerPools = providerPools;
-                            providerPoolManager.initializeProviderStatus();
-                        }
-
-                        broadcastEvent('provider_update', {
-                            action: 'add',
-                            providerType: 'claude-kiro-oauth',
-                            providerConfig: newProvider,
-                            timestamp: new Date().toISOString()
-                        });
-                    }
-                } catch (error) {
-                    console.error('[Kiro Manual Import] Failed to add to provider pool:', error.message);
-                }
-
-                broadcastEvent('oauth_success', {
-                    provider: 'claude-kiro-oauth-manual',
-                    credPath: path.relative(process.cwd(), tokenFilePath),
-                    timestamp: new Date().toISOString()
-                });
-
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({
-                    success: true,
-                    message: 'RefreshToken 导入成功',
-                    tokenFile: tokenFilePath,
-                    profileArn: finalProfileArn
-                }));
-                return true;
-            } catch (refreshError) {
-                console.error('[Kiro Manual Import] RefreshToken validation failed:', refreshError.message);
-                res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({
-                    success: false,
-                    message: `RefreshToken 无效或已过期: ${refreshError.message}`
-                }));
-                return true;
-            }
-        } catch (error) {
-            console.error('[Kiro Manual Import] Error:', error);
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                success: false,
-                message: error.message
-            }));
-            return true;
-        }
-    }
-
-    if (method === 'POST' && pathParam === '/api/kiro/oauth/aws-sso/start') {
-        try {
-            const body = await parseRequestBody(req);
-            const { accountNumber = 1, startUrl } = body;
-
-            const region = 'us-east-1';
-            const finalStartUrl = startUrl || 'https://view.awsapps.com/start';
-
-            // AWS SSO OIDC 的 scopes (从 Kiro 源码获取)
-            const scopes = [
-                'codewhisperer:completions',
-                'codewhisperer:analysis',
-                'codewhisperer:conversations',
-                'codewhisperer:transformations',
-                'codewhisperer:taskassist'
-            ];
-
-            console.log(`[AWS SSO] Starting automatic client registration...`);
-            console.log(`[AWS SSO] Region: ${region}, Start URL: ${finalStartUrl}`);
-
-            // Step 1: 自动注册 Client (调用 AWS SSO OIDC RegisterClient API)
-            const registerClientUrl = `https://oidc.${region}.amazonaws.com/client/register`;
-
-            // 随机化 Client 配置，降低批量注册特征
-            const randomSuffix = Math.random().toString(36).substring(2, 8);
-            const randomPort = 10000 + Math.floor(Math.random() * 50000);
-            const clientNames = ['Kiro IDE', 'Kiro', 'Kiro Editor', 'Kiro Dev', 'AWS Kiro'];
-            const randomClientName = clientNames[Math.floor(Math.random() * clientNames.length)];
-
-            const registerClientBody = {
-                clientName: `${randomClientName}-${randomSuffix}`,
-                clientType: 'public',
-                scopes: scopes,
-                grantTypes: ['authorization_code', 'refresh_token'],
-                redirectUris: [`http://127.0.0.1:${randomPort}/oauth/callback`],
-                issuerUrl: finalStartUrl
-            };
-
-            const axios = (await import('axios')).default;
-            const registerResponse = await axios.post(registerClientUrl, registerClientBody, {
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                timeout: 30000
-            });
-
-            const { clientId, clientSecret, clientSecretExpiresAt } = registerResponse.data;
-
-            if (!clientId || !clientSecret) {
-                throw new Error('Failed to register client: missing clientId or clientSecret in response');
-            }
-
-            console.log(`[AWS SSO] Client registered successfully!`);
-            console.log(`[AWS SSO] Client ID: ${clientId.substring(0, 10)}...`);
-            console.log(`[AWS SSO] Client expires at: ${new Date(clientSecretExpiresAt * 1000).toISOString()}`);
-
-            // 动态导入 KiroService
-            const { KiroService } = await import('./kiro/core.js');
-
-            // 创建临时实例用于设备授权
-            const kiroService = new KiroService(currentConfig);
-            kiroService.clientId = clientId;
-            kiroService.clientSecret = clientSecret;
-            kiroService.region = region;
-            kiroService.authMethod = 'IdC';
-            await kiroService.initialize(true); // skipAuthCheck=true 因为设备授权前没有现有凭据
-
-            console.log(`[AWS SSO] Starting device authorization for account ${accountNumber}`);
-            console.log(`[AWS SSO] Start URL: ${finalStartUrl}`);
-
-            // 启动设备授权
-            const deviceAuthInfo = await kiroService.startDeviceAuthorization(finalStartUrl);
-
-            console.log(`[AWS SSO] Device authorization started`);
-            console.log(`[AWS SSO] User Code: ${deviceAuthInfo.userCode}`);
-            console.log(`[AWS SSO] Verification URI: ${deviceAuthInfo.verificationUriComplete}`);
-
-            // 启动后台轮询（不等待完成）
-            kiroService.pollDeviceToken(
-                deviceAuthInfo.deviceCode,
-                deviceAuthInfo.interval,
-                deviceAuthInfo.expiresIn
-            ).then(tokenResult => {
-                // 轮询成功，保存token到configs/kiro目录
-                const kiroConfigDir = path.join(process.cwd(), 'configs', 'kiro');
-
-                // 确保目录存在
-                fs.mkdir(kiroConfigDir, { recursive: true }).then(() => {
-                    const tokenFilePath = path.join(kiroConfigDir, `kiro-auth-token-${accountNumber}.json`);
-                    const credentialsData = {
-                        accessToken: tokenResult.accessToken,
-                        refreshToken: tokenResult.refreshToken,
-                        expiresAt: tokenResult.expiresAt,
-                        clientId: clientId,
-                        clientSecret: clientSecret,
-                        authMethod: 'IdC',
-                        provider: 'BuilderId',
-                        region: 'us-east-1'
-                    };
-
-                    fs.writeFile(tokenFilePath, JSON.stringify(credentialsData, null, 2))
-                        .then(async () => {
-                            console.log(`[AWS SSO] Token saved to: ${tokenFilePath}`);
-                            // 自动添加到 provider_pools.json
-                            try {
-                                const result = providerPoolManager.addTokenFile(tokenFilePath);
-                                console.log(`[AWS SSO] Token added to provider_pools.json: ${result}`);
-                                if(result === 1) {
-                                    // 广播提供商更新事件
-                                    broadcastEvent('provider_update', {
-                                        action: 'add',
-                                        providerType: 'claude-kiro-oauth',
-                                        providerConfig: newProvider,
-                                        timestamp: new Date().toISOString()
-                                    });
-                                }
-                            } catch (error) {
-                                console.error(`[AWS SSO] Failed to add token to provider_pools.json: ${error.message}`);
-                            }
-
-                            // 广播OAuth成功事件
-                            broadcastEvent('oauth_success', {
-                                provider: 'claude-kiro-oauth-builderid',
-                                credPath: path.relative(process.cwd(), tokenFilePath),
-                                timestamp: new Date().toISOString()
-                            });
-                        })
-                        .catch(err => {
-                            console.error(`[AWS SSO] Failed to save token:`, err);
-                        });
-                }).catch(err => {
-                    console.error(`[AWS SSO] Failed to create directory:`, err);
-                });
-            }).catch(error => {
-                console.error('[AWS SSO] Background polling failed:', error.message);
-                // 广播OAuth失败事件
-                broadcastEvent('oauth_error', {
-                    provider: 'claude-kiro-oauth-builderid',
-                    error: error.message,
-                    timestamp: new Date().toISOString()
-                });
-            });
-
-            // 立即返回设备授权信息
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                success: true,
-                deviceCode: deviceAuthInfo.deviceCode,
-                userCode: deviceAuthInfo.userCode,
-                verificationUri: deviceAuthInfo.verificationUri,
-                verificationUriComplete: deviceAuthInfo.verificationUriComplete,
-                expiresIn: deviceAuthInfo.expiresIn,
-                interval: deviceAuthInfo.interval,
-                message: 'Please open the verification URL in your browser and enter the user code to authorize.',
-                instructions: `访问 ${deviceAuthInfo.verificationUriComplete} 并授权。系统会自动轮询获取token。`
-            }));
-            return true;
-        } catch (error) {
-            console.error('[AWS SSO] Failed to start device authorization:', error);
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                success: false,
-                error: error.message
-            }));
-            return true;
-        }
-    }
-
-    // Reload configuration files
-    if (method === 'POST' && pathParam === '/api/reload-config') {
-        try {
-            // 调用重载配置函数
-            const newConfig = await reloadConfig();
-
-            // 广播更新事件
-            broadcastEvent('config_update', {
-                action: 'reload',
-                filePath: 'configs/config.json',
-                providerPoolsPath: newConfig.PROVIDER_POOLS_FILE_PATH || null,
-                timestamp: new Date().toISOString()
-            });
-
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                success: true,
-                message: '配置文件重新加载成功',
-                details: {
-                    configReloaded: true,
-                    configPath: 'configs/config.json',
-                    providerPoolsPath: newConfig.PROVIDER_POOLS_FILE_PATH || null
-                }
-            }));
-            return true;
-        } catch (error) {
-            console.error('[UI API] Failed to reload config files:', error);
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                error: {
-                    message: '重新加载配置文件失败: ' + error.message
-                }
-            }));
-            return true;
-        }
-    }
-
     return false;
 }
-
-/**
- * Initialize UI management features
- */
-
-/**
- * Helper function to broadcast events to UI clients
- * @param {string} eventType - The type of event
- * @param {any} data - The data to broadcast
- */
-
-/**
- * Scan and analyze configuration files
- * @param {Object} currentConfig - The current configuration object
- * @param {Object} accountPoolManager - Account pool manager instance
- * @returns {Promise<Array>} Array of configuration file objects
- */
-async function scanConfigFiles(currentConfig, accountPoolManager) {
+export async function scanConfigFiles(currentConfig, accountPoolManager) {
     const configFiles = [];
     
     // 只扫描configs目录
@@ -3332,7 +1008,7 @@ async function scanOAuthDirectory(dirPath, usedPaths, currentConfig) {
  * @param {Object} providerPoolManager - 提供商池管理器
  * @returns {Promise<Object>} 所有提供商的用量信息
  */
-async function getAllProvidersUsage(currentConfig, providerPoolManager) {
+export async function getAllProvidersUsage(currentConfig, providerPoolManager) {
     const results = {
         timestamp: new Date().toISOString(),
         providers: {}
@@ -3376,7 +1052,7 @@ async function getAllProvidersUsage(currentConfig, providerPoolManager) {
  * @param {Object} providerPoolManager - 提供商池管理器
  * @returns {Promise<Object>} 提供商用量信息
  */
-async function getProviderTypeUsage(providerType, currentConfig, providerPoolManager) {
+export async function getProviderTypeUsage(providerType, currentConfig, providerPoolManager) {
     const result = {
         providerType,
         instances: [],

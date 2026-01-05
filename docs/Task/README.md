@@ -4,15 +4,17 @@
 
 ## 活跃任务 (Active)
 
-- ⏳ [前端静态化迁移](Active/FRONTEND_STATIC_MIGRATION_PLAN.md) - 创建于 2026-01-04
-  - 将 Next.js 前端完全重写为纯静态方案
-  - 消除编译等待时间，实现修改即生效
-  - 预计工作量: 2-4 周
-  - 优先级: 高
 
 ## 已完成任务 (Archive)
 
 ### 2026-01
+
+- ✅ [UI Router 路由系统重构](Archive/2026-01/UI_ROUTER_MIGRATION_COMPLETION_REPORT.md) - 完成于 2026-01-05
+  - 将 1835 行 if-else 路由代码重构为模块化路由系统
+  - 创建 6 个路由���置模块和 6 个 Handler 模块
+  - 实现 37 个 API 路由的完整迁移
+  - 代码量减少 60%，可维护性显著提升
+  - 详见: [迁移分析](Archive/2026-01/UI_ROUTER_MIGRATION_ANALYSIS.md) | [迁移计划](Archive/2026-01/UI_ROUTER_MIGRATION_PLAN.md)
 
 - ✅ [账号池操作集中化重构](Archive/2026-01/ACCOUNT_POOL_CENTRALIZATION.md) - 完成于 2026-01-04
   - 将所有账号池操作集中到 AccountPoolManager 类
@@ -28,5 +30,5 @@
 
 ---
 
-**更新时间**: 2026-01-04
+**更新时间**: 2026-01-05
 **维护说明**: 任务完成后自动归档到 Archive/YYYY-MM/ 目录
