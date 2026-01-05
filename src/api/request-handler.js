@@ -7,6 +7,7 @@ import { getAccountPoolManager } from '../services/manager.js';
 import { MODEL_PROVIDER } from '../utils/common.js';
 import { PROMPT_LOG_FILENAME } from '../config/manager.js';
 import { errorMiddleware, createError } from './error-middleware.js';
+import { checkRateLimit, isRateLimitWhitelisted } from './rate-limiter.js';
 /**
  * Main request handler. It authenticates the request, determines the endpoint type,
  * and delegates to the appropriate specialized handler function.
@@ -22,6 +23,17 @@ export function createRequestHandler(config, accountPoolManager) {
         const requestUrl = new URL(req.url, `http://${req.headers.host}`);
         let path = requestUrl.pathname;
         const method = req.method;
+
+        // Check rate limit (before any heavy processing)
+        if (!isRateLimitWhitelisted(path, currentConfig)) {
+            const { allowed, retryAfterSeconds } = checkRateLimit(req, currentConfig);
+            if (!allowed) {
+                res.setHeader('Retry-After', String(retryAfterSeconds));
+                const rateLimitError = createError('Too many requests. Rate limit exceeded.', 429);
+                await errorMiddleware(rateLimitError, req, res);
+                return;
+            }
+        }
 
         // Handle CORS preflight requests
         if (method === 'OPTIONS') {

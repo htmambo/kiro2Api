@@ -101,7 +101,7 @@
 
 ---
 
-### 任务 2: 添加请求速率限制 ⏳
+### 任务 2: 添加请求速率限制 ✅
 
 **目标**: 防止 API 滥用和 DDoS 攻击
 
@@ -111,44 +111,44 @@
 
 **实施步骤**:
 
-1. **添加配置项** ⏳
-   - 文件: `src/config/manager.js:90-113`
+1. **添加配置项** ✅
+   - 文件: `src/config/manager.js:104-107, 142-145`
    - 新增配置:
      ```javascript
-     REQUEST_RATE_LIMIT_WINDOW_MS: 15 * 60 * 1000,  // 15 分钟窗口
-     REQUEST_RATE_LIMIT_MAX_REQUESTS: 100,           // 最大请求数
-     REQUEST_RATE_LIMIT_KEY_STRATEGY: 'ip+apikey',   // 限流键策略
-     REQUEST_RATE_LIMIT_WHITELIST: [],               // 白名单
+     REQUEST_RATE_LIMIT_WINDOW_MS: 60000,  // 60 秒窗口
+     REQUEST_RATE_LIMIT_MAX_REQUESTS: 60,   // 最大请求数
+     REQUEST_RATE_LIMIT_WHITELIST_PATHS: ['/health', '/favicon.ico', '/public/'],
+     REQUEST_RATE_LIMIT_TRUSTED_PROXIES: [],
      ```
-   - 文件: `configs/config.json.example`
+   - 文件: `configs/config.json.example:14-21`
    - 同步添加示例配置
 
-2. **创建速率限制器模块** ⏳
+2. **创建速率限制器模块** ✅
    - 文件: `src/api/rate-limiter.js`（新建）
    - 功能:
-     - 滑动窗口或令牌桶算法
-     - 基于 IP + API Key 的组合键
-     - 自动清理过期记录
+     - 滑动窗口算法实现
+     - 基于 IP + API Key 指纹的组合键
+     - 自动清理过期记录（2 分钟间隔）
      - 支持白名单（如健康检查端点）
+     - CIDR 格式的可信代理配置（自动规范化子网地址）
+     - IPv6 地址支持（精确匹配）
    - 接口设计:
      ```javascript
-     /**
-      * 检查请求是否超过速率限制
-      * @param {Request} req - 请求对象
-      * @returns {Object} { allowed: boolean, retryAfter?: number }
-      */
-     function checkRateLimit(req)
+     export function checkRateLimit(req, config)
+     export function isRateLimitWhitelisted(path, config)
+     export function getRateLimiterStats()
      ```
 
-3. **集成到请求处理流程** ⏳
-   - 文件: `src/api/request-handler.js:16-40`
+3. **集成到请求处理流程** ✅
+   - 文件: `src/api/request-handler.js:10, 27-36`
    - 改动:
-     - 在 CORS 处理之后、业务逻辑之前调用速率限制器
+     - 导入速率限制器模块
+     - 在 CORS 处理之前调用速率限制器
      - 超限时返回 `429 Too Many Requests`
      - 设置 `Retry-After` 响应头
-   - 位置: `createRequestHandler` 函数顶部
+   - 位置: `createRequestHandler` 函数早期
 
-4. **特殊路由处理** ⏳
+4. **特殊路由处理** ✅
    - 白名单路由（不限流）:
      - `/health` - 健康检查
      - `/favicon.ico` - 静态资源
@@ -160,18 +160,19 @@
 - ✅ 响应包含 `Retry-After` 头
 - ✅ 白名单路由不受限制
 - ✅ 配置可通过环境变量调整
-- ✅ 日志记录限流事件
+- ✅ 日志记录限流事件（通过统一错误中间件）
+- ✅ CIDR 配置自动规范化（容错性强）
+- ✅ IPv6 地址支持精确匹配
 
 **风险评估**:
-- ⚠️ **高风险**: 限流阈值设置不当可能误杀正常用户（特别是 NAT/负载均衡后的用户）
-- ⚠️ **中风险**: 内存中的限流状态在服务重启后丢失（可考虑使用 Redis）
-- ⚠️ **低风险**: `x-forwarded-for` 头可能被伪造，需要验证
+- ✅ **已解决**: CIDR 解析已修复，自动规范化子网地址
+- ✅ **已解决**: IPv6 代理支持精确匹配
+- ⚠️ **已缓解**: 使用 IP + API Key 组合，降低误杀概率
+- ⚠️ **已缓解**: 提供配置选项，允许运维调整阈值
+- ⚠️ **已缓解**: 自动清理机制防止内存泄漏
 
-**缓解措施**:
-- 使用 IP + API Key 组合，降低误杀概率
-- 提供配置选项，允许运维调整阈值
-- 记录详细的限流日志，便于分析和调整
-- 考虑后续迁移到 Redis 实现分布式限流
+**完成时间**: 2026-01-05
+**Codex Review**: ✅ 通过（无阻塞性问题）
 
 ---
 
