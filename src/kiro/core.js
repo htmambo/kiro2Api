@@ -13,6 +13,20 @@ import {getMacAddressSha256, generateRandomUserAgentComponents, getOriginalMacAd
 import { executeWebSearch, formatSearchResults } from './search.js';
 import { streamApiReal } from './streaming.js';
 
+// 导入 API 客户端模块
+import {
+    parseEventStreamChunk,
+    callApi,
+    _processApiResponse,
+    generateContent,
+    streamApi,
+    generateContentStream,
+    countTextTokens,
+    estimateInputTokens,
+    buildClaudeResponse,
+    getUsageLimits
+} from './api-client.js';
+
 // 导入公共摘要模块
 import {
     buildMessagesWithSummary,
@@ -34,6 +48,13 @@ import {
     parseBracketToolCalls,
     deduplicateToolCalls
 } from './tools.js';
+
+// 导入消息清理模块
+import {
+    sanitizeMessages as sanitizeMessagesImpl,
+    sanitizeMessageHistory as sanitizeMessageHistoryImpl,
+    getContentText as getContentTextImpl
+} from './message-sanitizer.js';
 
 // 导入工具函数模块
 import {
@@ -1022,273 +1043,6 @@ export class KiroService {
     }
 
     /**
-     * Kiro 优化：消息验证和自动修复
-     * 完全匹配官方 Kiro 源码的 message-history-sanitizer (extension.js:706680-706688)
-     *
-     * 官方处理流程：
-     * 1. ensureStartsWithUserMessage - 确保以 user 消息开始
-     * 2. removeEmptyUserMessages - 移除空的 user 消息
-     * 3. reorderToolResultMessages - 重新排序工具结果
-     * 4. ensureValidToolUsesAndResults - 确保工具调用有对应结果
-     * 5. ensureAlternatingMessages - 确保消息交替
-     * 6. ensureEndsWithUserMessage - 确保以 user 消息结束
-     */
-    sanitizeMessages(messages) {
-        if (!messages || messages.length === 0) {
-            return [{
-                role: 'user',
-                content: 'Hello'
-            }];
-        }
-
-        let result = [...messages];
-        let sanitizeActions = [];  // 收集所有的格式化操作,最后统一输出
-
-        // Step 1: 确保以 user 消息开始（官方: ensureStartsWithUserMessage）
-        if (result[0].role !== 'user') {
-            sanitizeActions.push('prepend_hello');
-            result.unshift({
-                role: 'user',
-                content: 'Hello'
-            });
-        }
-
-        // Step 2: 移除空的 user 消息（官方: removeEmptyUserMessages）
-        // 保留第一个 user 消息，即使为空
-        const firstUserIndex = result.findIndex(m => m.role === 'user');
-        const beforeEmpty = result.length;
-        result = result.filter((message, index) => {
-            if (message.role === 'assistant') return true;
-            if (message.role === 'user' && index === firstUserIndex) return true;
-            if (message.role === 'user') {
-                const content = this.getContentText(message);
-                const hasToolResults = Array.isArray(message.content) &&
-                    message.content.some(p => p.type === 'tool_result');
-                return (content && content.trim() !== '') || hasToolResults;
-            }
-            return true;
-        });
-        if (result.length < beforeEmpty) {
-            sanitizeActions.push(`removed ${beforeEmpty - result.length} empty messages`);
-        }
-
-        // Step 2.5: 过滤格式错误/不完整的 assistant 消息内容
-        const beforeInvalid = result.length;
-        result = result.filter((message, index) => {
-            // 只检查 assistant 消息
-            if (message.role !== 'assistant') {
-                return true;
-            }
-
-            // 如果是数组内容，保留（可能包含 tool_use 等）
-            if (Array.isArray(message.content)) {
-                return true;
-            }
-
-            // 检查字符串内容
-            if (typeof message.content === 'string') {
-                const content = message.content.trim();
-
-                // 空内容已经在 Step 2 中过滤，这里再检查一次
-                if (content === '') {
-                    return false;
-                }
-
-                // 检查是否是不完整的 JSON（以 { 或 [ 开头但无法解析）
-                if ((content.startsWith('{') || content.startsWith('['))) {
-                    try {
-                        JSON.parse(content);
-                        // 能解析，说明是完整的 JSON，保留
-                        return true;
-                    } catch (e) {
-                        // 无法解析，说明是不完整的 JSON，过滤掉
-                        console.log(`[Kiro] Filtered invalid JSON content at message ${index}: ${content.substring(0, 50)}...`);
-                        return false;
-                    }
-                }
-
-                // 其他普通文本内容，保留
-                return true;
-            }
-
-            return true;
-        });
-        if (result.length < beforeInvalid) {
-            sanitizeActions.push(`removed ${beforeInvalid - result.length} invalid messages`);
-        }
-
-        // Step 3: 重新排序工具结果（官方: reorderToolResultMessages）
-        // 确保 tool_result 紧跟在对应的 tool_use 之后
-        result = this._reorderToolResultMessages(result);
-
-        // Step 4: 确保工具调用有对应结果（官方: ensureValidToolUsesAndResults）
-        result = this._ensureValidToolUsesAndResults(result);
-
-        // Step 5: 确保消息交替（官方: ensureAlternatingMessages）
-        const alternating = [result[0]];
-        let insertedCount = 0;
-        for (let i = 1; i < result.length; i++) {
-            const prev = alternating[alternating.length - 1];
-            const curr = result[i];
-
-            if (prev.role === curr.role) {
-                insertedCount++;
-                // 相同 role 连续出现，插入对应消息（官方: UNDERSTOOD_MESSAGE / CONTINUE_MESSAGE）
-                if (prev.role === 'user') {
-                    alternating.push({
-                        role: 'assistant',
-                        content: 'understood'  // 官方 Kiro 用 "understood"
-                    });
-                } else {
-                    alternating.push({
-                        role: 'user',
-                        content: 'Continue'  // 官方 Kiro 用 "Continue"
-                    });
-                }
-            }
-            alternating.push(curr);
-        }
-        if (insertedCount > 0) {
-            sanitizeActions.push(`inserted ${insertedCount} alternating messages`);
-        }
-
-        // Step 6: 确保以 user 消息结束（官方: ensureEndsWithUserMessage）
-        if (alternating[alternating.length - 1].role !== 'user') {
-            sanitizeActions.push('append_continue');
-            alternating.push({
-                role: 'user',
-                content: 'Continue'
-            });
-        }
-
-        // 额外步骤：过滤掉不完整的 thinking 块（避免 signature 缺失错误）
-        for (const message of alternating) {
-            if (Array.isArray(message.content)) {
-                message.content = message.content.filter(part => {
-                    if (part.type !== 'thinking') {
-                        return true;
-                    }
-                    return false;
-                });
-            }
-        }
-
-        // 只在有实际修改时输出一次汇总信息(减少日志噪音)
-        if (sanitizeActions.length > 0 && this.verboseLogging) {
-            console.log(`[Kiro] Message sanitization: ${sanitizeActions.join(', ')}`);
-        }
-
-        return alternating;
-    }
-
-    /**
-     * 重新排序工具结果消息（官方 Kiro: reorderToolResultMessages）
-     * 确保 tool_result 紧跟在对应的 tool_use 之后
-     * @private
-     */
-    _reorderToolResultMessages(messages) {
-        // 收集所有 tool_use 的位置和 ID
-        const toolUseMap = new Map(); // toolUseId -> messageIndex
-        const toolResultMap = new Map(); // toolUseId -> messageIndex
-
-        for (let i = 0; i < messages.length; i++) {
-            const message = messages[i];
-            if (message.role === 'assistant' && Array.isArray(message.content)) {
-                for (const part of message.content) {
-                    if (part.type === 'tool_use' && part.id) {
-                        toolUseMap.set(part.id, i);
-                    }
-                }
-            } else if (message.role === 'user' && Array.isArray(message.content)) {
-                for (const part of message.content) {
-                    if (part.type === 'tool_result' && part.tool_use_id) {
-                        if (!toolResultMap.has(part.tool_use_id)) {
-                            toolResultMap.set(part.tool_use_id, i);
-                        }
-                    }
-                }
-            }
-        }
-
-        // 如果没有 tool_use，直接返回
-        if (toolUseMap.size === 0) {
-            return messages;
-        }
-
-        // 重新排序：确保 tool_result 紧跟在 tool_use 之后
-        const result = [];
-        const processed = new Set();
-
-        for (let i = 0; i < messages.length; i++) {
-            if (processed.has(i)) continue;
-
-            const message = messages[i];
-            result.push(message);
-            processed.add(i);
-
-            // 如果是包含 tool_use 的 assistant 消息，找到对应的 tool_result
-            if (message.role === 'assistant' && Array.isArray(message.content)) {
-                for (const part of message.content) {
-                    if (part.type === 'tool_use' && part.id) {
-                        const resultIndex = toolResultMap.get(part.id);
-                        if (resultIndex !== undefined && resultIndex !== i + 1 && !processed.has(resultIndex)) {
-                            result.push(messages[resultIndex]);
-                            processed.add(resultIndex);
-                        }
-                    }
-                }
-            }
-        }
-
-        return result;
-    }
-
-    /**
-     * 确保工具调用有对应结果（官方 Kiro: ensureValidToolUsesAndResults）
-     * 如果 tool_use 没有对应的 tool_result，添加失败的结果
-     * @private
-     */
-    _ensureValidToolUsesAndResults(messages) {
-        const result = [];
-
-        for (let i = 0; i < messages.length; i++) {
-            const message = messages[i];
-            result.push(message);
-
-            // 检查 assistant 消息中的 tool_use
-            if (message.role === 'assistant' && Array.isArray(message.content)) {
-                const toolUses = message.content.filter(p => p.type === 'tool_use');
-
-                if (toolUses.length > 0) {
-                    // 检查下一条消息是否有对应的 tool_result
-                    const nextMessage = i + 1 < messages.length ? messages[i + 1] : null;
-                    const hasToolResults = nextMessage &&
-                        nextMessage.role === 'user' &&
-                        Array.isArray(nextMessage.content) &&
-                        nextMessage.content.some(p => p.type === 'tool_result');
-
-                    if (!hasToolResults) {
-                        // 没有 tool_result，添加失败的结果（官方: FAILED_TOOL_USE_MESSAGE）
-                        const failedToolResults = toolUses.map(tu => ({
-                            type: 'tool_result',
-                            tool_use_id: tu.id || `toolUse_${Math.random().toString(36).substr(2, 9)}`,
-                            content: 'Tool execution failed',
-                            is_error: true
-                        }));
-
-                        result.push({
-                            role: 'user',
-                            content: failedToolResults
-                        });
-                    }
-                }
-            }
-        }
-
-        return result;
-    }
-
-    /**
      * Kiro 风格的消息摘要（简单截断到 100 字符）
      * 参考: Kiro extension.js:161275-1280
      * 注意：不是 AI 摘要，只是简单截断，节省成本和时间
@@ -1629,7 +1383,7 @@ ${conversationData}`;
             }
 
             // 对于纯文本消息，从顶部修剪
-            const content = this.getContentText(message);
+            const content = getContentTextImpl(message);
             const targetTokens = messageTokens - delta;
             const estimatedChars = Math.floor(targetTokens * 3.5);  // 粗略估算字符数
             const prunedText = content.substring(content.length - estimatedChars);
@@ -1654,7 +1408,7 @@ ${conversationData}`;
             // ⚠️ 关键修复：使用完整 token 计算
             const oldTokens = this.getFullMessageTokens(message, true);
             const summarized = this.summarizeMessage(message);  // 传入整个 message
-            const newTokens = this.countTextTokens(this.getContentText({ content: summarized }), true);
+            const newTokens = this.countTextTokens(getContentTextImpl({ content: summarized }), true);
 
             message.content = summarized;  // summarized 已经是正确格式（数组或字符串）
             totalTokens = totalTokens - oldTokens + newTokens;
@@ -1680,7 +1434,7 @@ ${conversationData}`;
         i = 0;
         while (totalTokens > contextLength && chatHistory.length > 0 && i < chatHistory.length - 1) {
             const message = chatHistory[i];
-            const content = this.getContentText(message);
+            const content = getContentTextImpl(message);
 
             // 如果已经是摘要，跳过
             if (content.endsWith('...') && content.length <= 103) {
@@ -1691,7 +1445,7 @@ ${conversationData}`;
             // ⚠️ 关键修复：使用完整 token 计算
             const oldTokens = this.getFullMessageTokens(message, true);
             const summarized = this.summarizeMessage(message);  // 传入整个 message
-            const newTokens = this.countTextTokens(this.getContentText({ content: summarized }), true);
+            const newTokens = this.countTextTokens(getContentTextImpl({ content: summarized }), true);
 
             message.content = summarized;  // summarized 已经是正确格式
             totalTokens = totalTokens - oldTokens + newTokens;
@@ -1732,7 +1486,7 @@ ${conversationData}`;
                 }
             }
 
-            const content = this.getContentText(message);
+            const content = getContentTextImpl(message);
             const estimatedChars = Math.floor(targetMessageTokens * 3.5);
             const prunedText = content.substring(content.length - estimatedChars);
 
@@ -1748,29 +1502,6 @@ ${conversationData}`;
     }
 
     /**
-     * Extract text content
-     */
-    getContentText(message) {
-        if(message==null){
-            return "";
-        }
-        if (Array.isArray(message) ) {
-            return message
-                .filter(part => part.type === 'text' && part.text)
-                .map(part => part.text)
-                .join('');
-        } else if (typeof message.content === 'string') {
-            return message.content;
-        } else if (Array.isArray(message.content) ) {
-            return message.content
-                .filter(part => part.type === 'text' && part.text)
-                .map(part => part.text)
-                .join('');
-        }
-        return String(message.content || message);
-    }
-
-    /**
      * 计算消息的完整 token 数（包括 tool_result, tool_use, thinking, 图片等）
      * ⚠️ 关键修复：之前 getContentText 只提取 text 类型，导致其他内容被忽略
      * 这会导致 token 估算严重低估，从而触发 CONTENT_LENGTH_EXCEEDS_THRESHOLD 错误
@@ -1782,7 +1513,7 @@ ${conversationData}`;
         let imageCount = 0;
 
         // 提取文本内容
-        const textContent = this.getContentText(message);
+        const textContent = getContentTextImpl(message);
         allText += textContent;
 
         // ⚠️ 计算所有内容类型的 token 数
@@ -1846,7 +1577,7 @@ ${conversationData}`;
      */
     async buildCodewhispererRequest(messages, model, tools = null, inSystemPrompt = null, enableThinking = false) {
         const buildStartTime = Date.now();
-        let systemPrompt = this.getContentText(inSystemPrompt);
+        let systemPrompt = getContentTextImpl(inSystemPrompt);
 
         // 如果启用 thinking，在系统提示词中注入 thinking 指令
         if (enableThinking) {
@@ -1859,7 +1590,7 @@ ${conversationData}`;
 
         // Kiro 优化 1：消息验证和自动修复（确保消息交替）
         const sanitizeStartTime = Date.now();
-        messages = this.sanitizeMessages(messages);
+        messages = sanitizeMessagesImpl(messages, this.verboseLogging);
         const sanitizeDuration = Date.now() - sanitizeStartTime;
         if (sanitizeDuration > 50) {
             console.log(`[Kiro Perf] sanitizeMessages took ${sanitizeDuration}ms`);
@@ -2167,7 +1898,7 @@ ${conversationData}`;
         if (systemPrompt) {
             // If the first message is a user message, prepend system prompt to it
             if (processedMessages[0].role === 'user') {
-                let firstUserContent = this.getContentText(processedMessages[0]);
+                let firstUserContent = getContentTextImpl(processedMessages[0]);
                 history.push({
                     userInputMessage: {
                         content: `${systemPrompt}\n\n${firstUserContent}`,
@@ -2218,7 +1949,7 @@ ${conversationData}`;
                             }
 
                             // 官方 Kiro 优化：截断过长的工具输出，防止 400 错误
-                            let toolContent = this.getContentText(part.content);
+                            let toolContent = getContentTextImpl(part.content);
                             if (toolContent.length > KIRO_CONSTANTS.MAX_TOOL_OUTPUT_LENGTH) {
                                 const truncatedLength = KIRO_CONSTANTS.MAX_TOOL_OUTPUT_LENGTH;
                                 toolContent = toolContent.substring(0, truncatedLength) +
@@ -2249,7 +1980,7 @@ ${conversationData}`;
                         }
                     }
                 } else {
-                    userInputMessage.content = this.getContentText(message);
+                    userInputMessage.content = getContentTextImpl(message);
                 }
                 
                 // 只添加非空字段，API 不接受空数组或空对象
@@ -2310,7 +2041,7 @@ ${conversationData}`;
                         }
                     }
                 } else {
-                    assistantResponseMessage.content = this.getContentText(message);
+                    assistantResponseMessage.content = getContentTextImpl(message);
                 }
                 
                 // 只添加非空字段
@@ -2372,7 +2103,7 @@ ${conversationData}`;
                     }
                 }
             } else {
-                assistantResponseMessage.content = this.getContentText(currentMessage);
+                assistantResponseMessage.content = getContentTextImpl(currentMessage);
             }
             if (assistantResponseMessage.toolUses.length === 0) {
                 delete assistantResponseMessage.toolUses;
@@ -2402,7 +2133,7 @@ ${conversationData}`;
                         }
 
                         // 官方 Kiro 优化：截断过长的工具输出，防止 400 错误
-                        let toolContent = this.getContentText(part.content);
+                        let toolContent = getContentTextImpl(part.content);
                         if (toolContent.length > KIRO_CONSTANTS.MAX_TOOL_OUTPUT_LENGTH) {
                             const truncatedLength = KIRO_CONSTANTS.MAX_TOOL_OUTPUT_LENGTH;
                             toolContent = toolContent.substring(0, truncatedLength) +
@@ -2448,7 +2179,7 @@ ${conversationData}`;
                     }
                 }
             } else {
-                currentContent = this.getContentText(currentMessage);
+                currentContent = getContentTextImpl(currentMessage);
             }
 
             // Kiro API 要求 content 不能为空，即使有 toolResults
@@ -2560,7 +2291,7 @@ ${conversationData}`;
 
         // ⚠️ 关键修复：清理消息历史，确保符合 Kiro API 规则
         // 官方 Kiro 扩展的 message-history-sanitizer 会验证并修复消息
-        this.sanitizeMessageHistory(history, currentToolResults);
+        sanitizeMessageHistoryImpl(history, currentToolResults);
 
         // 性能优化：移除每次请求都执行的 JSON.stringify 调试日志
         // 这些操作对大请求来说非常慢，会显著增加首字响应时间
@@ -2585,1573 +2316,91 @@ ${conversationData}`;
     }
 
     /**
-     * 清理消息历史，确保符合 Kiro API 规则
-     * 规则来自官方 Kiro 扩展的 message-history-sanitizer
-     * 不仅验证，还会自动修复问题
-     *
-     * @param {Array} history - 消息历史（会被原地修改）
-     * @param {Array} currentToolResults - 当前消息的 toolResults
+     * Token 计数方法 - 委托给 api-client.js
      */
-    sanitizeMessageHistory(history, currentToolResults) {
-        if (!history || history.length === 0) {
-            return;
-        }
-
-        let fixCount = 0;
-
-        // 规则 1: 如果 assistant 消息有 toolUses，下一条消息必须有匹配的 toolResults
-        // 如果没有，移除 toolUses（因为没有对应的结果，继续保留会导致 400 错误）
-        for (let i = 0; i < history.length; i++) {
-            const message = history[i];
-
-            if (message.assistantResponseMessage?.toolUses?.length > 0) {
-                const toolUses = message.assistantResponseMessage.toolUses;
-                let toolResults = [];
-
-                // 检查是否是最后一条 history 消息
-                if (i === history.length - 1) {
-                    // toolResults 在 currentMessage 中
-                    toolResults = currentToolResults || [];
-                } else {
-                    // toolResults 在下一条消息中
-                    const nextMessage = history[i + 1];
-                    if (nextMessage?.userInputMessage?.userInputMessageContext?.toolResults) {
-                        toolResults = nextMessage.userInputMessage.userInputMessageContext.toolResults;
-                    }
-                }
-
-                // 创建 toolResult IDs 集合
-                const toolResultIds = new Set(toolResults.map(tr => tr.toolUseId));
-
-                // 过滤掉没有对应 toolResult 的 toolUses
-                const validToolUses = toolUses.filter(tu => toolResultIds.has(tu.toolUseId));
-
-                if (validToolUses.length !== toolUses.length) {
-                    const removedCount = toolUses.length - validToolUses.length;
-                    console.warn(`[Kiro Sanitize] History[${i}]: Removed ${removedCount} orphan toolUses without matching toolResults`);
-                    fixCount++;
-
-                    if (validToolUses.length === 0) {
-                        // 全部移除，删除 toolUses 字段
-                        delete message.assistantResponseMessage.toolUses;
-                    } else {
-                        message.assistantResponseMessage.toolUses = validToolUses;
-                    }
-                }
-            }
-        }
-
-        // 规则 2: user 消息必须有 content 或 toolResults，否则添加默认内容
-        for (let i = 0; i < history.length; i++) {
-            const message = history[i];
-            if (message.userInputMessage) {
-                const hasContent = message.userInputMessage.content && message.userInputMessage.content.trim() !== '';
-                const hasToolResults = message.userInputMessage.userInputMessageContext?.toolResults?.length > 0;
-
-                if (!hasContent && !hasToolResults) {
-                    message.userInputMessage.content = 'Continue';
-                    console.warn(`[Kiro Sanitize] History[${i}]: Added default content to empty user message`);
-                    fixCount++;
-                }
-            }
-        }
-
-        // 规则 3: assistant 消息必须有 content
-        for (let i = 0; i < history.length; i++) {
-            const message = history[i];
-            if (message.assistantResponseMessage) {
-                const hasContent = message.assistantResponseMessage.content && message.assistantResponseMessage.content.trim() !== '';
-                if (!hasContent) {
-                    message.assistantResponseMessage.content = message.assistantResponseMessage.toolUses ? 'Calling tools...' : '...';
-                    console.warn(`[Kiro Sanitize] History[${i}]: Added default content to empty assistant message`);
-                    fixCount++;
-                }
-            }
-        }
-
-        // 规则 4: toolUse 必须有 input 字段
-        for (let i = 0; i < history.length; i++) {
-            const message = history[i];
-            if (message.assistantResponseMessage?.toolUses) {
-                for (const toolUse of message.assistantResponseMessage.toolUses) {
-                    if (toolUse.input === undefined) {
-                        toolUse.input = {};
-                        console.warn(`[Kiro Sanitize] History[${i}]: Added empty input to toolUse '${toolUse.name}'`);
-                        fixCount++;
-                    }
-                }
-            }
-        }
-
-        // 规则 5: 如果有孤立的 toolResults（没有对应的 toolUses），移除它们
-        for (let i = 0; i < history.length; i++) {
-            const message = history[i];
-            if (message.userInputMessage?.userInputMessageContext?.toolResults?.length > 0) {
-                const toolResults = message.userInputMessage.userInputMessageContext.toolResults;
-
-                // 找到前一条 assistant 消息的 toolUseIds
-                let prevToolUseIds = new Set();
-                if (i > 0 && history[i - 1].assistantResponseMessage?.toolUses) {
-                    prevToolUseIds = new Set(history[i - 1].assistantResponseMessage.toolUses.map(tu => tu.toolUseId));
-                }
-
-                // 过滤掉没有对应 toolUse 的 toolResults
-                const validToolResults = toolResults.filter(tr => prevToolUseIds.has(tr.toolUseId));
-
-                if (validToolResults.length !== toolResults.length) {
-                    const removedCount = toolResults.length - validToolResults.length;
-                    console.warn(`[Kiro Sanitize] History[${i}]: Removed ${removedCount} orphan toolResults without matching toolUses`);
-                    fixCount++;
-
-                    if (validToolResults.length === 0) {
-                        // 全部移除，删除 toolResults
-                        delete message.userInputMessage.userInputMessageContext.toolResults;
-                        // 如果 context 为空，也删除
-                        if (Object.keys(message.userInputMessage.userInputMessageContext).length === 0) {
-                            delete message.userInputMessage.userInputMessageContext;
-                        }
-                    } else {
-                        message.userInputMessage.userInputMessageContext.toolResults = validToolResults;
-                    }
-                }
-            }
-        }
-
-        // 规则 6: 截断过长的单条消息内容（防止单条消息超过 AWS 限制）
-        // AWS 实际限制 ~223K tokens (~710K chars)，我们设置 200K chars 的单条消息限制
-        // 这样多条消息加起来才不会超限
-        const MAX_SINGLE_MESSAGE_LENGTH = 200000;  // 200KB 限制（之前太保守只有 64KB）
-        for (let i = 0; i < history.length; i++) {
-            const message = history[i];
-
-            // 截断 user 消息
-            if (message.userInputMessage?.content && message.userInputMessage.content.length > MAX_SINGLE_MESSAGE_LENGTH) {
-                const originalLength = message.userInputMessage.content.length;
-                const keepStart = Math.floor(MAX_SINGLE_MESSAGE_LENGTH * 0.7);
-                const keepEnd = MAX_SINGLE_MESSAGE_LENGTH - keepStart - 100;
-                message.userInputMessage.content =
-                    message.userInputMessage.content.substring(0, keepStart) +
-                    '\n\n[... content truncated ...]\n\n' +
-                    message.userInputMessage.content.substring(originalLength - keepEnd);
-                console.warn(`[Kiro Sanitize] History[${i}]: Truncated user content from ${originalLength} to ${message.userInputMessage.content.length} chars`);
-                fixCount++;
-            }
-
-            // 截断 assistant 消息
-            if (message.assistantResponseMessage?.content && message.assistantResponseMessage.content.length > MAX_SINGLE_MESSAGE_LENGTH) {
-                const originalLength = message.assistantResponseMessage.content.length;
-                const keepStart = Math.floor(MAX_SINGLE_MESSAGE_LENGTH * 0.7);
-                const keepEnd = MAX_SINGLE_MESSAGE_LENGTH - keepStart - 100;
-                message.assistantResponseMessage.content =
-                    message.assistantResponseMessage.content.substring(0, keepStart) +
-                    '\n\n[... content truncated ...]\n\n' +
-                    message.assistantResponseMessage.content.substring(originalLength - keepEnd);
-                console.warn(`[Kiro Sanitize] History[${i}]: Truncated assistant content from ${originalLength} to ${message.assistantResponseMessage.content.length} chars`);
-                fixCount++;
-            }
-        }
-
-        // 规则 7: 确保消息交替 (user → assistant → user)
-        // 如果有连续的 user 消息，在它们之间插入占位的 assistant 消息
-        // 需要从后往前遍历，避免插入操作影响索引
-        for (let i = history.length - 1; i > 0; i--) {
-            const prevMessage = history[i - 1];
-            const currMessage = history[i];
-
-            // 检查是否有连续的 user 消息（两条都只有 userInputMessage）
-            const prevIsUser = prevMessage.userInputMessage && !prevMessage.assistantResponseMessage;
-            const currIsUser = currMessage.userInputMessage && !currMessage.assistantResponseMessage;
-
-            if (prevIsUser && currIsUser) {
-                // 在 prevMessage 和 currMessage 之间插入一个 assistant 占位消息
-                const placeholderAssistant = {
-                    assistantResponseMessage: {
-                        content: 'Continue.',
-                        messageId: `placeholder-${Date.now()}-${i}`
-                    }
-                };
-                history.splice(i, 0, placeholderAssistant);
-                console.warn(`[Kiro Sanitize] Inserted placeholder assistant message between History[${i - 1}] and History[${i}] to fix consecutive user messages`);
-                fixCount++;
-            }
-        }
-
-        // 规则 8: 确保消息交替 - 连续的 assistant 消息也需要处理
-        // 如果有连续的 assistant 消息，在它们之间插入占位的 user 消息
-        for (let i = history.length - 1; i > 0; i--) {
-            const prevMessage = history[i - 1];
-            const currMessage = history[i];
-
-            // 检查是否有连续的 assistant 消息
-            const prevIsAssistant = prevMessage.assistantResponseMessage && !prevMessage.userInputMessage;
-            const currIsAssistant = currMessage.assistantResponseMessage && !currMessage.userInputMessage;
-
-            if (prevIsAssistant && currIsAssistant) {
-                // 在 prevMessage 和 currMessage 之间插入一个 user 占位消息
-                const placeholderUser = {
-                    userInputMessage: {
-                        content: 'Continue',
-                        messageId: `placeholder-user-${Date.now()}-${i}`
-                    }
-                };
-                history.splice(i, 0, placeholderUser);
-                console.warn(`[Kiro Sanitize] Inserted placeholder user message between History[${i - 1}] and History[${i}] to fix consecutive assistant messages`);
-                fixCount++;
-            }
-        }
-
-        if (fixCount > 0) {
-            console.log(`[Kiro Sanitize] Applied ${fixCount} fixes to message history`);
-        }
+    countTextTokens(text, useFastEstimate = false) {
+        return countTextTokens(text, useFastEstimate);
     }
-
-    parseEventStreamChunk(rawData) {
-        const rawStr = Buffer.isBuffer(rawData) ? rawData.toString('utf8') : String(rawData);
-        let fullContent = '';
-        const toolCalls = [];
-        let currentToolCallDict = null;
-        // console.log(`rawStr=${rawStr}`);
-
-        // 改进的 SSE 事件解析：匹配 :message-typeevent 后面的 JSON 数据
-        // 使用更精确的正则来匹配 SSE 格式的事件
-        const sseEventRegex = /:message-typeevent(\{[^]*?(?=:event-type|$))/g;
-        const legacyEventRegex = /event(\{.*?(?=event\{|$))/gs;
-        
-        // 首先尝试使用 SSE 格式解析
-        let matches = [...rawStr.matchAll(sseEventRegex)];
-        
-        // 如果 SSE 格式没有匹配到，回退到旧的格式
-        if (matches.length === 0) {
-            matches = [...rawStr.matchAll(legacyEventRegex)];
-        }
-
-        for (const match of matches) {
-            const potentialJsonBlock = match[1];
-            if (!potentialJsonBlock || potentialJsonBlock.trim().length === 0) {
-                continue;
-            }
-
-            // 尝试找到完整的 JSON 对象
-            let searchPos = 0;
-            while ((searchPos = potentialJsonBlock.indexOf('}', searchPos + 1)) !== -1) {
-                const jsonCandidate = potentialJsonBlock.substring(0, searchPos + 1).trim();
-                try {
-                    const eventData = JSON.parse(jsonCandidate);
-
-                    // 优先处理结构化工具调用事件
-                    if (eventData.name && eventData.toolUseId) {
-                        if (!currentToolCallDict) {
-                            currentToolCallDict = {
-                                id: eventData.toolUseId,
-                                type: "function",
-                                function: {
-                                    name: eventData.name,
-                                    arguments: ""
-                                }
-                            };
-                        }
-                        if (eventData.input) {
-                            currentToolCallDict.function.arguments += eventData.input;
-                        }
-                        if (eventData.stop) {
-                            try {
-                                const args = JSON.parse(currentToolCallDict.function.arguments);
-                                currentToolCallDict.function.arguments = JSON.stringify(args);
-                            } catch (e) {
-                                console.warn(`[Kiro] Tool call arguments not valid JSON: ${currentToolCallDict.function.arguments}`);
-                            }
-                            toolCalls.push(currentToolCallDict);
-                            currentToolCallDict = null;
-                        }
-                    } else if (!eventData.followupPrompt && eventData.content) {
-                        // 处理内容，移除转义字符
-                        let decodedContent = eventData.content;
-                        // 处理常见的转义序列
-                        decodedContent = decodedContent.replace(/(?<!\\)\\n/g, '\n');
-                        // decodedContent = decodedContent.replace(/(?<!\\)\\t/g, '\t');
-                        // decodedContent = decodedContent.replace(/\\"/g, '"');
-                        // decodedContent = decodedContent.replace(/\\\\/g, '\\');
-                        fullContent += decodedContent;
-                    }
-                    break;
-                } catch (e) {
-                    // JSON 解析失败，继续寻找下一个可能的结束位置
-                    continue;
-                }
-            }
-        }
-        
-        // 如果还有未完成的工具调用，添加到列表中
-        if (currentToolCallDict) {
-            toolCalls.push(currentToolCallDict);
-        }
-
-        // 检查解析后文本中的 bracket 格式工具调用（向后兼容）
-        const bracketToolCalls = parseBracketToolCalls(fullContent);
-        if (bracketToolCalls) {
-            toolCalls.push(...bracketToolCalls);
-            // 从响应文本中移除工具调用文本
-            for (const tc of bracketToolCalls) {
-                const funcName = tc.function.name;
-                const escapedName = funcName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                const pattern = new RegExp(`\\[Called\\s+${escapedName}\\s+with\\s+args:\\s*\\{[^}]*(?:\\{[^}]*\\}[^}]*)*\\}\\]`, 'gs');
-                fullContent = fullContent.replace(pattern, '');
-            }
-            fullContent = fullContent.replace(/\s+/g, ' ').trim();
-        }
-
-        const uniqueToolCalls = deduplicateToolCalls(toolCalls);
-        return { content: fullContent || '', toolCalls: uniqueToolCalls };
-    }
- 
 
     /**
-     * 调用 API 并处理错误重试
+     * 估算输入 tokens - 委托给 api-client.js
      */
-    async callApi(method, model, body, isRetry = false, retryCount = 0) {
-        const callStartTime = Date.now();
-        if (!this.isInitialized) await this.initialize();
-        const maxRetries = this.config.REQUEST_MAX_RETRIES || 3;
-        const baseDelay = this.config.REQUEST_BASE_DELAY || 1000; // 1 second base delay
+    estimateInputTokens(messages, systemPrompt = '', tools = []) {
+        return estimateInputTokens(messages, systemPrompt, tools);
+    }
 
-        // 检查是否启用 thinking（从 body 或配置中读取）
-        const enableThinking = body.thinking?.type === 'enabled' ||
-                             body.extended_thinking === true ||
-                             this.config.ENABLE_THINKING_BY_DEFAULT === true;
-
-        // 🔍 性能诊断：记录请求构建时间
-        const buildStartTime = Date.now();
-        const requestData = await this.buildCodewhispererRequest(body.messages, model, body.tools, body.system, enableThinking);
-        const buildDuration = Date.now() - buildStartTime;
-        if (buildDuration > 100) {
-            console.log(`[Kiro Perf] buildCodewhispererRequest took ${buildDuration}ms (messages: ${body.messages?.length || 0})`);
-        }
-
-        // ========================================
-        // 📤 请求日志
-        // ========================================
-        const requestStartTime = Date.now();
-        const requestJson = JSON.stringify(requestData);
-        const requestSizeKB = (requestJson.length / 1024).toFixed(2);
-        const conversationState = requestData?.conversationState;
-
-        // 提取当前消息内容预览
-        const currentContent = conversationState?.currentMessage?.userInputMessage?.content || '';
-        const contentPreview = currentContent.length > 60
-            ? currentContent.substring(0, 60) + '...'
-            : currentContent;
-
-        // 简洁模式：只显示关键信息
-        if (!this.verboseLogging) {
-            console.log(`[Kiro] 📤 REQUEST [${model}] - ${new Date().toISOString()}`);
+    /**
+     * 生成内容（非流式）- 委托给 api-client.js
+     * 签名: (model, requestBody) 或 (conversationId, model, requestBody)
+     */
+    async generateContent(modelOrConvId, requestBodyOrModel, maybeRequestBody) {
+        // 兼容两种调用方式：
+        // 1. generateContent(model, requestBody) - 外部调用
+        // 2. generateContent(conversationId, model, requestBody) - 内部调用
+        let conversationId, model, requestBody;
+        if (maybeRequestBody !== undefined) {
+            // 三参数：conversationId, model, requestBody
+            conversationId = modelOrConvId;
+            model = requestBodyOrModel;
+            requestBody = maybeRequestBody;
         } else {
-            // 详细模式：显示所有信息
-            console.log('\n' + '='.repeat(60));
-            console.log(`📤 REQUEST [${model}]${isRetry ? ' (retry ' + retryCount + ')' : ''}`);
-            console.log('='.repeat(60));
-            console.log(`Timestamp: ${new Date().toISOString()}`);
-            console.log(`URL: ${model.startsWith('amazonq') ? this.amazonQUrl : this.baseUrl}`);
-            console.log(`Messages: ${(conversationState?.history?.length || 0) + 1} | Tools: ${conversationState?.currentMessage?.userInputMessage?.userInputMessageContext?.tools?.length || 0} | System: ${body.system ? 'yes' : 'no'}`);
-            console.log(`Request Size: ${requestSizeKB} KB | Thinking: ${enableThinking ? 'enabled' : 'disabled'}`);
-            if (conversationState?.conversationId) {
-                console.log(`Conversation ID: ${conversationState.conversationId}`);
-            }
-            console.log(`Message Preview: ${contentPreview}`);
-            console.log('='.repeat(60));
+            // 两参数：model, requestBody
+            conversationId = '';
+            model = modelOrConvId;
+            requestBody = requestBodyOrModel;
         }
-
-        try {
-            const token = this.accessToken; // Use the already initialized token
-            const headers = {
-                'Authorization': `Bearer ${token}`,
-                'amz-sdk-invocation-id': `${uuidv4()}`,
-            };
-
-            // 当 model 以 kiro-amazonq 开头时，使用 amazonQUrl，否则使用 baseUrl
-            const requestUrl = model.startsWith('amazonq') ? this.amazonQUrl : this.baseUrl;
-            const response = await this.axiosInstance.post(requestUrl, requestData, { headers });
-
-            // ========================================
-            // 📥 响应日志
-            // ========================================
-            const requestDuration = ((Date.now() - requestStartTime) / 1000).toFixed(2);
-            const responseSize = response.data ? Buffer.byteLength(JSON.stringify(response.data)) : 0;
-            const responseSizeKB = (responseSize / 1024).toFixed(2);
-
-            // 简洁模式：只显示关键信息
-            if (!this.verboseLogging) {
-                console.log(`[Kiro] 📥 RESPONSE [${response.status}] [${requestDuration}s]`);
-            } else {
-                // 详细模式：显示所有信息
-                console.log('\n' + '='.repeat(60));
-                console.log(`📥 RESPONSE [${response.status} ${response.statusText}] [${requestDuration}s]`);
-                console.log('='.repeat(60));
-                console.log(`Response Size: ${responseSizeKB} KB`);
-                console.log('='.repeat(60) + '\n');
-            }
-
-            return response;
-        } catch (error) {
-            // ⚠️ Socket 错误处理（UND_ERR_SOCKET, ECONNRESET 等）
-            // 这些错误通常是连接池中的连接失效导致的
-            const isSocketError = !error.response && (
-                error.code === 'ECONNRESET' ||
-                error.code === 'ETIMEDOUT' ||
-                error.code === 'ENOTFOUND' ||
-                error.code === 'UND_ERR_SOCKET' ||
-                error.code === 'UND_ERR_CONNECT_TIMEOUT' ||
-                error.message?.includes('socket') ||
-                error.message?.includes('ECONNRESET')
-            );
-
-            if (isSocketError && retryCount < maxRetries) {
-                console.log(`[Kiro] Socket error detected: ${error.code || error.message}`);
-                console.log(`[Kiro] Resetting connection pool and retrying... (attempt ${retryCount + 1}/${maxRetries})`);
-
-                // 重置连接池
-                await this.resetConnectionPool();
-
-                // 短暂延迟后重试
-                const delay = 1000;
-                await new Promise(resolve => setTimeout(resolve, delay));
-
-                return this.callApi(method, model, body, isRetry, retryCount + 1);
-            } else if (isSocketError) {
-                console.error('[Kiro] Socket error after max retries:', error.code || error.message);
-                throw new Error(`Connection failed: ${error.message}. Please check your network or try restarting the service.`);
-            }
-
-            // 403 错误处理
-            if (error.response?.status === 403 && !isRetry) {
-                console.log('[Kiro] Received 403. Attempting token refresh and retrying...');
-                try {
-                    await this.initializeAuth(true); // Force refresh token
-                    return this.callApi(method, model, body, true, retryCount);
-                } catch (refreshError) {
-                    console.error('[Kiro] Token refresh failed during 403 retry:', refreshError.message);
-                    throw refreshError;
-                }
-            }
-
-            // 400 错误详细日志(帮助调试请求格式问题)
-            if (error.response?.status === 400) {
-                console.error('[Kiro] ❌ 400 Bad Request Error - Request format issue detected');
-                console.error('[Kiro] Error details:', {
-                    status: error.response.status,
-                    statusText: error.response.statusText,
-                    data: JSON.stringify(error.response.data).substring(0, 500),
-                    headers: error.response.headers
-                });
-                // 打印请求体的关键信息帮助调试
-                try {
-                    const reqState = requestData?.conversationState;
-                    console.error('[Kiro] Request debug info:', {
-                        historyLength: reqState?.history?.length || 0,
-                        hasCurrentMessage: !!reqState?.currentMessage,
-                        currentMsgType: reqState?.currentMessage?.userInputMessage ? 'userInputMessage' : 'unknown',
-                        currentMsgContentLen: reqState?.currentMessage?.userInputMessage?.content?.length || 0,
-                        hasTools: !!(reqState?.currentMessage?.userInputMessage?.userInputMessageContext?.tools),
-                        toolsCount: reqState?.currentMessage?.userInputMessage?.userInputMessageContext?.tools?.length || 0,
-                        hasToolResults: !!(reqState?.currentMessage?.userInputMessage?.userInputMessageContext?.toolResults),
-                        toolResultsCount: reqState?.currentMessage?.userInputMessage?.userInputMessageContext?.toolResults?.length || 0,
-                    });
-
-                    // ⚠️ 关键调试：打印 toolResults 结构
-                    const toolResults = reqState?.currentMessage?.userInputMessage?.userInputMessageContext?.toolResults;
-                    if (toolResults && toolResults.length > 0) {
-                        console.error('[Kiro] ToolResults structure:', JSON.stringify(toolResults.map(tr => ({
-                            toolUseId: tr.toolUseId,
-                            status: tr.status,
-                            hasContent: !!tr.content,
-                            contentType: Array.isArray(tr.content) ? 'array' : typeof tr.content,
-                            contentLength: tr.content ? (Array.isArray(tr.content) ? tr.content.length : String(tr.content).length) : 0,
-                            // 新增：打印 content 详细结构
-                            contentDetail: Array.isArray(tr.content) ? tr.content.map(c => ({
-                                type: typeof c,
-                                hasText: !!c?.text,
-                                textLen: c?.text?.length || 0,
-                                textPreview: c?.text?.substring(0, 100) || ''
-                            })) : null
-                        })), null, 2));
-                    }
-
-                    // ⚠️ 关键调试：打印 history 中的 toolUses
-                    if (reqState?.history) {
-                        for (let idx = 0; idx < reqState.history.length; idx++) {
-                            const h = reqState.history[idx];
-                            if (h.userInputMessage) {
-                                console.error(`[Kiro] History[${idx}] userInputMessage.content length:`, h.userInputMessage.content?.length || 0);
-                            }
-                            if (h.assistantResponseMessage) {
-                                console.error(`[Kiro] History[${idx}] assistantResponseMessage.content length:`, h.assistantResponseMessage.content?.length || 0);
-                                if (h.assistantResponseMessage.toolUses) {
-                                    // ⚠️ 增强调试：打印完整的 toolUse 结构，检查是否有 input 字段
-                                    console.error(`[Kiro] History[${idx}] toolUses:`, JSON.stringify(h.assistantResponseMessage.toolUses.map(tu => ({
-                                        toolUseId: tu.toolUseId,
-                                        name: tu.name,
-                                        hasInput: tu.input !== undefined,
-                                        inputType: typeof tu.input,
-                                        inputKeys: tu.input && typeof tu.input === 'object' ? Object.keys(tu.input) : null
-                                    }))));
-                                }
-                            }
-                        }
-                    }
-                } catch (debugErr) {
-                    console.error('[Kiro] Failed to log request debug info:', debugErr.message);
-                }
-                // 400 错误是请求格式问题,属于致命错误,直接抛出(会被health check捕获)
-                throw error;
-            }
-
-            // 429 限流错误处理(暂时性错误,不应标记为不健康)
-            if (error.response?.status === 429) {
-                if (retryCount < maxRetries) {
-                    const delay = baseDelay * Math.pow(2, retryCount);
-                    console.log(`[Kiro] Received 429 (Rate Limit). Retrying in ${delay}ms... (attempt ${retryCount + 1}/${maxRetries})`);
-                    await new Promise(resolve => setTimeout(resolve, delay));
-                    return this.callApi(method, model, body, isRetry, retryCount + 1);
-                } else {
-                    // 429 重试次数用尽,包装成特殊错误类型
-                    const rateLimitError = new Error('RATE_LIMIT_EXCEEDED');
-                    rateLimitError.isRateLimitError = true;  // 标记为限流错误
-                    rateLimitError.retryable = true;  // 标记为可重试(不应标记账号不健康)
-                    throw rateLimitError;
-                }
-            }
-
-            // 5xx 服务器错误处理(可重试)
-            if (error.response?.status >= 500 && error.response?.status < 600 && retryCount < maxRetries) {
-                const delay = baseDelay * Math.pow(2, retryCount);
-                console.log(`[Kiro] Received ${error.response.status} server error. Retrying in ${delay}ms... (attempt ${retryCount + 1}/${maxRetries})`);
-                await new Promise(resolve => setTimeout(resolve, delay));
-                return this.callApi(method, model, body, isRetry, retryCount + 1);
-            }
-
-            // 其他错误
-            console.error('[Kiro] API call failed:', error.message);
-            if (error.response) {
-                console.error('[Kiro] Response status:', error.response.status);
-                console.error('[Kiro] Response data:', JSON.stringify(error.response.data).substring(0, 300));
-            }
-            throw error;
-        }
-    }
-
-    _processApiResponse(response) {
-        const rawResponseText = Buffer.isBuffer(response.data) ? response.data.toString('utf8') : String(response.data);
-        //console.log(`[Kiro] Raw response length: ${rawResponseText.length}`);
-        if (rawResponseText.includes("[Called")) {
-            console.log("[Kiro] Raw response contains [Called marker.");
-        }
-
-        // 1. Parse structured events and bracket calls from parsed content
-        const parsedFromEvents = this.parseEventStreamChunk(rawResponseText);
-        let fullResponseText = parsedFromEvents.content;
-        let allToolCalls = [...parsedFromEvents.toolCalls]; // clone
-        //console.log(`[Kiro] Found ${allToolCalls.length} tool calls from event stream parsing.`);
-
-        // 2. Crucial fix from Python example: Parse bracket tool calls from the original raw response
-        const rawBracketToolCalls = parseBracketToolCalls(rawResponseText);
-        if (rawBracketToolCalls) {
-            //console.log(`[Kiro] Found ${rawBracketToolCalls.length} bracket tool calls in raw response.`);
-            allToolCalls.push(...rawBracketToolCalls);
-        }
-
-        // 3. Deduplicate all collected tool calls
-        const uniqueToolCalls = deduplicateToolCalls(allToolCalls);
-        //console.log(`[Kiro] Total unique tool calls after deduplication: ${uniqueToolCalls.length}`);
-
-        // 4. Clean up response text by removing all tool call syntax from the final text.
-        // The text from parseEventStreamChunk is already partially cleaned.
-        // We re-clean here with all unique tool calls to be certain.
-        if (uniqueToolCalls.length > 0) {
-            for (const tc of uniqueToolCalls) {
-                const funcName = tc.function.name;
-                const escapedName = funcName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                const pattern = new RegExp(`\\[Called\\s+${escapedName}\\s+with\\s+args:\\s*\\{[^}]*(?:\\{[^}]*\\}[^}]*)*\\}\\]`, 'gs');
-                fullResponseText = fullResponseText.replace(pattern, '');
-            }
-            fullResponseText = fullResponseText.replace(/\s+/g, ' ').trim();
-        }
-        
-        //console.log(`[Kiro] Final response text after tool call cleanup: ${fullResponseText}`);
-        //console.log(`[Kiro] Final tool calls after deduplication: ${JSON.stringify(uniqueToolCalls)}`);
-        return { responseText: fullResponseText, toolCalls: uniqueToolCalls };
-    }
-
-    async generateContent(model, requestBody) {
-        if (!this.isInitialized) await this.initialize();
-
-        // 官方AWS SDK逻辑：检查并刷新token（5分钟窗口+30秒防抖）
-        await this.refreshAccessTokenIfNeeded();
-
-        // Kiro 官方逻辑：如果model在MODEL_MAPPING中则使用，否则使用默认模型
-        const finalModel = MODEL_MAPPING[model] ? model : this.modelName;
-        if (this.verboseLogging) {
-            console.log(`[Kiro] Calling generateContent with model: ${finalModel}`);
-        }
-
-        // Estimate input tokens before making the API call
-        const inputTokens = this.estimateInputTokens(requestBody);
-        console.log(`[Kiro Token] generateContent estimateInputTokens: ${inputTokens} tokens (${requestBody.messages?.length || 0} messages)`);
-        
-        const response = await this.callApi('', finalModel, requestBody);
-
-        try {
-            const { responseText, toolCalls } = this._processApiResponse(response);
-            return this.buildClaudeResponse(responseText, false, 'assistant', model, toolCalls, inputTokens);
-        } catch (error) {
-            console.error('[Kiro] Error in generateContent:', error);
-            throw new Error(`Error processing response: ${error.message}`);
-        }
-    }
-
-    // 保留旧的非流式方法用于 generateContent
-    async streamApi(method, model, body, isRetry = false, retryCount = 0) {
-        try {
-            return await this.callApi(method, model, body, isRetry, retryCount);
-        } catch (error) {
-            console.error('[Kiro] Error calling API:', error);
-            throw error;
-        }
-    }
-
-    // 真正的流式传输实现
-    async * generateContentStream(model, requestBody) {
-        if (!this.isInitialized) await this.initialize();
-
-        // 官方AWS SDK逻辑：检查并刷新token（5分钟窗口+30秒防抖）
-        await this.refreshAccessTokenIfNeeded();
-
-        // Kiro 官方逻辑：如果model在MODEL_MAPPING中则使用，否则使用默认模型
-        const finalModel = MODEL_MAPPING[model] ? model : this.modelName;
-
-        // 检查是否启用 thinking（通过 prompt injection 实现，支持配置默认启用）
-        const enableThinking = requestBody.thinking?.type === 'enabled' ||
-                             requestBody.extended_thinking === true ||
-                             this.config.ENABLE_THINKING_BY_DEFAULT === true;
-        if (this.verboseLogging) {
-            console.log(`[Kiro] Calling generateContentStream with model: ${finalModel} (real streaming, thinking: ${enableThinking})`);
-        }
-
-        // ⚠️ 性能计时：token 估算
-        const tokenStartTime = Date.now();
-        const inputTokens = this.estimateInputTokens(requestBody);
-        const tokenDuration = Date.now() - tokenStartTime;
-        // ⚠️ 调试：打印 token 计算结果
-        console.log(`[Kiro Token] estimateInputTokens: ${inputTokens} tokens (${requestBody.messages?.length || 0} messages, ${tokenDuration}ms)`);
-        const messageId = `${uuidv4()}`;
-        
-        try {
-            // 1. 先发送 message_start 事件
-            yield {
-                type: "message_start",
-                message: {
-                    id: messageId,
-                    type: "message",
-                    role: "assistant",
-                    model: model,
-                    usage: { input_tokens: inputTokens, output_tokens: 0 },
-                    content: []
-                }
-            };
-
-            let totalContent = '';
-            let outputTokens = 0;
-            const toolCalls = [];
-            let currentToolCall = null;  // 用于累积结构化工具调用
-            const seenToolUseIds = new Set();  // ⚠️ CRITICAL: 追踪所有见过的 toolUseId（参考官方 Kiro 客户端）
-            let thinkingContent = '';  // 用于累积thinking内容
-            let thinkingBlockIndex = null;  // thinking块的索引
-            let textBlockStarted = false;  // 标记text块是否已开始
-            const codeReferences = [];  // 用于累积代码引用
-
-            // Thinking 解析状态（用于 prompt injection 模式）
-            let contentBuffer = '';  // 用于缓冲内容以解析 <thinking> 标签
-            let insideThinkingTag = false;  // 是否在 <thinking> 标签内
-            let thinkingTagClosed = false;  // <thinking> 标签是否已关闭
-            let thinkingBlockClosed = false;  // thinking 块是否已关闭（用于避免重复关闭）
-
-            // 2-3. 流式接收并发送每个事件
-            for await (const event of streamApiReal(this, '', finalModel, requestBody)) {
-                // Debug: 记录事件类型（仅在调试时启用，生产环境注释掉以提升性能）
-                // console.log(`[Kiro Debug] Event received: type=${event.type}`);
-
-                if (event.type === 'thinking') {
-                    // 处理原生thinking块（API直接返回的，目前Kiro不支持）
-                    if (thinkingBlockIndex === null) {
-                        // 第一次收到thinking，发送content_block_start
-                        thinkingBlockIndex = 0;  // thinking总是第一个块
-                        yield {
-                            type: "content_block_start",
-                            index: thinkingBlockIndex,
-                            content_block: { type: "thinking", thinking: "" }
-                        };
-                    }
-
-                    thinkingContent += event.data.thinking;
-
-                    // 发送thinking delta
-                    yield {
-                        type: "content_block_delta",
-                        index: thinkingBlockIndex,
-                        delta: { type: "thinking_delta", thinking: event.data.thinking }
-                    };
-                } else if (event.type === 'content' && event.content) {
-                    // Kiro 优化：HTML 转义处理
-                    const unescapedContent = unescapeHTML(event.content);
-
-                    // 如果启用了 thinking prompt injection，需要解析 <thinking> 标签
-                    if (enableThinking) {
-                        contentBuffer += unescapedContent;
-
-                        // 处理 content buffer，解析 <thinking> 标签
-                        while (true) {
-                            if (!insideThinkingTag) {
-                                // 当前不在 thinking 标签内，查找 <thinking> 开始标签
-                                const thinkingStartIdx = contentBuffer.indexOf('<thinking>');
-
-                                if (thinkingStartIdx === -1) {
-                                    // 没有找到完整的 <thinking> 标签
-                                    // ⚠️ 优化：快速判断是否可能有 thinking 标签
-                                    // 1. 如果 buffer 不以 < 开头且长度 > 0，肯定没有 thinking → 立即输出
-                                    // 2. 如果 buffer 以 < 开头但不是 <thinking>... 前缀，也立即输出
-                                    // 3. 如果是 <thinking> 的前缀（如 "<t", "<think"），等待更多数据
-
-                                    let canEmitImmediately = false;
-                                    if (contentBuffer.length > 0 && !contentBuffer.startsWith('<')) {
-                                        // 不以 < 开头，肯定没有 thinking
-                                        canEmitImmediately = true;
-                                    } else if (contentBuffer.startsWith('<') && contentBuffer.length >= 10) {
-                                        // 以 < 开头且长度足够判断（<thinking> 是 10 字符）
-                                        // 如果不是 <thinking> 的前缀，可以输出
-                                        if (!('<thinking>'.startsWith(contentBuffer.slice(0, 10)))) {
-                                            canEmitImmediately = true;
-                                        }
-                                    }
-
-                                    const shouldEmit = thinkingTagClosed || canEmitImmediately ||
-                                                      (thinkingBlockIndex === null && contentBuffer.length > 15);
-
-                                    if (shouldEmit && contentBuffer.length > 0) {
-                                        // 计算保留字符数
-                                        // - 如果确定没有 thinking，只保留 1 字符
-                                        // - 如果 thinking 已结束，保留 15 字符防止新 thinking 块
-                                        const keepChars = (canEmitImmediately || thinkingBlockIndex === null) ? 1 : 15;
-                                        const textToEmit = contentBuffer.length > keepChars
-                                            ? contentBuffer.slice(0, -keepChars)
-                                            : (canEmitImmediately ? contentBuffer : '');
-
-                                        if (textToEmit) {
-                                            contentBuffer = canEmitImmediately && contentBuffer.length <= keepChars
-                                                ? ''
-                                                : contentBuffer.slice(-keepChars);
-                                            // 发送 text 内容
-                                            if (!textBlockStarted) {
-                                                const textBlockIndex = thinkingContent ? 1 : 0;
-                                                yield {
-                                                    type: "content_block_start",
-                                                    index: textBlockIndex,
-                                                    content_block: { type: "text", text: "" }
-                                                };
-                                                textBlockStarted = true;
-                                            }
-
-                                            totalContent += textToEmit;
-                                            const textBlockIndex = thinkingContent ? 1 : 0;
-                                            yield {
-                                                type: "content_block_delta",
-                                                index: textBlockIndex,
-                                                delta: { type: "text_delta", text: textToEmit }
-                                            };
-                                        }
-                                    }
-                                    break; // 退出循环，等待更多数据
-                                }
-
-                                // 找到 <thinking> 开始标签
-                                // 先发送标签之前的文本内容
-                                if (thinkingStartIdx > 0) {
-                                    const textBeforeThinking = contentBuffer.slice(0, thinkingStartIdx);
-
-                                    if (textBeforeThinking.trim()) {
-                                        // 发送 text 内容
-                                        if (!textBlockStarted) {
-                                            const textBlockIndex = thinkingContent ? 1 : 0;
-                                            yield {
-                                                type: "content_block_start",
-                                                index: textBlockIndex,
-                                                content_block: { type: "text", text: "" }
-                                            };
-                                            textBlockStarted = true;
-                                        }
-
-                                        totalContent += textBeforeThinking;
-                                        const textBlockIndex = thinkingContent ? 1 : 0;
-                                        yield {
-                                            type: "content_block_delta",
-                                            index: textBlockIndex,
-                                            delta: { type: "text_delta", text: textBeforeThinking }
-                                        };
-                                    }
-                                }
-
-                                // 移除已处理的内容和 <thinking> 标签
-                                contentBuffer = contentBuffer.slice(thinkingStartIdx + 10); // 10 = "<thinking>".length
-                                insideThinkingTag = true;
-
-                                // 开始 thinking 块
-                                if (thinkingBlockIndex === null) {
-                                    thinkingBlockIndex = 0;
-                                    yield {
-                                        type: "content_block_start",
-                                        index: thinkingBlockIndex,
-                                        content_block: { type: "thinking", thinking: "" }
-                                    };
-                                }
-                            } else {
-                                // 当前在 thinking 标签内，查找 </thinking> 结束标签
-                                const thinkingEndIdx = contentBuffer.indexOf('</thinking>');
-
-                                if (thinkingEndIdx === -1) {
-                                    // 没有找到结束标签，发送当前缓冲的 thinking 内容
-                                    // 保留最后 15 个字符以防标签被分割
-                                    if (contentBuffer.length > 15) {
-                                        const thinkingToEmit = contentBuffer.slice(0, -15);
-                                        contentBuffer = contentBuffer.slice(-15);
-
-                                        if (thinkingToEmit) {
-                                            thinkingContent += thinkingToEmit;
-                                            yield {
-                                                type: "content_block_delta",
-                                                index: thinkingBlockIndex,
-                                                delta: { type: "thinking_delta", thinking: thinkingToEmit }
-                                            };
-                                        }
-                                    }
-                                    break; // 退出循环，等待更多数据
-                                }
-
-                                // 找到 </thinking> 结束标签
-                                // 发送标签之前的 thinking 内容
-                                if (thinkingEndIdx > 0) {
-                                    const thinkingBeforeEnd = contentBuffer.slice(0, thinkingEndIdx);
-                                    thinkingContent += thinkingBeforeEnd;
-                                    yield {
-                                        type: "content_block_delta",
-                                        index: thinkingBlockIndex,
-                                        delta: { type: "thinking_delta", thinking: thinkingBeforeEnd }
-                                    };
-                                }
-
-                                // 结束 thinking 块
-                                yield { type: "content_block_stop", index: thinkingBlockIndex };
-                                thinkingBlockClosed = true;
-
-                                // 移除已处理的内容和 </thinking> 标签
-                                contentBuffer = contentBuffer.slice(thinkingEndIdx + 11); // 11 = "</thinking>".length
-                                insideThinkingTag = false;
-                                thinkingTagClosed = true;
-                            }
-                        }
-                    } else {
-                        // 不启用 thinking，直接发送内容
-                        // 如果之前有thinking块但还没结束，先结束它
-                        if (thinkingBlockIndex !== null && thinkingContent && !textBlockStarted) {
-                            yield { type: "content_block_stop", index: thinkingBlockIndex };
-                        }
-
-                        // 第一次收到content时，发送text块的content_block_start
-                        if (!textBlockStarted) {
-                            const textBlockIndex = thinkingContent ? 1 : 0;
-                            yield {
-                                type: "content_block_start",
-                                index: textBlockIndex,
-                                content_block: { type: "text", text: "" }
-                            };
-                            textBlockStarted = true;
-                        }
-
-                        totalContent += event.content;
-
-                        const textBlockIndex = thinkingContent ? 1 : 0;
-                        yield {
-                            type: "content_block_delta",
-                            index: textBlockIndex,
-                            delta: { type: "text_delta", text: event.content }
-                        };
-                    }
-                } else if (event.type === 'toolUse') {
-                    // 工具调用事件（完美复刻官方 Kiro extension.js:708085-708123）
-                    const tc = event.toolUse;
-
-                    if (tc && tc.toolUseId) {
-                        // ⚠️ 完美复刻官方逻辑（extension.js:708090）：
-                        // if (!toolCalls.has(toolUseId)) { 添加 id/name } else { 只处理 input }
-
-                        if (!seenToolUseIds.has(tc.toolUseId)) {
-                            // 第一次遇到这个 toolUseId
-                            seenToolUseIds.add(tc.toolUseId);
-
-                            // 如果有未完成的工具调用，先保存它
-                            if (currentToolCall) {
-                                try {
-                                    currentToolCall.input = JSON.parse(currentToolCall.input);
-                                } catch (e) {}
-                                toolCalls.push(currentToolCall);
-                            }
-
-                            // 创建新的 currentToolCall（设置 id/name）
-                            currentToolCall = {
-                                toolUseId: tc.toolUseId,
-                                name: tc.name || 'unknown',
-                                input: ''
-                            };
-                        }
-
-                        // ⚠️ 关键：每次都累积 input（无论是否第一次）
-                        if (currentToolCall && tc.input) {
-                            currentToolCall.input += tc.input;
-                        }
-
-                        // 如果有 stop 标志，保存 currentToolCall
-                        if (tc.stop && currentToolCall) {
-                            try {
-                                currentToolCall.input = JSON.parse(currentToolCall.input);
-                            } catch (e) {
-                                // JSON 解析失败，保留原始字符串
-                            }
-
-                            // ⭐ 服务端执行 webSearch 工具
-                            if (currentToolCall.name === 'webSearch') {
-                                if (this.verboseLogging) {
-                                    console.log('[Kiro WebSearch] Detected webSearch tool call, executing on server...');
-                                }
-                                currentToolCall.serverSideExecute = true;  // 标记为服务端执行
-                            }
-
-                            toolCalls.push(currentToolCall);
-                            currentToolCall = null;
-                        }
-                    }
-                } else if (event.type === 'metering') {
-                    // Token 计量事件
-                    const meterData = event.data;
-                    if (meterData.usage !== undefined) {
-                        // Kiro 返回的是 credit usage，需要转换为 token
-                        const estimatedTokens = Math.ceil(meterData.usage * 1000);
-                        outputTokens = estimatedTokens;
-                    }
-                } else if (event.type === 'codeReference') {
-                    // ⭐ 代码引用追踪事件（官方 Kiro 特性）
-                    // 收集代码引用信息，用于开源许可证追踪和代码溯源
-                    const references = event.data.references;
-                    if (references && references.length > 0) {
-                        codeReferences.push(...references);
-                        if (this.verboseLogging) {
-                            console.log(`[Kiro] Code references detected: ${references.length} sources`);
-                        }
-                    }
-                }
-            }
-
-            // 处理未完成的工具调用（如果流提前结束）
-            if (currentToolCall) {
-                try {
-                    currentToolCall.input = JSON.parse(currentToolCall.input);
-                } catch (e) {}
-                toolCalls.push(currentToolCall);
-                currentToolCall = null;
-            }
-
-            // 处理 thinking 模式下剩余的 content buffer
-            if (enableThinking && contentBuffer.length > 0) {
-                if (insideThinkingTag) {
-                    // 如果还在 thinking 标签内，发送剩余内容作为 thinking
-                    thinkingContent += contentBuffer;
-                    yield {
-                        type: "content_block_delta",
-                        index: thinkingBlockIndex,
-                        delta: { type: "thinking_delta", thinking: contentBuffer }
-                    };
-                    // 结束 thinking 块
-                    yield { type: "content_block_stop", index: thinkingBlockIndex };
-                    thinkingBlockClosed = true;
-                } else {
-                    // 不在 thinking 标签内，发送剩余内容作为 text
-                    if (contentBuffer.trim()) {
-                        if (!textBlockStarted) {
-                            const textBlockIndex = thinkingContent ? 1 : 0;
-                            yield {
-                                type: "content_block_start",
-                                index: textBlockIndex,
-                                content_block: { type: "text", text: "" }
-                            };
-                            textBlockStarted = true;
-                        }
-
-                        totalContent += contentBuffer;
-                        const textBlockIndex = thinkingContent ? 1 : 0;
-                        yield {
-                            type: "content_block_delta",
-                            index: textBlockIndex,
-                            delta: { type: "text_delta", text: contentBuffer }
-                        };
-                    }
-                }
-                contentBuffer = '';
-            }
-
-            // 检查文本内容中的 bracket 格式工具调用
-            const bracketToolCalls = parseBracketToolCalls(totalContent);
-            if (bracketToolCalls && bracketToolCalls.length > 0) {
-                for (const btc of bracketToolCalls) {
-                    toolCalls.push({
-                        toolUseId: btc.id || `tool_${uuidv4()}`,
-                        name: btc.function.name,
-                        input: JSON.parse(btc.function.arguments || '{}')
-                    });
-                }
-            }
-
-            // 3.5. 如果thinking块还没结束，先结束它
-            if (thinkingBlockIndex !== null && thinkingContent && !textBlockStarted && !thinkingBlockClosed) {
-                yield { type: "content_block_stop", index: thinkingBlockIndex };
-                thinkingBlockClosed = true;
-            }
-
-            // 4. 发送 content_block_stop 事件（text块，如果有的话）
-            if (textBlockStarted) {
-                const textBlockIndex = thinkingContent ? 1 : 0;
-                yield { type: "content_block_stop", index: textBlockIndex };
-            }
-
-            // ⭐ 4.5. 处理服务端执行的工具（webSearch）
-            // 如果有 webSearch 工具调用，执行搜索并将结果作为额外内容返回
-            const serverSideTools = toolCalls.filter(tc => tc.serverSideExecute);
-            const clientSideTools = toolCalls.filter(tc => !tc.serverSideExecute);
-
-            if (serverSideTools.length > 0) {
-                if (this.verboseLogging) {
-                    console.log(`[Kiro WebSearch] Processing ${serverSideTools.length} server-side tool calls...`);
-                }
-
-                let searchResultsContent = '';
-                for (const tc of serverSideTools) {
-                    if (tc.name === 'webSearch') {
-                        const query = tc.input?.query || tc.input;
-                        if (query) {
-                            // 执行搜索
-                            const searchResult = await executeWebSearch(query, this.verboseLogging);
-                            const searchResultText = formatSearchResults(searchResult);
-                            searchResultsContent += `\n\n---\n**Web Search Results for "${query}":**\n${searchResultText}`;
-                        }
-                    }
-                }
-
-                // 如果有搜索结果，发送为额外的文本内容
-                if (searchResultsContent) {
-                    const searchBlockIndex = (thinkingContent ? 1 : 0) + (textBlockStarted ? 1 : 0);
-
-                    // 发送搜索结果文本块
-                    yield {
-                        type: "content_block_start",
-                        index: searchBlockIndex,
-                        content_block: { type: "text", text: "" }
-                    };
-
-                    yield {
-                        type: "content_block_delta",
-                        index: searchBlockIndex,
-                        delta: { type: "text_delta", text: searchResultsContent }
-                    };
-
-                    yield { type: "content_block_stop", index: searchBlockIndex };
-
-                    totalContent += searchResultsContent;
-                    if (this.verboseLogging) {
-                        console.log('[Kiro WebSearch] Search results added to response');
-                    }
-                }
-            }
-
-            // 5. 处理工具调用（如果有，只处理客户端执行的工具）
-            if (clientSideTools.length > 0) {
-                // 计算起始索引：thinking块(0或无) + text块(0或1) + 搜索结果块(如果有)
-                let startIndex = 0;
-                if (thinkingContent) startIndex++;  // thinking块占用index 0
-                if (textBlockStarted) startIndex++;  // text块占用下一个index
-                if (serverSideTools.length > 0) startIndex++;  // 搜索结果块
-
-                for (let i = 0; i < clientSideTools.length; i++) {
-                    const tc = clientSideTools[i];
-                    const blockIndex = startIndex + i;
-
-                    // ⚠️ 关键：反向映射参数名（Kiro → CC）
-                    // Kiro 返回的参数使用 Kiro 的参数名（如 path, explanation）
-                    // 需要转换回 CC 的参数名（如 file_path）并过滤 CC 不支持的参数
-                    let toolInput = tc.input || {};
-                    if (typeof toolInput === 'string') {
-                        try {
-                            toolInput = JSON.parse(toolInput);
-                        } catch (e) {
-                            // ⚠️ 修复：不完整的工具调用应该被跳过
-                            // 打印详细日志帮助调试
-                            console.warn(`[Kiro] Failed to parse tool input as JSON for ${tc.name}:`, toolInput.substring(0, 100));
-                            console.warn(`[Kiro] Skipping incomplete tool call: ${tc.name} (toolUseId: ${tc.toolUseId})`);
-                            // 跳过这个工具调用，不要发送空参数
-                            continue;
-                        }
-                    }
-
-                    // 检查必需参数是否存在（针对 Write 工具）
-                    if (tc.name === 'Write' || tc.name === 'write_file') {
-                        const hasFilePath = toolInput.file_path || toolInput.path;
-                        const hasContent = toolInput.content !== undefined;
-                        if (!hasFilePath || !hasContent) {
-                            console.warn(`[Kiro] Incomplete Write tool call - missing required params. file_path: ${!!hasFilePath}, content: ${!!hasContent}`);
-                            console.warn(`[Kiro] Skipping incomplete Write tool call (toolUseId: ${tc.toolUseId})`);
-                            continue;
-                        }
-                    }
-
-                    yield {
-                        type: "content_block_start",
-                        index: blockIndex,
-                        content_block: {
-                            type: "tool_use",
-                            id: tc.toolUseId || `tool_${uuidv4()}`,
-                            name: tc.name,
-                            input: {}
-                        }
-                    };
-
-                    const reversedInput = this.reverseMapToolInput(tc.name, toolInput);
-                    const inputJson = JSON.stringify(reversedInput);
-
-                    yield {
-                        type: "content_block_delta",
-                        index: blockIndex,
-                        delta: {
-                            type: "input_json_delta",
-                            partial_json: inputJson
-                        }
-                    };
-
-                    yield { type: "content_block_stop", index: blockIndex };
-                }
-            }
-
-            // 6. 发送代码引用信息（如果有）
-            // ⭐ Kiro 特性：追踪 AI 生成代码的来源，符合开源许可证要求
-            if (codeReferences.length > 0) {
-                yield {
-                    type: "code_references",
-                    references: codeReferences.map(ref => ({
-                        license: ref.licenseName,
-                        repository: ref.repository,
-                        url: ref.url,
-                        recommendationContentSpan: ref.recommendationContentSpan
-                    }))
-                };
-            }
-
-            // 7. 发送 message_delta 事件
-            // 在流结束后统一计算 output tokens，避免在流式循环中阻塞事件循环
-            outputTokens = this.countTextTokens(totalContent);
-            if (thinkingContent) {
-                outputTokens += this.countTextTokens(thinkingContent);
-            }
-            for (const tc of clientSideTools) {
-                outputTokens += this.countTextTokens(JSON.stringify(tc.input || {}));
-            }
-
-            yield {
-                type: "message_delta",
-                delta: { stop_reason: clientSideTools.length > 0 ? "tool_use" : "end_turn" },
-                usage: { output_tokens: outputTokens }
-            };
-
-            // 8. 发送 message_stop 事件
-            yield { type: "message_stop" };
-
-        } catch (error) {
-            console.error('[Kiro] Error in streaming generation:', error);
-            console.error('[Kiro] Error stack:', error.stack);
-
-            // ⚠️ CRITICAL FIX: 如果stream已经开始传输,不能throw error,应该yield error event
-            // 这样客户端能看到错误信息而不是静默断开
-            yield {
-                type: "error",
-                error: {
-                    type: error.response?.status === 429 ? "rate_limit_error" :
-                          error.response?.status === 403 ? "permission_error" :
-                          error.response?.status === 401 ? "authentication_error" : "api_error",
-                    message: error.message || "An error occurred during streaming"
-                }
-            };
-
-            // 然后才throw,让上层知道stream失败了
-            throw new Error(`Error processing response: ${error.message}`);
-        }
+        return await generateContent(this, conversationId, model, requestBody);
     }
 
     /**
-     * Count tokens for a given text using Claude's official tokenizer
-     * @param {string} text - Text to count tokens for
-     * @param {boolean} fast - If true, use fast character-based estimation instead of tokenizer
+     * 生成内容（流式）- 委托给 api-client.js
+     * 签名: (model, requestBody) 或 (conversationId, model, requestBody)
      */
-    countTextTokens(text, fast = false) {
-        if (!text) return 0;
-        // 快速模式：使用字符估算，避免tokenizer开销
-        if (fast) {
-            // Claude tokenizer 实测：中文约 2.5 token/字，英文约 0.35 token/字符
-            const chineseCharCount = (text.match(/[\u4e00-\u9fff]/g) || []).length;
-            const totalLength = text.length;
-            const nonChineseLength = totalLength - chineseCharCount;
-            return Math.ceil(chineseCharCount * 2.5 + nonChineseLength * 0.35);
+    async* generateContentStream(modelOrConvId, requestBodyOrModel, maybeRequestBody) {
+        let conversationId, model, requestBody;
+        if (maybeRequestBody !== undefined) {
+            conversationId = modelOrConvId;
+            model = requestBodyOrModel;
+            requestBody = maybeRequestBody;
+        } else {
+            conversationId = '';
+            model = modelOrConvId;
+            requestBody = requestBodyOrModel;
         }
-        try {
-            return countTokens(text);
-        } catch (error) {
-            // Fallback to estimation if tokenizer fails
-            return Math.ceil((text || '').length / 4);
-        }
+        yield* generateContentStream(this, conversationId, model, requestBody);
     }
 
     /**
-     * Calculate input tokens from request body
-     * ⚠️ 修复：使用 getFullMessageTokens 替代 getContentText，确保计算 tool_use/tool_result
-     * @param {Object} requestBody - Request body
-     * @param {boolean} fast - If true, use fast character-based estimation
+     * 调用 API - 委托给 api-client.js
+     * 签名: (conversationId, model, requestBody, isStreaming)
      */
-    estimateInputTokens(requestBody, fast = true) {
-        let totalTokens = 0;
-
-        // Count system prompt tokens
-        if (requestBody.system) {
-            const systemText = this.getContentText(requestBody.system);
-            totalTokens += this.countTextTokens(systemText, fast);
-        }
-
-        // ⚠️ 关键修复：使用 getFullMessageTokens 计算完整 token（包含 tool_use, tool_result, thinking）
-        if (requestBody.messages && Array.isArray(requestBody.messages)) {
-            for (const message of requestBody.messages) {
-                totalTokens += this.getFullMessageTokens(message, fast);
-            }
-        }
-
-        // Count tools definitions tokens if present
-        if (requestBody.tools && Array.isArray(requestBody.tools)) {
-            // 工具 token 估算：根据工具数量和描述长度
-            if (fast) {
-                let toolTokens = 0;
-                for (const tool of requestBody.tools) {
-                    toolTokens += 80; // 基础元数据（name, type 等）
-                    if (tool.description) {
-                        toolTokens += this.countTextTokens(tool.description, true);
-                    }
-                    // input_schema 估算：每个属性约 50 tokens（包括 description、type 等）
-                    if (tool.input_schema?.properties) {
-                        toolTokens += Object.keys(tool.input_schema.properties).length * 50;
-                    }
-                }
-                totalTokens += toolTokens;
-            } else {
-                totalTokens += this.countTextTokens(JSON.stringify(requestBody.tools), false);
-            }
-        }
-
-        return totalTokens;
+    async callApi(conversationId, model, requestBody, isStreaming = false) {
+        return await callApi(this, conversationId, model, requestBody, isStreaming);
     }
 
     /**
-     * Build Claude compatible response object
+     * 流式 API 调用 - 委托给 api-client.js
+     * 签名: (conversationId, model, requestBody)
+     */
+    async* streamApi(conversationId, model, requestBody) {
+        yield* streamApi(this, conversationId, model, requestBody);
+    }
+
+    /**
+     * 构建 Claude 响应 - 委托给 api-client.js
+     * 签名: (content, isStream, role, model, toolCalls, inputTokens)
      */
     buildClaudeResponse(content, isStream = false, role = 'assistant', model, toolCalls = null, inputTokens = 0) {
-        const messageId = `${uuidv4()}`;
-
-        if (isStream) {
-            // Kiro API is "pseudo-streaming", so we'll send a few events to simulate
-            // a full Claude stream, but the content/tool_calls will be sent in one go.
-            const events = [];
-
-            // 1. message_start event
-            events.push({
-                type: "message_start",
-                message: {
-                    id: messageId,
-                    type: "message",
-                    role: role,
-                    model: model,
-                    usage: {
-                        input_tokens: inputTokens,
-                        output_tokens: 0 // Will be updated in message_delta
-                    },
-                    content: [] // Content will be streamed via content_block_delta
-                }
-            });
- 
-            let totalOutputTokens = 0;
-            let stopReason = "end_turn";
-
-            if (content) {
-                // If there are tool calls AND content, the content block index should be after tool calls
-                const contentBlockIndex = (toolCalls && toolCalls.length > 0) ? toolCalls.length : 0;
-
-                // 2. content_block_start for text
-                events.push({
-                    type: "content_block_start",
-                    index: contentBlockIndex,
-                    content_block: {
-                        type: "text",
-                        text: "" // Initial empty text
-                    }
-                });
-                // 3. content_block_delta for text
-                events.push({
-                    type: "content_block_delta",
-                    index: contentBlockIndex,
-                    delta: {
-                        type: "text_delta",
-                        text: content
-                    }
-                });
-                // 4. content_block_stop
-                events.push({
-                    type: "content_block_stop",
-                    index: contentBlockIndex
-                });
-                totalOutputTokens += this.countTextTokens(content);
-                // If there are tool calls, the stop reason remains "tool_use".
-                // If only content, it's "end_turn".
-                if (!toolCalls || toolCalls.length === 0) {
-                    stopReason = "end_turn";
-                }
-            }
-
-            if (toolCalls && toolCalls.length > 0) {
-                toolCalls.forEach((tc, index) => {
-                    let inputObject;
-                    try {
-                        // Arguments should be a stringified JSON object.
-                        inputObject = tc.function.arguments;
-                        // 如果是字符串，先解析
-                        if (typeof inputObject === 'string') {
-                            inputObject = JSON.parse(inputObject);
-                        }
-                    } catch (e) {
-                        // ⚠️ 修复：不要使用 raw_arguments，CC 不认识这个参数
-                        console.warn(`[Kiro] Invalid JSON for tool call arguments (${tc.function.name}):`,
-                            typeof tc.function.arguments === 'string' ? tc.function.arguments.substring(0, 100) : tc.function.arguments);
-                        // 使用空对象作为 fallback，让 CC 处理缺失参数的情况
-                        inputObject = {};
-                    }
-
-                    // ⚠️ 关键：反向映射参数名（Kiro → CC）
-                    const reversedInput = this.reverseMapToolInput(tc.function.name, inputObject);
-                    const inputJson = JSON.stringify(reversedInput);
-
-                    // 2. content_block_start for each tool_use
-                    events.push({
-                        type: "content_block_start",
-                        index: index,
-                        content_block: {
-                            type: "tool_use",
-                            id: tc.id,
-                            name: tc.function.name,
-                            input: {} // input is streamed via input_json_delta
-                        }
-                    });
-
-                    // 3. content_block_delta for each tool_use
-                    // Since Kiro is not truly streaming, we send the full arguments as one delta.
-                    events.push({
-                        type: "content_block_delta",
-                        index: index,
-                        delta: {
-                            type: "input_json_delta",
-                            partial_json: inputJson
-                        }
-                    });
- 
-                    // 4. content_block_stop for each tool_use
-                    events.push({
-                        type: "content_block_stop",
-                        index: index
-                    });
-                    totalOutputTokens += this.countTextTokens(JSON.stringify(inputObject));
-                });
-                stopReason = "tool_use"; // If there are tool calls, the stop reason is tool_use
-            }
-
-            // 5. message_delta with appropriate stop reason
-            events.push({
-                type: "message_delta",
-                delta: {
-                    stop_reason: stopReason,
-                    stop_sequence: null,
-                },
-                usage: { output_tokens: totalOutputTokens }
-            });
-
-            // 6. message_stop event
-            events.push({
-                type: "message_stop"
-            });
-
-            return events; // Return an array of events for streaming
-        } else {
-            // Non-streaming response (full message object)
-            const contentArray = [];
-            let stopReason = "end_turn";
-            let outputTokens = 0;
-
-            if (toolCalls && toolCalls.length > 0) {
-                for (const tc of toolCalls) {
-                    let inputObject;
-                    try {
-                        // Arguments should be a stringified JSON object.
-                        inputObject = tc.function.arguments;
-                        // 如果是字符串，先解析
-                        if (typeof inputObject === 'string') {
-                            inputObject = JSON.parse(inputObject);
-                        }
-                    } catch (e) {
-                        // ⚠️ 修复：不要使用 raw_arguments，CC 不认识这个参数
-                        console.warn(`[Kiro] Invalid JSON for tool call arguments (${tc.function.name}):`,
-                            typeof tc.function.arguments === 'string' ? tc.function.arguments.substring(0, 100) : tc.function.arguments);
-                        // 使用空对象作为 fallback，让 CC 处理缺失参数的情况
-                        inputObject = {};
-                    }
-
-                    // ⚠️ 关键：反向映射参数名（Kiro → CC）
-                    const reversedInput = this.reverseMapToolInput(tc.function.name, inputObject);
-
-                    contentArray.push({
-                        type: "tool_use",
-                        id: tc.id,
-                        name: tc.function.name,
-                        input: reversedInput
-                    });
-                    outputTokens += this.countTextTokens(JSON.stringify(reversedInput));
-                }
-                stopReason = "tool_use"; // Set stop_reason to "tool_use" when toolCalls exist
-            } else if (content) {
-                contentArray.push({
-                    type: "text",
-                    text: content
-                });
-                outputTokens += this.countTextTokens(content);
-            }
-
-            return {
-                id: messageId,
-                type: "message",
-                role: role,
-                model: model,
-                stop_reason: stopReason,
-                stop_sequence: null,
-                usage: {
-                    input_tokens: inputTokens,
-                    output_tokens: outputTokens
-                },
-                content: contentArray
-            };
-        }
+        return buildClaudeResponse(content, isStream, role, model, toolCalls, inputTokens);
     }
 
     /**
-     * List available models
-     */
-    async listModels() {
-        const models = KIRO_MODELS.map(id => ({
-            name: id
-        }));
-        
-        return { models: models };
-    }
-
-    /**
-     * Checks if the given expiresAt timestamp is within 10 minutes from now.
-     * @returns {boolean} - True if expiresAt is less than 10 minutes from now, false otherwise.
-     */
-    isExpiryDateNear() {
-        try {
-            const expirationTime = new Date(this.expiresAt);
-            const currentTime = new Date();
-            const cronNearMinutesInMillis = (this.config.CRON_NEAR_MINUTES || 10) * 60 * 1000;
-            const thresholdTime = new Date(currentTime.getTime() + cronNearMinutesInMillis);
-            if (this.verboseLogging) {
-                console.log(`[Kiro] Expiry date: ${expirationTime.getTime()}, Current time: ${currentTime.getTime()}, ${this.config.CRON_NEAR_MINUTES || 10} minutes from now: ${thresholdTime.getTime()}`);
-            }
-            return expirationTime.getTime() <= thresholdTime.getTime();
-        } catch (error) {
-            console.error(`[Kiro] Error checking expiry date: ${this.expiresAt}, Error: ${error.message}`);
-            return false; // Treat as expired if parsing fails
-        }
-    }
-
-    /**
-     * 获取用量限制信息
-     * @returns {Promise<Object>} 用量限制信息
+     * 获取使用限制 - 委托给 api-client.js
      */
     async getUsageLimits() {
-        if (!this.isInitialized) await this.initialize();
-        
-        // 官方AWS SDK逻辑：检查并刷新token（5分钟窗口+30秒防抖）
-        await this.refreshAccessTokenIfNeeded();
-        
-        // 内部固定的资源类型
-        const resourceType = 'AGENTIC_REQUEST';
-        
-        // 构建请求 URL
-        const usageLimitsUrl = KIRO_CONSTANTS.USAGE_LIMITS_URL.replace('{{region}}', this.region);
-        const params = new URLSearchParams({
-            isEmailRequired: 'true',
-            origin: KIRO_CONSTANTS.ORIGIN_AI_EDITOR,
-            resourceType: resourceType
-        });
-         if (this.authMethod === KIRO_CONSTANTS.AUTH_METHOD_SOCIAL) {
-            params.append('profileArn', this.profileArn);
-        }
-        const fullUrl = `${usageLimitsUrl}?${params.toString()}`;
-
-        // 构建请求头
-        const headers = {
-            'amz-sdk-invocation-id': uuidv4(),
-            'Authorization': `Bearer ${this.accessToken}`,
-        };
-
-        try {
-            const response = await this.axiosInstance.get(fullUrl, { headers });
-            console.log('[Kiro] Usage limits fetched successfully');
-            return response.data;
-        } catch (error) {
-            // 如果是 403 错误，尝试刷新 token 后重试
-            if (error.response?.status === 403) {
-                console.log('[Kiro] Received 403 on getUsageLimits. Attempting token refresh and retrying...');
-                try {
-                    await this.initializeAuth(true);
-                    // 更新 Authorization header
-                    headers['Authorization'] = `Bearer ${this.accessToken}`;
-                    headers['amz-sdk-invocation-id'] = uuidv4();
-                    const retryResponse = await this.axiosInstance.get(fullUrl, { headers });
-                    console.log('[Kiro] Usage limits fetched successfully after token refresh');
-                    return retryResponse.data;
-                } catch (refreshError) {
-                    console.error('[Kiro] Token refresh failed during getUsageLimits retry:', refreshError.message);
-                    throw refreshError;
-                }
-            }
-            console.error('[Kiro] Failed to fetch usage limits:', error.message);
-            throw error;
-        }
+        return await getUsageLimits(this);
     }
 }
-
-
 // 用于存储服务适配器单例的映射
 export const serviceInstances = {};
 

@@ -1,12 +1,12 @@
 /**
  * 主进程 (Master Process)
- * 
+ *
  * 负责管理子进程的生命周期，包括：
  * - 启动子进程
  * - 监控子进程状态
  * - 处理子进程重启请求
  * - 提供 IPC 通信
- * 
+ *
  * 使用方式：
  * node src/master.js [原有的命令行参数]
  */
@@ -15,35 +15,10 @@ import { fork } from 'child_process';
 import * as http from 'http';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
-import fs from 'fs';
+import { ENV } from './config/env.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
-// 从当前工作目录的 .env 文件中读取变量（优先于 process.env）
-function readEnvFileVar(name) {
-    try {
-        const envPath = path.join(process.cwd(), '.env');
-        if (!fs.existsSync(envPath)) return undefined;
-        const content = fs.readFileSync(envPath, 'utf8');
-        const lines = content.split(/\r?\n/);
-        for (const line of lines) {
-            const trimmed = line.trim();
-            if (!trimmed || trimmed.startsWith('#')) continue;
-            const [key, ...rest] = trimmed.split('=');
-            if (key.trim() === name) {
-                let val = rest.join('=').trim();
-                if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
-                    val = val.slice(1, -1);
-                }
-                return val;
-            }
-        }
-    } catch (err) {
-        // 忽略读取错误，回退到 process.env
-    }
-    return undefined;
-}
 
 // 子进程实例
 let workerProcess = null;
@@ -62,7 +37,7 @@ const config = {
     workerScript: path.join(__dirname, 'api/server.js'),
     maxRestartAttempts: 10,
     restartDelay: 1000, // 重启延迟（毫秒）
-    masterPort: parseInt(readEnvFileVar('MASTER_PORT') ?? process.env.MASTER_PORT, 10) || 3100, // 主进程管理端口（.env 优先）
+    masterPort: ENV.masterPort, // 主进程管理端口（env 模块统一处理）
     args: process.argv.slice(2) // 传递给子进程的参数
 };
 
