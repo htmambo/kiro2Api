@@ -29,8 +29,8 @@ export function setupUsageRoutes(router) {
     });
 
     // 获取可用模型列表
-    router.addRoute('GET', '/api/full-models', usageHandlers.getFullModels, {
-        auth: true,
+    router.addRoute('GET', '/v1/models', usageHandlers.getFullModels, {
+        auth: false,
         description: '获取所有可用模型列表'
     });
 }
