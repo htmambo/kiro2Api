@@ -252,9 +252,15 @@ export async function handleStreamRequest(res, service, model, requestBody, from
                 _markPoolUnhealthy(toProvider, poolManager, pooluuid, error);
             }
 
-            // 使用新方法创建符合 fromProvider 格式的流式错误响应
-            const errorPayload = createStreamErrorResponse(error, fromProvider);
-            res.write(errorPayload);
+            // 使用统一的错误中间件处理流式错误
+            // 注意：这里需要构造一个简单的 req 对象来传递必要的信息
+            const mockReq = {
+                method: 'POST',
+                url: '/stream',
+                headers: { 'model-provider': fromProvider }
+            };
+            const { errorMiddleware } = await import('../api/error-middleware.js');
+            await errorMiddleware(error, mockReq, res, true);
             res.end();
             responseClosed = true;
         } else {
@@ -603,7 +609,7 @@ export function getMD5Hash(obj) {
  * @param {string} fromProvider - 客户端期望的提供商格式
  * @returns {Object} 格式化的错误响应对象
  */
-function createErrorResponse(error, fromProvider) {
+export function createErrorResponse(error, fromProvider) {
     const protocolPrefix = getProtocolPrefix(fromProvider);
     const statusCode = error.status || error.code || 500;
     const errorMessage = error.message || "An error occurred during processing.";

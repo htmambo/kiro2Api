@@ -1,11 +1,12 @@
 import deepmerge from 'deepmerge';
-import { handleError, isAuthorized } from '../utils/common.js';
+import { isAuthorized } from '../utils/common.js';
 import { handleUIApiRequests, serveStaticFiles } from '../ui-manager.js';
 import { handleAPIRequests } from './manager.js';
 import { getApiService } from '../services/manager.js';
 import { getAccountPoolManager } from '../services/manager.js';
 import { MODEL_PROVIDER } from '../utils/common.js';
 import { PROMPT_LOG_FILENAME } from '../config/manager.js';
+import { errorMiddleware, createError } from './error-middleware.js';
 /**
  * Main request handler. It authenticates the request, determines the endpoint type,
  * and delegates to the appropriate specialized handler function.
@@ -15,8 +16,9 @@ import { PROMPT_LOG_FILENAME } from '../config/manager.js';
  */
 export function createRequestHandler(config, accountPoolManager) {
     return async function requestHandler(req, res) {
-        // Deep copy the config for each request to allow dynamic modification
-        const currentConfig = deepmerge({}, config);
+        try {
+            // Deep copy the config for each request to allow dynamic modification
+            const currentConfig = deepmerge({}, config);
         const requestUrl = new URL(req.url, `http://${req.headers.host}`);
         let path = requestUrl.pathname;
         const method = req.method;
@@ -75,12 +77,8 @@ export function createRequestHandler(config, accountPoolManager) {
                 }, null, 2));
                 return true;
             } catch (error) {
-                console.error('[Stats] Failed to get stats:', error.message);
-                res.writeHead(500, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({
-                    error: 'Failed to get stats',
-                    message: error.message
-                }));
+                const statsError = createError(`Failed to get stats: ${error.message}`, 500);
+                await errorMiddleware(statsError, req, res);
                 return true;
             }
         }
@@ -114,7 +112,8 @@ export function createRequestHandler(config, accountPoolManager) {
         try {
             apiService = await getApiService(currentConfig);
         } catch (error) {
-            handleError(res, { statusCode: 500, message: `Failed to get API service: ${error.message}` });
+            const serviceError = createError(`Failed to get API service: ${error.message}`, 500);
+            await errorMiddleware(serviceError, req, res);
             const activeAccountPoolManager = poolManager || getAccountPoolManager();
             if (activeAccountPoolManager && currentConfig.uuid) {
                 if (typeof activeAccountPoolManager.markAccountUnhealthy === 'function') {
@@ -134,7 +133,6 @@ export function createRequestHandler(config, accountPoolManager) {
             return;
         }
 
-        try {
             // Handle API requests
             const apiHandled = await handleAPIRequests(method, path, req, res, currentConfig, apiService, accountPoolManager, PROMPT_LOG_FILENAME);
             if (apiHandled) return;
@@ -143,7 +141,7 @@ export function createRequestHandler(config, accountPoolManager) {
             res.writeHead(404, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: { message: 'Not Found' } }));
         } catch (error) {
-            handleError(res, error);
+            await errorMiddleware(error, req, res);
         }
     };
 }
