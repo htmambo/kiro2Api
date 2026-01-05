@@ -15,7 +15,6 @@ import path from 'path';
 export async function serveStaticFiles(pathParam, res) {
     // 处理不同类型的路径
     let relativePath;
-    console.log('Serving static file for path:', pathParam);
     if (pathParam === '/' || pathParam === '/index.html') {
         relativePath = 'index.html';
     } else if (pathParam === '/favicon.ico') {
@@ -35,7 +34,6 @@ export async function serveStaticFiles(pathParam, res) {
         // 其他路径移除 /static/ 前缀
         relativePath = pathParam.replace('/static/', '');
     }
-    console.log('Resolved relative path:', relativePath);
     let filePath = path.join(process.cwd(), 'static', relativePath);
 
     // 首先尝试添加 .html 扩展名（优先于目录处理）

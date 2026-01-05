@@ -2,6 +2,8 @@
  * 上传 Handler 实现
  * 处理文件上传和配置文件管理
  */
+import { promises as fs, existsSync } from 'fs';
+import path from 'path';
 
 /**
  * Helper function to attempt quick link for a single file
@@ -27,7 +29,6 @@ async function attemptQuickLinkFile(filePath, providerPoolManager) {
         const needsProjectId = false;
 
         // Check if already linked
-        const path = await import('path');
         const targetAbsPath = path.resolve(process.cwd(), filePath);
         const accounts = providerPoolManager.listAccounts();
         const isAlreadyLinked = accounts.some(p => {
@@ -86,8 +87,6 @@ async function attemptQuickLinkFile(filePath, providerPoolManager) {
 export async function uploadCredentials({ req, res, currentConfig }) {
     try {
         const { broadcastEvent } = await import('../../events.js');
-        const path = await import('path');
-        const fs = await import('fs');
 
         // multer执行完成后，表单字段已解析到req.body中
         const provider = req.body.provider || 'common';
@@ -147,7 +146,6 @@ export async function uploadCredentials({ req, res, currentConfig }) {
  */
 export async function getUploadConfigs({ res, currentConfig, providerPoolManager }) {
     try {
-        const { scanConfigFiles } = await import('../../../ui-manager.js');
         const configFiles = await scanConfigFiles(currentConfig, providerPoolManager);
 
         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -165,9 +163,6 @@ export async function getUploadConfigs({ res, currentConfig, providerPoolManager
  * 查看配置文件
  */
 export async function viewConfig({ res, match }) {
-    const fs = await import('fs');
-    const path = await import('path');
-
     try {
         const filePath = decodeURIComponent(match[1]);
         const fullPath = path.join(process.cwd(), filePath);
@@ -185,7 +180,7 @@ export async function viewConfig({ res, match }) {
             return;
         }
 
-        if (!fs.existsSync(fullPath)) {
+        if (!existsSync(fullPath)) {
             res.writeHead(404, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: { message: '文件不存在' } }));
             return;
@@ -215,8 +210,6 @@ export async function viewConfig({ res, match }) {
  * 删除配置文件
  */
 export async function deleteConfig({ res, match }) {
-    const fs = await import('fs');
-    const path = await import('path');
     const { broadcastEvent } = await import('../../events.js');
 
     try {
@@ -236,7 +229,7 @@ export async function deleteConfig({ res, match }) {
             return;
         }
 
-        if (!fs.existsSync(fullPath)) {
+        if (!existsSync(fullPath)) {
             res.writeHead(404, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: { message: '文件不存在' } }));
             return;
@@ -356,4 +349,368 @@ export async function bulkQuickLink({ req, res, providerPoolManager }) {
             error: { message: '批量关联失败: ' + error.message }
         }));
     }
+}
+
+/**
+ * 标准化路径，用于跨平台兼容
+ * @param {string} filePath - 文件路径
+ * @returns {string} 使用正斜杠的标准化路径
+ */
+function normalizePath(filePath) {
+    if (!filePath) return filePath;
+    
+    // 使用 path 模块标准化，然后转换为正斜杠
+    const normalized = path.normalize(filePath);
+    return normalized.replace(/\\/g, '/');
+}
+
+/**
+ * 检查两个路径是否指向同一文件（跨平台兼容）
+ * @param {string} path1 - 第一个路径
+ * @param {string} path2 - 第二个路径
+ * @returns {boolean} 如果路径指向同一文件则返回 true
+ */
+function pathsEqual(path1, path2) {
+    if (!path1 || !path2) return false;
+    
+    try {
+        // 标准化两个路径
+        const normalized1 = normalizePath(path1);
+        const normalized2 = normalizePath(path2);
+        
+        // 直接匹配
+        if (normalized1 === normalized2) {
+            return true;
+        }
+        
+        // 移除开头的 './' 后比较
+        const clean1 = normalized1.replace(/^\.\//, '');
+        const clean2 = normalized2.replace(/^\.\//, '');
+        
+        if (clean1 === clean2) {
+            return true;
+        }
+        
+        // 检查一个是否是另一个的子集（用于相对路径与绝对路径比较）
+        if (normalized1.endsWith('/' + clean2) || normalized2.endsWith('/' + clean1)) {
+            return true;
+        }
+        
+        return false;
+    } catch (error) {
+        console.warn(`[Path Comparison] Error comparing paths: ${path1} vs ${path2}`, error.message);
+        return false;
+    }
+}
+
+/**
+ * 从路径中提取文件名
+ * @param {string} filePath - 文件路径
+ * @returns {string} 文件名
+ */
+function getFileName(filePath) {
+    return path.basename(filePath);
+}
+
+/**
+ * 检查文件路径是否正在被使用（跨平台兼容）
+ * @param {string} relativePath - 相对路径
+ * @param {string} fileName - 文件名
+ * @param {Set} usedPaths - 已使用路径的集合
+ * @returns {boolean} 如果文件正在被使用则返回 true
+ */
+function isPathUsed(relativePath, fileName, usedPaths) {
+    if (!relativePath) return false;
+
+    // 标准化相对路径
+    const normalizedRelativePath = normalizePath(relativePath);
+    const cleanRelativePath = normalizedRelativePath.replace(/^\.\//, '');
+    
+    // 从相对路径获取文件名
+    const relativeFileName = getFileName(normalizedRelativePath);
+    
+    // 遍历所有已使用路径进行匹配
+    for (const usedPath of usedPaths) {
+        if (!usedPath) continue;
+        
+        // 1. 直接路径匹配
+        if (pathsEqual(relativePath, usedPath) || pathsEqual(relativePath, './' + usedPath)) {
+            return true;
+        }
+        
+        // 2. 标准化路径匹配
+        if (pathsEqual(normalizedRelativePath, usedPath) ||
+            pathsEqual(normalizedRelativePath, './' + usedPath)) {
+            return true;
+        }
+        
+        // 3. 清理后的路径匹配
+        if (pathsEqual(cleanRelativePath, usedPath) ||
+            pathsEqual(cleanRelativePath, './' + usedPath)) {
+            return true;
+        }
+        
+        // 4. 文件名匹配（确保不是误匹配）
+        const usedFileName = getFileName(usedPath);
+        if (usedFileName === fileName || usedFileName === relativeFileName) {
+            // 确保是同一个目录下的文件
+            const usedDir = path.dirname(usedPath);
+            const relativeDir = path.dirname(normalizedRelativePath);
+            
+            if (pathsEqual(usedDir, relativeDir) ||
+                pathsEqual(usedDir, cleanRelativePath.replace(/\/[^\/]+$/, '')) ||
+                pathsEqual(relativeDir.replace(/^\.\//, ''), usedDir.replace(/^\.\//, ''))) {
+                return true;
+            }
+        }
+        
+        // 5. 绝对路径匹配（Windows 和 Unix）
+        try {
+            const resolvedUsedPath = path.resolve(usedPath);
+            const resolvedRelativePath = path.resolve(relativePath);
+            
+            if (resolvedUsedPath === resolvedRelativePath) {
+                return true;
+            }
+        } catch (error) {
+            // 忽略路径解析错误
+        }
+    }
+    
+    return false;
+}
+
+async function scanConfigFiles(currentConfig, accountPoolManager) {
+    const configFiles = [];
+    
+    // 只扫描configs目录
+    const configsPath = path.join(process.cwd(), 'configs');
+    
+    if (!existsSync(configsPath)) {
+        return configFiles;
+    }
+
+    const usedPaths = new Set(); // 存储已使用的路径，用于判断关联状态
+    // 使用最新的提供商池数据
+    let accounts = currentConfig.accountPool.accounts;
+    if (accountPoolManager && accountPoolManager.accountPools) {
+        accounts = accountPoolManager.accountPools.accounts;
+    }
+
+    // 检查提供商池文件中的所有OAuth凭据路径 - 标准化路径格式
+    if (accounts) {
+        const { addToUsedPaths } = await import('../../../utils/account-utils.js');
+        for (const account of accounts) {
+            addToUsedPaths(usedPaths, account.KIRO_OAUTH_CREDS_FILE_PATH);
+        }
+    }
+
+    try {
+        // 扫描configs目录下的所有子目录和文件
+        const configsFiles = await scanOAuthDirectory(configsPath, usedPaths, currentConfig);
+        configFiles.push(...configsFiles);
+    } catch (error) {
+        console.warn(`[Config Scanner] Failed to scan configs directory:`, error.message);
+    }
+
+    return configFiles;
+}
+
+/**
+ * Scan OAuth directory for credential files
+ * @param {string} dirPath - Directory path to scan
+ * @param {Set} usedPaths - Set of used paths
+ * @param {Object} currentConfig - Current configuration
+ * @returns {Promise<Array>} Array of OAuth configuration file objects
+ */
+async function scanOAuthDirectory(dirPath, usedPaths, currentConfig) {
+    const oauthFiles = [];
+    // const path = await import('path');
+    // const { promises: fs, existsSync } = await import('fs');
+    
+    try {
+        const files = await fs.readdir(dirPath, { withFileTypes: true });
+        
+        for (const file of files) {
+            const fullPath = path.join(dirPath, file.name);
+            
+            if (file.isFile()) {
+                const ext = path.extname(file.name).toLowerCase();
+                // 只关注OAuth相关的文件类型
+                if (['.json', '.oauth', '.creds', '.key', '.pem', '.txt'].includes(ext)) {
+                    const fileInfo = await analyzeOAuthFile(fullPath, usedPaths, currentConfig);
+                    if (fileInfo) {
+                        oauthFiles.push(fileInfo);
+                    }
+                }
+            } else if (file.isDirectory()) {
+                // 递归扫描子目录（限制深度）
+                const relativePath = path.relative(process.cwd(), fullPath);
+                // 最大深度4层，以支持 configs/kiro/{subfolder}/file.json 这样的结构
+                if (relativePath.split(path.sep).length < 4) {
+                    const subFiles = await scanOAuthDirectory(fullPath, usedPaths, currentConfig);
+                    oauthFiles.push(...subFiles);
+                }
+            }
+        }
+    } catch (error) {
+        console.warn(`[OAuth Scanner] Failed to scan directory ${dirPath}:`, error.message);
+    }
+    
+    return oauthFiles;
+}
+
+/**
+ * Analyze OAuth configuration file and return metadata
+ * @param {string} filePath - Full path to the file
+ * @param {Set} usedPaths - Set of paths currently in use
+ * @returns {Promise<Object|null>} OAuth file information object
+ */
+async function analyzeOAuthFile(filePath, usedPaths, currentConfig) {
+    try {
+        const stats = await fs.stat(filePath);
+        const ext = path.extname(filePath).toLowerCase();
+        const filename = path.basename(filePath);
+        const relativePath = path.relative(process.cwd(), filePath);
+        
+        // 读取文件内容进行分析
+        let content = '';
+        let type = 'oauth_credentials';
+        let isValid = true;
+        let errorMessage = '';
+        let oauthProvider = 'unknown';
+        let usageInfo = getFileUsageInfo(relativePath, filename, usedPaths, currentConfig);
+        
+        try {
+            if (ext === '.json') {
+                const rawContent = await fs.readFile(filePath, 'utf8');
+                const jsonData = JSON.parse(rawContent);
+                content = rawContent;
+                
+                // 识别OAuth提供商
+                if (jsonData.apiKey || jsonData.api_key) {
+                    type = 'api_key';
+                } else if (jsonData.client_id || jsonData.client_secret) {
+                    oauthProvider = 'oauth2';
+                } else if (jsonData.access_token || jsonData.refresh_token) {
+                    oauthProvider = 'token_based';
+                } else if (jsonData.credentials) {
+                    oauthProvider = 'service_account';
+                }
+                
+                if (jsonData.base_url || jsonData.endpoint) {
+                    if (jsonData.base_url.includes('anthropic.com')) {
+                        oauthProvider = 'claude';
+                    }
+                }
+            } else {
+                content = await fs.readFile(filePath, 'utf8');
+                
+                if (ext === '.key' || ext === '.pem') {
+                    if (content.includes('-----BEGIN') && content.includes('PRIVATE KEY-----')) {
+                        oauthProvider = 'private_key';
+                    }
+                } else if (ext === '.txt') {
+                    if (content.includes('api_key') || content.includes('apikey')) {
+                        oauthProvider = 'api_key';
+                    }
+                } else if (ext === '.oauth' || ext === '.creds') {
+                    oauthProvider = 'oauth_credentials';
+                }
+            }
+        } catch (readError) {
+            isValid = false;
+            errorMessage = `无法读取文件: ${readError.message}`;
+        }
+        
+        return {
+            name: filename,
+            path: relativePath,
+            size: stats.size,
+            type: type,
+            provider: oauthProvider,
+            extension: ext,
+            modified: stats.mtime.toISOString(),
+            isValid: isValid,
+            errorMessage: errorMessage,
+            isUsed: isPathUsed(relativePath, filename, usedPaths),
+            usageInfo: usageInfo, // 新增详细关联信息
+            preview: content.substring(0, 100) + (content.length > 100 ? '...' : '')
+        };
+    } catch (error) {
+        console.warn(`[OAuth Analyzer] Failed to analyze file ${filePath}:`, error.message);
+        return null;
+    }
+}
+
+/**
+ * Get detailed usage information for a file
+ * @param {string} relativePath - Relative file path
+ * @param {string} fileName - File name
+ * @param {Set} usedPaths - Set of used paths
+ * @param {Object} currentConfig - Current configuration
+ * @returns {Object} Usage information object
+ */
+function getFileUsageInfo(relativePath, fileName, usedPaths, currentConfig) {
+    const usageInfo = {
+        isUsed: false,
+        usageType: null,
+        usageDetails: []
+    };
+
+    // 检查是否被使用
+    const isUsed = isPathUsed(relativePath, fileName, usedPaths);
+    if (!isUsed) {
+        return usageInfo;
+    }
+
+    usageInfo.isUsed = true;
+
+    if (currentConfig.KIRO_OAUTH_CREDS_FILE_PATH &&
+        (pathsEqual(relativePath, currentConfig.KIRO_OAUTH_CREDS_FILE_PATH) ||
+         pathsEqual(relativePath, currentConfig.KIRO_OAUTH_CREDS_FILE_PATH.replace(/\\/g, '/')))) {
+        usageInfo.usageType = 'main_config';
+        usageInfo.usageDetails.push({
+            type: '主要配置',
+            location: 'Kiro OAuth凭据文件路径',
+            configKey: 'KIRO_OAUTH_CREDS_FILE_PATH'
+        });
+    }
+
+    // 检查提供商池中的使用情况
+    if (currentConfig.providerPools) {
+        // 使用 flatMap 将双重循环优化为单层循环 O(n)
+        const allProviders = Object.entries(currentConfig.providerPools).flatMap(
+            ([providerType, providers]) =>
+                providers.map((provider, index) => ({ provider, providerType, index }))
+        );
+
+        for (const { provider, providerType, index } of allProviders) {
+            const providerUsages = [];
+
+            if (provider.KIRO_OAUTH_CREDS_FILE_PATH &&
+                (pathsEqual(relativePath, provider.KIRO_OAUTH_CREDS_FILE_PATH) ||
+                 pathsEqual(relativePath, provider.KIRO_OAUTH_CREDS_FILE_PATH.replace(/\\/g, '/')))) {
+                providerUsages.push({
+                    type: '提供商池',
+                    location: `Kiro OAuth凭据 (节点${index + 1})`,
+                    providerType: providerType,
+                    providerIndex: index,
+                    configKey: 'KIRO_OAUTH_CREDS_FILE_PATH'
+                });
+            }
+            
+            if (providerUsages.length > 0) {
+                usageInfo.usageType = 'provider_pool';
+                usageInfo.usageDetails.push(...providerUsages);
+            }
+        }
+    }
+
+    // 如果有多个使用位置，标记为多种用途
+    if (usageInfo.usageDetails.length > 1) {
+        usageInfo.usageType = 'multiple';
+    }
+
+    return usageInfo;
 }
