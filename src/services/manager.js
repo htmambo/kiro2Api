@@ -1,5 +1,4 @@
 import deepmerge from 'deepmerge';
-import { ENV } from '../config/env.js';
 import { getServiceAdapter, serviceInstances } from '../kiro/core.js';
 
 let accountPoolManager = null;
@@ -18,17 +17,9 @@ function resolveAccountPoolMode(mode) {
  * @returns {Promise<Object>} The initialized services
  */
 export async function initApiService(config) {
-    accountPoolMode = config.ACCOUNT_POOL_MODE || ENV.accountPoolMode || 'legacy';
-    const effectiveMode = resolveAccountPoolMode(accountPoolMode);
-    console.log(`[Initialization] ACCOUNT_POOL_MODE = ${accountPoolMode} (effective: ${effectiveMode})`);
-
     useSQLiteMode = config.USE_SQLITE_POOL === true;
 
     const accountPool = config.accountPool || { accounts: [] };
-
-    if (effectiveMode !== 'account') {
-        console.warn(`[Initialization] Unsupported ACCOUNT_POOL_MODE=${effectiveMode}, falling back to account mode`);
-    }
 
     if (useSQLiteMode) {
         const { SQLiteAccountPoolManager } = await import('./pools/sqlite.js');

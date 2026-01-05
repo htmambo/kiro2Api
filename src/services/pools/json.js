@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { getServiceAdapter } from '../../kiro/core.js';
+import { generateContent } from '../../kiro/api-client.js';
 import { v4 as uuidv4 } from 'uuid';
 
 /**
@@ -875,11 +876,10 @@ export class AccountPoolManager {
 
         for (const req of requests) {
             try {
-                // 复用 messages 接口做最小请求
-                if (typeof adapter?.generateContent !== 'function') {
-                    return { success: false, modelName, errorMessage: 'Service adapter does not support generateContent()' };
+                if (typeof adapter?.initialize !== 'function') {
+                    continue;
                 }
-                await adapter.generateContent(modelName, req);
+                await generateContent(adapter, modelName, req);
                 return { success: true, modelName, errorMessage: null };
             } catch (error) {
                 lastError = error;

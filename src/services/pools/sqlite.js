@@ -4,8 +4,9 @@
  */
 
 import { sqliteDB } from '../storage/sqlite-db.js';
-import { getServiceAdapter } from '../../kiro/core.js';
+import { getServiceAdapter } from '../kiro/corejs';
 import * as fs from 'fs';
+import { generateContent } from '../kiro/api-client.js';
 
 export class SQLiteAccountPoolManager {
     static DEFAULT_HEALTH_CHECK_MODEL = 'claude-sonnet-4-20250514';
@@ -139,7 +140,7 @@ export class SQLiteAccountPoolManager {
 
             for (const req of requests) {
                 try {
-                    await adapter.generateContent(modelName, req);
+                    await generateContent(adapter, modelName, req);
                     if (typeof sqliteDB.recordHealthCheck === 'function') {
                         sqliteDB.recordHealthCheck(accountRow.uuid, this.modelProvider, true, modelName, null);
                     }

@@ -5,7 +5,7 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
-import { KIRO_CONSTANTS } from './auth.js';
+import { KIRO_CONSTANTS, initializeAuth } from './auth.js';
 
 /**
  * 解析单个 AWS Event Stream 消息
@@ -405,7 +405,7 @@ export async function* streamApiReal(service, method, model, body, isRetry = fal
         // 403 错误：Token 过期，刷新后重试
         if (error.response?.status === 403 && !isRetry) {
             console.log('[Kiro] Received 403 in stream. Attempting token refresh and retrying...');
-            await service.initializeAuth(true);
+            await initializeAuth(service, true);
             yield* streamApiReal(service, method, model, body, true, retryCount);
             return;
         }

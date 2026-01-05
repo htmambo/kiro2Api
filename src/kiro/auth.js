@@ -34,10 +34,6 @@ export const KIRO_CONSTANTS = {
 const KIRO_AUTH_TOKEN_FILE = 'kiro-auth-token.json';
 const refreshTokenDebounceMap = new Map();
 
-export function getRefreshTokenDebounceMap() {
-    return refreshTokenDebounceMap;
-}
-
 export async function loadCredentialsFromFile(filePath) {
     try {
         const fileContent = await fs.readFile(filePath, 'utf8');

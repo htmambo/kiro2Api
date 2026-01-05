@@ -5,6 +5,7 @@
 
 import { getAccountPoolManager } from './manager.js';
 import { serviceInstances } from '../kiro/core.js';
+import { getUsageLimits } from '../kiro/api-client.js';
 import { MODEL_PROVIDER } from '../utils/common.js';
 
 /**
@@ -89,18 +90,7 @@ export class UsageService {
         if (!adapter) {
             throw new Error(`Kiro 服务实例未找到: ${providerKey}`);
         }
-        
-        // 使用适配器的 getUsageLimits 方法
-        if (typeof adapter.getUsageLimits === 'function') {
-            return adapter.getUsageLimits();
-        }
-        
-        // 兼容直接访问 KiroService 的情况
-        if (adapter.KiroService && typeof adapter.KiroService.getUsageLimits === 'function') {
-            return adapter.KiroService.getUsageLimits();
-        }
-        
-        throw new Error(`Kiro 服务实例不支持用量查询: ${providerKey}`);
+        return getUsageLimits(adapter);
     }
 
     /**

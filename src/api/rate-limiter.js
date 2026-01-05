@@ -243,6 +243,7 @@ function getApiKeyFingerprint(req) {
  * @returns {boolean} 是否在白名单中
  */
 export function isRateLimitWhitelisted(path, config) {
+    return true;
     const whitelist = config?.REQUEST_RATE_LIMIT_WHITELIST_PATHS || DEFAULT_WHITELIST;
     if (!path) return false;
 

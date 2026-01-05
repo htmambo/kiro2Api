@@ -314,214 +314,214 @@ export function sanitizeMessages(messages, verboseLogging = false) {
  * @param {Array} currentToolResults - 当前消息的 toolResults
  */
 export function sanitizeMessageHistory(history, currentToolResults) {
-    if (!history || history.length === 0) {
-        return;
-    }
+        if (!history || history.length === 0) {
+            return;
+        }
 
-    let fixCount = 0;
+        let fixCount = 0;
 
-    // 规则 1: 如果 assistant 消息有 toolUses，下一条消息必须有匹配的 toolResults
-    // 如果没有，移除 toolUses（因为没有对应的结果，继续保留会导致 400 错误）
-    for (let i = 0; i < history.length; i++) {
-        const message = history[i];
+        // 规则 1: 如果 assistant 消息有 toolUses，下一条消息必须有匹配的 toolResults
+        // 如果没有，移除 toolUses（因为没有对应的结果，继续保留会导致 400 错误）
+        for (let i = 0; i < history.length; i++) {
+            const message = history[i];
 
-        if (message.assistantResponseMessage?.toolUses?.length > 0) {
-            const toolUses = message.assistantResponseMessage.toolUses;
-            let toolResults = [];
+            if (message.assistantResponseMessage?.toolUses?.length > 0) {
+                const toolUses = message.assistantResponseMessage.toolUses;
+                let toolResults = [];
 
-            // 检查是否是最后一条 history 消息
-            if (i === history.length - 1) {
-                // toolResults 在 currentMessage 中
-                toolResults = currentToolResults || [];
-            } else {
-                // toolResults 在下一条消息中
-                const nextMessage = history[i + 1];
-                if (nextMessage?.userInputMessage?.userInputMessageContext?.toolResults) {
-                    toolResults = nextMessage.userInputMessage.userInputMessageContext.toolResults;
-                }
-            }
-
-            // 创建 toolResult IDs 集合
-            const toolResultIds = new Set(toolResults.map(tr => tr.toolUseId));
-
-            // 过滤掉没有对应 toolResult 的 toolUses
-            const validToolUses = toolUses.filter(tu => toolResultIds.has(tu.toolUseId));
-
-            if (validToolUses.length !== toolUses.length) {
-                const removedCount = toolUses.length - validToolUses.length;
-                console.warn(`[Kiro Sanitize] History[${i}]: Removed ${removedCount} orphan toolUses without matching toolResults`);
-                fixCount++;
-
-                if (validToolUses.length === 0) {
-                    // 全部移除，删除 toolUses 字段
-                    delete message.assistantResponseMessage.toolUses;
+                // 检查是否是最后一条 history 消息
+                if (i === history.length - 1) {
+                    // toolResults 在 currentMessage 中
+                    toolResults = currentToolResults || [];
                 } else {
-                    message.assistantResponseMessage.toolUses = validToolUses;
+                    // toolResults 在下一条消息中
+                    const nextMessage = history[i + 1];
+                    if (nextMessage?.userInputMessage?.userInputMessageContext?.toolResults) {
+                        toolResults = nextMessage.userInputMessage.userInputMessageContext.toolResults;
+                    }
+                }
+
+                // 创建 toolResult IDs 集合
+                const toolResultIds = new Set(toolResults.map(tr => tr.toolUseId));
+
+                // 过滤掉没有对应 toolResult 的 toolUses
+                const validToolUses = toolUses.filter(tu => toolResultIds.has(tu.toolUseId));
+
+                if (validToolUses.length !== toolUses.length) {
+                    const removedCount = toolUses.length - validToolUses.length;
+                    console.warn(`[Kiro Sanitize] History[${i}]: Removed ${removedCount} orphan toolUses without matching toolResults`);
+                    fixCount++;
+
+                    if (validToolUses.length === 0) {
+                        // 全部移除，删除 toolUses 字段
+                        delete message.assistantResponseMessage.toolUses;
+                    } else {
+                        message.assistantResponseMessage.toolUses = validToolUses;
+                    }
                 }
             }
         }
-    }
 
-    // 规则 2: user 消息必须有 content 或 toolResults，否则添加默认内容
-    for (let i = 0; i < history.length; i++) {
-        const message = history[i];
-        if (message.userInputMessage) {
-            const hasContent = message.userInputMessage.content && message.userInputMessage.content.trim() !== '';
-            const hasToolResults = message.userInputMessage.userInputMessageContext?.toolResults?.length > 0;
+        // 规则 2: user 消息必须有 content 或 toolResults，否则添加默认内容
+        for (let i = 0; i < history.length; i++) {
+            const message = history[i];
+            if (message.userInputMessage) {
+                const hasContent = message.userInputMessage.content && message.userInputMessage.content.trim() !== '';
+                const hasToolResults = message.userInputMessage.userInputMessageContext?.toolResults?.length > 0;
 
-            if (!hasContent && !hasToolResults) {
-                message.userInputMessage.content = 'Continue';
-                console.warn(`[Kiro Sanitize] History[${i}]: Added default content to empty user message`);
-                fixCount++;
-            }
-        }
-    }
-
-    // 规则 3: assistant 消息必须有 content
-    for (let i = 0; i < history.length; i++) {
-        const message = history[i];
-        if (message.assistantResponseMessage) {
-            const hasContent = message.assistantResponseMessage.content && message.assistantResponseMessage.content.trim() !== '';
-            if (!hasContent) {
-                message.assistantResponseMessage.content = message.assistantResponseMessage.toolUses ? 'Calling tools...' : '...';
-                console.warn(`[Kiro Sanitize] History[${i}]: Added default content to empty assistant message`);
-                fixCount++;
-            }
-        }
-    }
-
-    // 规则 4: toolUse 必须有 input 字段
-    for (let i = 0; i < history.length; i++) {
-        const message = history[i];
-        if (message.assistantResponseMessage?.toolUses) {
-            for (const toolUse of message.assistantResponseMessage.toolUses) {
-                if (toolUse.input === undefined) {
-                    toolUse.input = {};
-                    console.warn(`[Kiro Sanitize] History[${i}]: Added empty input to toolUse '${toolUse.name}'`);
+                if (!hasContent && !hasToolResults) {
+                    message.userInputMessage.content = 'Continue';
+                    console.warn(`[Kiro Sanitize] History[${i}]: Added default content to empty user message`);
                     fixCount++;
                 }
             }
         }
-    }
 
-    // 规则 5: 如果有孤立的 toolResults（没有对应的 toolUses），移除它们
-    for (let i = 0; i < history.length; i++) {
-        const message = history[i];
-        if (message.userInputMessage?.userInputMessageContext?.toolResults?.length > 0) {
-            const toolResults = message.userInputMessage.userInputMessageContext.toolResults;
-
-            // 找到前一条 assistant 消息的 toolUseIds
-            let prevToolUseIds = new Set();
-            if (i > 0 && history[i - 1].assistantResponseMessage?.toolUses) {
-                prevToolUseIds = new Set(history[i - 1].assistantResponseMessage.toolUses.map(tu => tu.toolUseId));
+        // 规则 3: assistant 消息必须有 content
+        for (let i = 0; i < history.length; i++) {
+            const message = history[i];
+            if (message.assistantResponseMessage) {
+                const hasContent = message.assistantResponseMessage.content && message.assistantResponseMessage.content.trim() !== '';
+                if (!hasContent) {
+                    message.assistantResponseMessage.content = message.assistantResponseMessage.toolUses ? 'Calling tools...' : '...';
+                    console.warn(`[Kiro Sanitize] History[${i}]: Added default content to empty assistant message`);
+                    fixCount++;
+                }
             }
+        }
 
-            // 过滤掉没有对应 toolUse 的 toolResults
-            const validToolResults = toolResults.filter(tr => prevToolUseIds.has(tr.toolUseId));
-
-            if (validToolResults.length !== toolResults.length) {
-                const removedCount = toolResults.length - validToolResults.length;
-                console.warn(`[Kiro Sanitize] History[${i}]: Removed ${removedCount} orphan toolResults without matching toolUses`);
-                fixCount++;
-
-                if (validToolResults.length === 0) {
-                    // 全部移除，删除 toolResults
-                    delete message.userInputMessage.userInputMessageContext.toolResults;
-                    // 如果 context 为空，也删除
-                    if (Object.keys(message.userInputMessage.userInputMessageContext).length === 0) {
-                        delete message.userInputMessage.userInputMessageContext;
+        // 规则 4: toolUse 必须有 input 字段
+        for (let i = 0; i < history.length; i++) {
+            const message = history[i];
+            if (message.assistantResponseMessage?.toolUses) {
+                for (const toolUse of message.assistantResponseMessage.toolUses) {
+                    if (toolUse.input === undefined) {
+                        toolUse.input = {};
+                        console.warn(`[Kiro Sanitize] History[${i}]: Added empty input to toolUse '${toolUse.name}'`);
+                        fixCount++;
                     }
-                } else {
-                    message.userInputMessage.userInputMessageContext.toolResults = validToolResults;
                 }
             }
         }
-    }
 
-    // 规则 6: 截断过长的单条消息内容（防止单条消息超过 AWS 限制）
-    // AWS 实际限制 ~223K tokens (~710K chars)，我们设置 200K chars 的单条消息限制
-    // 这样多条消息加起来才不会超限
-    const MAX_SINGLE_MESSAGE_LENGTH = 200000;  // 200KB 限制（之前太保守只有 64KB）
-    for (let i = 0; i < history.length; i++) {
-        const message = history[i];
+        // 规则 5: 如果有孤立的 toolResults（没有对应的 toolUses），移除它们
+        for (let i = 0; i < history.length; i++) {
+            const message = history[i];
+            if (message.userInputMessage?.userInputMessageContext?.toolResults?.length > 0) {
+                const toolResults = message.userInputMessage.userInputMessageContext.toolResults;
 
-        // 截断 user 消息
-        if (message.userInputMessage?.content && message.userInputMessage.content.length > MAX_SINGLE_MESSAGE_LENGTH) {
-            const originalLength = message.userInputMessage.content.length;
-            const keepStart = Math.floor(MAX_SINGLE_MESSAGE_LENGTH * 0.7);
-            const keepEnd = MAX_SINGLE_MESSAGE_LENGTH - keepStart - 100;
-            message.userInputMessage.content =
-                message.userInputMessage.content.substring(0, keepStart) +
-                '\n\n[... content truncated ...]\n\n' +
-                message.userInputMessage.content.substring(originalLength - keepEnd);
-            console.warn(`[Kiro Sanitize] History[${i}]: Truncated user content from ${originalLength} to ${message.userInputMessage.content.length} chars`);
-            fixCount++;
-        }
-
-        // 截断 assistant 消息
-        if (message.assistantResponseMessage?.content && message.assistantResponseMessage.content.length > MAX_SINGLE_MESSAGE_LENGTH) {
-            const originalLength = message.assistantResponseMessage.content.length;
-            const keepStart = Math.floor(MAX_SINGLE_MESSAGE_LENGTH * 0.7);
-            const keepEnd = MAX_SINGLE_MESSAGE_LENGTH - keepStart - 100;
-            message.assistantResponseMessage.content =
-                message.assistantResponseMessage.content.substring(0, keepStart) +
-                '\n\n[... content truncated ...]\n\n' +
-                message.assistantResponseMessage.content.substring(originalLength - keepEnd);
-            console.warn(`[Kiro Sanitize] History[${i}]: Truncated assistant content from ${originalLength} to ${message.assistantResponseMessage.content.length} chars`);
-            fixCount++;
-        }
-    }
-
-    // 规则 7: 确保消息交替 (user → assistant → user)
-    // 如果有连续的 user 消息，在它们之间插入占位的 assistant 消息
-    // 需要从后往前遍历，避免插入操作影响索引
-    for (let i = history.length - 1; i > 0; i--) {
-        const prevMessage = history[i - 1];
-        const currMessage = history[i];
-
-        // 检查是否有连续的 user 消息（两条都只有 userInputMessage）
-        const prevIsUser = prevMessage.userInputMessage && !prevMessage.assistantResponseMessage;
-        const currIsUser = currMessage.userInputMessage && !currMessage.assistantResponseMessage;
-
-        if (prevIsUser && currIsUser) {
-            // 在 prevMessage 和 currMessage 之间插入一个 assistant 占位消息
-            const placeholderAssistant = {
-                assistantResponseMessage: {
-                    content: 'Continue.',
-                    messageId: `placeholder-${Date.now()}-${i}`
+                // 找到前一条 assistant 消息的 toolUseIds
+                let prevToolUseIds = new Set();
+                if (i > 0 && history[i - 1].assistantResponseMessage?.toolUses) {
+                    prevToolUseIds = new Set(history[i - 1].assistantResponseMessage.toolUses.map(tu => tu.toolUseId));
                 }
-            };
-            history.splice(i, 0, placeholderAssistant);
-            console.warn(`[Kiro Sanitize] Inserted placeholder assistant message between History[${i - 1}] and History[${i}] to fix consecutive user messages`);
-            fixCount++;
-        }
-    }
 
-    // 规则 8: 确保消息交替 - 连续的 assistant 消息也需要处理
-    // 如果有连续的 assistant 消息，在它们之间插入占位的 user 消息
-    for (let i = history.length - 1; i > 0; i--) {
-        const prevMessage = history[i - 1];
-        const currMessage = history[i];
+                // 过滤掉没有对应 toolUse 的 toolResults
+                const validToolResults = toolResults.filter(tr => prevToolUseIds.has(tr.toolUseId));
 
-        // 检查是否有连续的 assistant 消息
-        const prevIsAssistant = prevMessage.assistantResponseMessage && !prevMessage.userInputMessage;
-        const currIsAssistant = currMessage.assistantResponseMessage && !currMessage.userInputMessage;
+                if (validToolResults.length !== toolResults.length) {
+                    const removedCount = toolResults.length - validToolResults.length;
+                    console.warn(`[Kiro Sanitize] History[${i}]: Removed ${removedCount} orphan toolResults without matching toolUses`);
+                    fixCount++;
 
-        if (prevIsAssistant && currIsAssistant) {
-            // 在 prevMessage 和 currMessage 之间插入一个 user 占位消息
-            const placeholderUser = {
-                userInputMessage: {
-                    content: 'Continue',
-                    messageId: `placeholder-user-${Date.now()}-${i}`
+                    if (validToolResults.length === 0) {
+                        // 全部移除，删除 toolResults
+                        delete message.userInputMessage.userInputMessageContext.toolResults;
+                        // 如果 context 为空，也删除
+                        if (Object.keys(message.userInputMessage.userInputMessageContext).length === 0) {
+                            delete message.userInputMessage.userInputMessageContext;
+                        }
+                    } else {
+                        message.userInputMessage.userInputMessageContext.toolResults = validToolResults;
+                    }
                 }
-            };
-            history.splice(i, 0, placeholderUser);
-            console.warn(`[Kiro Sanitize] Inserted placeholder user message between History[${i - 1}] and History[${i}] to fix consecutive assistant messages`);
-            fixCount++;
+            }
+        }
+
+        // 规则 6: 截断过长的单条消息内容（防止单条消息超过 AWS 限制）
+        // AWS 实际限制 ~223K tokens (~710K chars)，我们设置 200K chars 的单条消息限制
+        // 这样多条消息加起来才不会超限
+        const MAX_SINGLE_MESSAGE_LENGTH = 200000;  // 200KB 限制（之前太保守只有 64KB）
+        for (let i = 0; i < history.length; i++) {
+            const message = history[i];
+
+            // 截断 user 消息
+            if (message.userInputMessage?.content && message.userInputMessage.content.length > MAX_SINGLE_MESSAGE_LENGTH) {
+                const originalLength = message.userInputMessage.content.length;
+                const keepStart = Math.floor(MAX_SINGLE_MESSAGE_LENGTH * 0.7);
+                const keepEnd = MAX_SINGLE_MESSAGE_LENGTH - keepStart - 100;
+                message.userInputMessage.content =
+                    message.userInputMessage.content.substring(0, keepStart) +
+                    '\n\n[... content truncated ...]\n\n' +
+                    message.userInputMessage.content.substring(originalLength - keepEnd);
+                console.warn(`[Kiro Sanitize] History[${i}]: Truncated user content from ${originalLength} to ${message.userInputMessage.content.length} chars`);
+                fixCount++;
+            }
+
+            // 截断 assistant 消息
+            if (message.assistantResponseMessage?.content && message.assistantResponseMessage.content.length > MAX_SINGLE_MESSAGE_LENGTH) {
+                const originalLength = message.assistantResponseMessage.content.length;
+                const keepStart = Math.floor(MAX_SINGLE_MESSAGE_LENGTH * 0.7);
+                const keepEnd = MAX_SINGLE_MESSAGE_LENGTH - keepStart - 100;
+                message.assistantResponseMessage.content =
+                    message.assistantResponseMessage.content.substring(0, keepStart) +
+                    '\n\n[... content truncated ...]\n\n' +
+                    message.assistantResponseMessage.content.substring(originalLength - keepEnd);
+                console.warn(`[Kiro Sanitize] History[${i}]: Truncated assistant content from ${originalLength} to ${message.assistantResponseMessage.content.length} chars`);
+                fixCount++;
+            }
+        }
+
+        // 规则 7: 确保消息交替 (user → assistant → user)
+        // 如果有连续的 user 消息，在它们之间插入占位的 assistant 消息
+        // 需要从后往前遍历，避免插入操作影响索引
+        for (let i = history.length - 1; i > 0; i--) {
+            const prevMessage = history[i - 1];
+            const currMessage = history[i];
+
+            // 检查是否有连续的 user 消息（两条都只有 userInputMessage）
+            const prevIsUser = prevMessage.userInputMessage && !prevMessage.assistantResponseMessage;
+            const currIsUser = currMessage.userInputMessage && !currMessage.assistantResponseMessage;
+
+            if (prevIsUser && currIsUser) {
+                // 在 prevMessage 和 currMessage 之间插入一个 assistant 占位消息
+                const placeholderAssistant = {
+                    assistantResponseMessage: {
+                        content: 'Continue.',
+                        messageId: `placeholder-${Date.now()}-${i}`
+                    }
+                };
+                history.splice(i, 0, placeholderAssistant);
+                console.warn(`[Kiro Sanitize] Inserted placeholder assistant message between History[${i - 1}] and History[${i}] to fix consecutive user messages`);
+                fixCount++;
+            }
+        }
+
+        // 规则 8: 确保消息交替 - 连续的 assistant 消息也需要处理
+        // 如果有连续的 assistant 消息，在它们之间插入占位的 user 消息
+        for (let i = history.length - 1; i > 0; i--) {
+            const prevMessage = history[i - 1];
+            const currMessage = history[i];
+
+            // 检查是否有连续的 assistant 消息
+            const prevIsAssistant = prevMessage.assistantResponseMessage && !prevMessage.userInputMessage;
+            const currIsAssistant = currMessage.assistantResponseMessage && !currMessage.userInputMessage;
+
+            if (prevIsAssistant && currIsAssistant) {
+                // 在 prevMessage 和 currMessage 之间插入一个 user 占位消息
+                const placeholderUser = {
+                    userInputMessage: {
+                        content: 'Continue',
+                        messageId: `placeholder-user-${Date.now()}-${i}`
+                    }
+                };
+                history.splice(i, 0, placeholderUser);
+                console.warn(`[Kiro Sanitize] Inserted placeholder user message between History[${i - 1}] and History[${i}] to fix consecutive assistant messages`);
+                fixCount++;
+            }
+        }
+
+        if (fixCount > 0) {
+            console.log(`[Kiro Sanitize] Applied ${fixCount} fixes to message history`);
         }
     }
-
-    if (fixCount > 0) {
-        console.log(`[Kiro Sanitize] Applied ${fixCount} fixes to message history`);
-    }
-}

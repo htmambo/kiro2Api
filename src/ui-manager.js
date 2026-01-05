@@ -3,7 +3,6 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import multer from 'multer';
 import crypto from 'crypto';
-import { ENV } from './config/env.js';
 import { getRequestBody } from './utils/common.js';
 import { CONFIG } from './config/manager.js';
 import { serviceInstances, getServiceAdapter } from './kiro/core.js';
@@ -678,8 +677,8 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
     }
 
     // ========== 路由器处理逻辑 ==========
-    // 创建路由器实例（开发模式下每次重新创建以获取最新路由）
-    if (!global.uiRouter || ENV.isDevelopment) {
+    // 创建路由器实例
+    if (!global.uiRouter || process.env.NODE_ENV !== 'production') {
         global.uiRouter = createRouter();
         if (ROUTER_CONFIG.ENABLE_ROUTER_LOGGING) {
             console.log('[Router] Router initialized with', global.uiRouter.getRoutes().length, 'routes');

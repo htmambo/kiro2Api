@@ -1,15 +1,9 @@
 import * as fs from 'fs';
 import { promises as pfs } from 'fs';
 import { INPUT_SYSTEM_PROMPT_FILE, MODEL_PROVIDER } from '../utils/common.js';
-import { ENV, ENV_OVERRIDES } from './env.js';
 
 export let CONFIG = {}; // Make CONFIG exportable
 export let PROMPT_LOG_FILENAME = ''; // Make PROMPT_LOG_FILENAME exportable
-
-// 账号池重构开关：
-// - legacy: 兼容旧值（实际等同 account）
-// - account: 使用 accounts/account_pool.json 逻辑
-export const ACCOUNT_POOL_MODE = ENV.accountPoolMode;
 
 const ALL_MODEL_PROVIDERS = Object.values(MODEL_PROVIDER);
 
@@ -93,7 +87,6 @@ export async function initializeConfig(args = process.argv.slice(2), configFileP
                     SERVER_PORT: 8045,
                     HOST: '0.0.0.0',
                     MODEL_PROVIDER: MODEL_PROVIDER.KIRO_API,
-                    ACCOUNT_POOL_MODE: 'legacy',
                     ACCOUNT_POOL_FILE_PATH: "./configs/account_pool.json",
                     KIRO_OAUTH_CREDS_BASE64: null,
                     SYSTEM_PROMPT_FILE_PATH: INPUT_SYSTEM_PROMPT_FILE,
@@ -133,7 +126,6 @@ export async function initializeConfig(args = process.argv.slice(2), configFileP
                 SERVER_PORT: 8045,
                 HOST: '0.0.0.0',
                 MODEL_PROVIDER: MODEL_PROVIDER.KIRO_API,
-                ACCOUNT_POOL_MODE: 'legacy',
                 ACCOUNT_POOL_FILE_PATH: "./configs/account_pool.json",
                 KIRO_OAUTH_CREDS_BASE64: null,
                 SYSTEM_PROMPT_FILE_PATH: INPUT_SYSTEM_PROMPT_FILE,
@@ -280,26 +272,7 @@ export async function initializeConfig(args = process.argv.slice(2), configFileP
     }
 
     normalizeConfiguredProviders(currentConfig);
-
-    // ACCOUNT_POOL_MODE 支持 env 覆盖，默认 legacy
-    if (ENV_OVERRIDES.accountPoolMode) {
-        currentConfig.ACCOUNT_POOL_MODE = ENV.accountPoolMode;
-        console.log(`[Config] ACCOUNT_POOL_MODE overridden by env: ${ENV.accountPoolMode}`);
-    } else {
-        currentConfig.ACCOUNT_POOL_MODE = currentConfig.ACCOUNT_POOL_MODE || 'legacy';
-        console.log(`[Config] ACCOUNT_POOL_MODE = ${currentConfig.ACCOUNT_POOL_MODE}`);
-    }
-
-    // 超时配置支持环境变量覆盖
-    if (ENV_OVERRIDES.requestTimeoutMs) {
-        currentConfig.KIRO_REQUEST_TIMEOUT_MS = ENV.requestTimeoutMs;
-        console.log(`[Config] KIRO_REQUEST_TIMEOUT_MS overridden by env: ${ENV.requestTimeoutMs}ms`);
-    }
-    if (ENV_OVERRIDES.streamTimeoutMs) {
-        currentConfig.KIRO_STREAM_TIMEOUT_MS = ENV.streamTimeoutMs;
-        console.log(`[Config] KIRO_STREAM_TIMEOUT_MS overridden by env: ${ENV.streamTimeoutMs}ms`);
-    }
-
+    
     if (!currentConfig.SYSTEM_PROMPT_FILE_PATH) {
         currentConfig.SYSTEM_PROMPT_FILE_PATH = INPUT_SYSTEM_PROMPT_FILE;
     }

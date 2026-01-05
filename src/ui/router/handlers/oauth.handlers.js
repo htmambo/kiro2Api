@@ -2,7 +2,7 @@
  * OAuth Handler 实现
  * 处理 OAuth 相关的 API 请求
  */
-
+import { startDeviceAuthorization, pollDeviceToken } from '../../../kiro/auth.js';
 // OAuth 相关的全局状态和函数需要从 ui-manager.js 导入
 
 /**
@@ -418,7 +418,7 @@ export async function awsSsoStart({ req, res, currentConfig, providerPoolManager
         console.log(`[AWS SSO] Start URL: ${finalStartUrl}`);
 
         // 启动设备授权
-        const deviceAuthInfo = await kiroService.startDeviceAuthorization(finalStartUrl);
+        const deviceAuthInfo = await startDeviceAuthorization(kiroService, finalStartUrl);
 
         console.log(`[AWS SSO] Device authorization started`);
         console.log(`[AWS SSO] User Code: ${deviceAuthInfo.userCode}`);
@@ -427,7 +427,8 @@ export async function awsSsoStart({ req, res, currentConfig, providerPoolManager
         // 启动后台轮询（不等待完成）
         const fs = await import('fs');
 
-        kiroService.pollDeviceToken(
+        pollDeviceToken(
+            kiroService,
             deviceAuthInfo.deviceCode,
             deviceAuthInfo.interval,
             deviceAuthInfo.expiresIn

@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as http from 'http'; // Add http for IncomingMessage and ServerResponse types
 import * as crypto from 'crypto'; // Import crypto for MD5 hashing
 import { KiroService } from '../kiro/core.js'; // Import KiroService
+import { generateContent } from '../kiro/api-client.js';
 import { KiroStrategy } from '../kiro/strategy.js';
 import os from 'os';
 
@@ -325,7 +326,7 @@ export async function handleUnaryRequest(res, service, model, requestBody, fromP
     try{
         requestBody.model = model;
         // fs.writeFile('oldRequest'+Date.now()+'.json', JSON.stringify(requestBody));
-        const nativeResponse = await service.generateContent(model, requestBody);
+        const nativeResponse = await generateContent(service, model, requestBody);
         const responseText = extractResponseText(nativeResponse, toProvider);
 
         // Convert the response back to the client's format (fromProvider), if necessary.

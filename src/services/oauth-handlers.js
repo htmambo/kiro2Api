@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { startDeviceAuthorization, pollDeviceToken } from '../kiro/auth.js';
 
 // 延迟导入 broadcastEvent 避免循环依赖
 let _broadcastEvent = null;
@@ -101,14 +102,15 @@ export async function handleKiroOAuth(currentConfig, poolManager = null) {
         console.log(`${KIRO_OAUTH_CONFIG.logPrefix} Start URL: ${startUrl}`);
 
         // 启动设备授权流程
-        const deviceAuthInfo = await kiroService.startDeviceAuthorization(startUrl);
+        const deviceAuthInfo = await startDeviceAuthorization(kiroService, startUrl);
 
         console.log(`${KIRO_OAUTH_CONFIG.logPrefix} Device authorization started`);
         console.log(`${KIRO_OAUTH_CONFIG.logPrefix} User Code: ${deviceAuthInfo.userCode}`);
         console.log(`${KIRO_OAUTH_CONFIG.logPrefix} Verification URI: ${deviceAuthInfo.verificationUriComplete}`);
 
         // 启动后台轮询（不等待完成）
-        kiroService.pollDeviceToken(
+        pollDeviceToken(
+            kiroService,
             deviceAuthInfo.deviceCode,
             deviceAuthInfo.interval,
             deviceAuthInfo.expiresIn

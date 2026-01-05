@@ -4,18 +4,17 @@
  */
 
 import axios from 'axios';
-import { ENV } from '../config/env.js';
 
 /**
  * Web 搜索配置
  */
-export const WEB_SEARCH_CONFIG = {
-    // 搜索引擎选择：'duckduckgo' | 'bing'
-    engine: ENV.webSearchEngine,
+const WEB_SEARCH_CONFIG = {
+    // 搜索引擎选择：'duckduckgo' | 'bing' | 'google'
+    engine: process.env.WEB_SEARCH_ENGINE || 'duckduckgo',
     // Bing Search API Key (可选)
-    bingApiKey: ENV.bingApiKey,
+    bingApiKey: process.env.BING_API_KEY || '',
     // 最大结果数
-    maxResults: ENV.webSearchMaxResults,
+    maxResults: parseInt(process.env.WEB_SEARCH_MAX_RESULTS) || 5,
     // 超时时间 (ms)
     timeout: 10000
 };

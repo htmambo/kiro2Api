@@ -3,7 +3,6 @@
  * 处理系统相关的 API 请求
  */
 
-import { ENV } from '../../../config/env.js';
 import { getNoCacheHeaders } from '../utils/response.js';
 import { parseRequestBody } from '../../../ui-manager.js';
 
@@ -108,7 +107,7 @@ export async function getSystemInfo({ res }) {
         memoryUsage: `${Math.round(memUsage.heapUsed / 1024 / 1024)} MB / ${Math.round(memUsage.heapTotal / 1024 / 1024)} MB`,
         cpuUsage: cpuUsage,
         uptime: process.uptime(),
-        isWorker: ENV.isWorkerProcess
+        isWorker: !!process.env.IS_WORKER_PROCESS
     }));
 }
 
@@ -116,7 +115,7 @@ export async function getSystemInfo({ res }) {
  * 重启服务器 Handler
  */
 export async function restartServer({ res }) {
-    if (process.send && ENV.isWorkerProcess) {
+    if (process.send && process.env.IS_WORKER_PROCESS) {
         console.log('[System] Sending restart request to master...');
 
         res.writeHead(200, { 'Content-Type': 'application/json' });

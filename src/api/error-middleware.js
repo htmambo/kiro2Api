@@ -10,10 +10,9 @@
  * @module error-middleware
  */
 
-import { ENV } from '../config/env.js';
 import { createErrorResponse } from '../utils/common.js';
 
-const IS_PRODUCTION = ENV.isProduction;
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 
 /**
  * 错误类型到建议信息的映射

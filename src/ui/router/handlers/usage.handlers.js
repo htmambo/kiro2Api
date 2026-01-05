@@ -4,6 +4,7 @@
 import path from 'path';
 
 import { KIRO_MODELS } from '../../../kiro/constants.js';
+import { getUsageLimits } from '../../../kiro/api-client.js';
 
 /**
  * 获取所有用量
@@ -372,16 +373,9 @@ async function getProviderTypeUsage(providerType, currentConfig, providerPoolMan
  * @returns {Promise<Object>} 用量信息
  */
 async function getAdapterUsage(adapter, providerType) {
-    if (providerType === 'claude-kiro-oauth') {
-        if (typeof adapter.getUsageLimits === 'function') {
-            const rawUsage = await adapter.getUsageLimits();
-            const { formatKiroUsage } = await import('../../../services/usage-service.js');
-            return formatKiroUsage(rawUsage);
-        }
-        throw new Error('该适配器不支持用量查询');
-    }
-
-    throw new Error(`不支持的提供商类型: ${providerType}`);
+    const rawUsage = await getUsageLimits(adapter);
+    const { formatKiroUsage } = await import('../../../services/usage-service.js');
+    return formatKiroUsage(rawUsage);
 }
 
 /**

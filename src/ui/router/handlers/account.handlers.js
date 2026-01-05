@@ -361,7 +361,7 @@ export async function healthCheckAccount({ res, currentConfig, providerPoolManag
 /**
  * 测试账号
  */
-export async function testAccount({ res, currentConfig, match }) {
+export async function testAccount({ res, currentConfig, providerPoolManager, match }) {
     const { readAccountsFromStorage } = await import('../../../ui-manager.js');
     const { getServiceAdapter } = await import('../../../kiro/core.js');
     const uuid = decodeURIComponent(match[1]);
@@ -377,7 +377,8 @@ export async function testAccount({ res, currentConfig, match }) {
         }
 
         const adapter = getServiceAdapter({ ...currentConfig, ...acc, MODEL_PROVIDER: currentConfig.MODEL_PROVIDER });
-        await adapter.generateContent('claude-sonnet-4-20250514', {
+        const { generateContent } = await import('../../../kiro/api-client.js');
+        await generateContent(adapter, 'claude-sonnet-4-20250514', {
             messages: [{ role: 'user', content: 'Hi' }],
             model: 'claude-sonnet-4-20250514',
             max_tokens: 1
