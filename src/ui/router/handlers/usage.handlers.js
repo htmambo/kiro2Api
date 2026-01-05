@@ -375,6 +375,7 @@ async function getAdapterUsage(adapter, providerType) {
     if (providerType === 'claude-kiro-oauth') {
         if (typeof adapter.getUsageLimits === 'function') {
             const rawUsage = await adapter.getUsageLimits();
+            const { formatKiroUsage } = await import('../../../services/usage-service.js');
             return formatKiroUsage(rawUsage);
         }
         throw new Error('该适配器不支持用量查询');

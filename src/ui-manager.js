@@ -12,8 +12,6 @@ import { handleKiroOAuth } from './services/oauth-handlers.js';
 import {
     findDuplicateUserId
 } from './utils/account-utils.js';
-import { formatKiroUsage } from './services/usage-service.js';
-import { KIRO_MODELS } from './kiro/constants.js';
 import { serveStaticFiles } from './ui/static.js';
 import { initializeUIManagement, broadcastEvent } from './ui/events.js';
 
