@@ -19,6 +19,8 @@
     "/public/"
   ],
   "REQUEST_RATE_LIMIT_TRUSTED_PROXIES": [],
+  "KIRO_REQUEST_TIMEOUT_MS": 120000,
+  "KIRO_STREAM_TIMEOUT_MS": 180000,
   "CRON_NEAR_MINUTES": 15,
   "CRON_REFRESH_TOKEN": true,
   "PROVIDER_POOLS_FILE_PATH": "./config/provider_pools.json",

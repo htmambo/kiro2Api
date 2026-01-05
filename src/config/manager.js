@@ -105,6 +105,8 @@ export async function initializeConfig(args = process.argv.slice(2), configFileP
                     REQUEST_RATE_LIMIT_MAX_REQUESTS: 60,
                     REQUEST_RATE_LIMIT_WHITELIST_PATHS: ['/health', '/favicon.ico', '/public/'],
                     REQUEST_RATE_LIMIT_TRUSTED_PROXIES: [],
+                    KIRO_REQUEST_TIMEOUT_MS: 120000,
+                    KIRO_STREAM_TIMEOUT_MS: 180000,
                     CRON_NEAR_MINUTES: 15,
                     CRON_REFRESH_TOKEN: true,
                     PROVIDER_POOLS_FILE_PATH: "./configs/provider_pools.json",
@@ -143,6 +145,8 @@ export async function initializeConfig(args = process.argv.slice(2), configFileP
                 REQUEST_RATE_LIMIT_MAX_REQUESTS: 60,
                 REQUEST_RATE_LIMIT_WHITELIST_PATHS: ['/health', '/favicon.ico', '/public/'],
                 REQUEST_RATE_LIMIT_TRUSTED_PROXIES: [],
+                KIRO_REQUEST_TIMEOUT_MS: 120000,
+                KIRO_STREAM_TIMEOUT_MS: 180000,
                 CRON_NEAR_MINUTES: 15,
                 CRON_REFRESH_TOKEN: true,
                 PROVIDER_POOLS_FILE_PATH: "./configs/provider_pools.json",
@@ -279,6 +283,18 @@ export async function initializeConfig(args = process.argv.slice(2), configFileP
     // ACCOUNT_POOL_MODE 支持 env 覆盖，默认 legacy
     currentConfig.ACCOUNT_POOL_MODE = process.env.ACCOUNT_POOL_MODE || currentConfig.ACCOUNT_POOL_MODE || 'legacy';
     console.log(`[Config] ACCOUNT_POOL_MODE = ${currentConfig.ACCOUNT_POOL_MODE}`);
+
+    // 超时配置支持环境变量覆盖
+    const requestTimeoutEnv = Number(process.env.KIRO_REQUEST_TIMEOUT_MS);
+    if (!Number.isNaN(requestTimeoutEnv) && requestTimeoutEnv > 0) {
+        currentConfig.KIRO_REQUEST_TIMEOUT_MS = requestTimeoutEnv;
+        console.log(`[Config] KIRO_REQUEST_TIMEOUT_MS overridden by env: ${requestTimeoutEnv}ms`);
+    }
+    const streamTimeoutEnv = Number(process.env.KIRO_STREAM_TIMEOUT_MS);
+    if (!Number.isNaN(streamTimeoutEnv) && streamTimeoutEnv > 0) {
+        currentConfig.KIRO_STREAM_TIMEOUT_MS = streamTimeoutEnv;
+        console.log(`[Config] KIRO_STREAM_TIMEOUT_MS overridden by env: ${streamTimeoutEnv}ms`);
+    }
 
     if (!currentConfig.SYSTEM_PROMPT_FILE_PATH) {
         currentConfig.SYSTEM_PROMPT_FILE_PATH = INPUT_SYSTEM_PROMPT_FILE;

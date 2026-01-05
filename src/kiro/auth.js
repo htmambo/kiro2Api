@@ -11,6 +11,13 @@ export const KIRO_CONSTANTS = {
     USAGE_LIMITS_URL: 'https://q.{{region}}.amazonaws.com/getUsageLimits',
     DEFAULT_MODEL_NAME: 'claude-sonnet-4-20250514',
     AXIOS_TIMEOUT: 120000,
+    REQUEST_TIMEOUT_MS: 120000,  // 普通请求超时（120秒）
+    STREAM_TIMEOUT_MS: 180000,   // 流式请求超时（180秒）
+    SEARCH_TIMEOUT_MS: 10000,    // 搜索请求超时（10秒）
+    // 新增：可配置的超时常量（与 config.js 中的配置项对应）
+    TIMEOUT_API_REQUEST: 120000,    // API 请求超时（120秒）
+    TIMEOUT_STREAM_REQUEST: 300000, // 流式请求超时（300秒）
+    TIMEOUT_AUTH_REQUEST: 30000,    // 认证请求超时（30秒）
     USER_AGENT: 'KiroIDE',
     KIRO_VERSION: '0.7.45',  // 仿制Kiro官方客户端最新版本
     CONTENT_TYPE_JSON: 'application/json',

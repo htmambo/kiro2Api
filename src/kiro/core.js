@@ -331,8 +331,11 @@ export class KiroService {
         // 随机化请求重试次数
         const maxRetries = 2 + Math.floor(Math.random() * 3); // 2-4
 
+        // 获取超时配置
+        const requestTimeout = this.config.KIRO_REQUEST_TIMEOUT_MS ?? KIRO_CONSTANTS.REQUEST_TIMEOUT_MS;
+
         const axiosConfig = {
-            timeout: KIRO_CONSTANTS.AXIOS_TIMEOUT,
+            timeout: requestTimeout,
             httpAgent,
             httpsAgent,
             headers: {
@@ -573,7 +576,12 @@ export class KiroService {
             console.log('[Kiro Auth] Auth method:', this.authMethod);
             console.log('[Kiro Auth] Request body keys:', Object.keys(requestBody));
 
-            const response = await this.axiosInstance.post(refreshUrl, requestBody);
+            // 使用认证请求专用超时配置
+            const authTimeout = this.config?.TIMEOUT_AUTH_REQUEST ?? KIRO_CONSTANTS.TIMEOUT_AUTH_REQUEST;
+
+            const response = await this.axiosInstance.post(refreshUrl, requestBody, {
+                timeout: authTimeout
+            });
             console.log('[Kiro Auth] Token refresh response status:', response.status);
             console.log('[Kiro Auth] Token refresh response data keys:', Object.keys(response.data || {}));
             console.log('[Kiro Auth] Token refresh response data:', JSON.stringify(response.data, null, 2));
@@ -643,8 +651,13 @@ export class KiroService {
         console.log('[Kiro Device Auth] Device auth URL:', deviceAuthUrl);
         console.log('[Kiro Device Auth] Start URL:', startUrl);
 
+        // 使用认证请求专用超时配置
+        const authTimeout = this.config?.TIMEOUT_AUTH_REQUEST ?? KIRO_CONSTANTS.TIMEOUT_AUTH_REQUEST;
+
         try {
-            const response = await this.axiosInstance.post(deviceAuthUrl, requestBody);
+            const response = await this.axiosInstance.post(deviceAuthUrl, requestBody, {
+                timeout: authTimeout
+            });
             console.log('[Kiro Device Auth] Device authorization started successfully');
             console.log('[Kiro Device Auth] Response:', JSON.stringify(response.data, null, 2));
 
@@ -695,6 +708,9 @@ export class KiroService {
 
         console.log(`[Kiro Device Auth] Starting token polling, interval ${interval}s, max attempts ${maxAttempts}`);
 
+        // 使用认证请求专用超时配置
+        const authTimeout = this.config?.TIMEOUT_AUTH_REQUEST ?? KIRO_CONSTANTS.TIMEOUT_AUTH_REQUEST;
+
         const poll = async () => {
             if (attempts >= maxAttempts) {
                 throw new Error('Device authorization timeout. Please restart the authorization flow.');
@@ -710,7 +726,9 @@ export class KiroService {
             };
 
             try {
-                const response = await this.axiosInstance.post(tokenUrl, requestBody);
+                const response = await this.axiosInstance.post(tokenUrl, requestBody, {
+                    timeout: authTimeout
+                });
 
                 if (response.data && response.data.accessToken) {
                     // 成功获取token
@@ -3764,6 +3782,9 @@ ${conversationData}`;
 
         const requestUrl = model.startsWith('amazonq') ? this.amazonQUrl : this.baseUrl;
 
+        // 使用流式请求专用超时配置
+        const streamTimeout = this.config?.TIMEOUT_STREAM_REQUEST ?? KIRO_CONSTANTS.TIMEOUT_STREAM_REQUEST;
+
         let stream = null;
         let eventCount = 0;  // 统计流式事件数量
         let totalBytesReceived = 0;  // 统计接收的字节数
@@ -3773,6 +3794,7 @@ ${conversationData}`;
             const response = await this.axiosInstance.post(requestUrl, requestData, {
                 headers,
                 responseType: 'stream',
+                timeout: streamTimeout,
                 maxContentLength: Infinity,
                 maxBodyLength: Infinity
             });
