@@ -1,4 +1,5 @@
 import deepmerge from 'deepmerge';
+import { ENV } from '../config/env.js';
 import { getServiceAdapter, serviceInstances } from '../kiro/core.js';
 
 let accountPoolManager = null;
@@ -17,7 +18,7 @@ function resolveAccountPoolMode(mode) {
  * @returns {Promise<Object>} The initialized services
  */
 export async function initApiService(config) {
-    accountPoolMode = config.ACCOUNT_POOL_MODE || process.env.ACCOUNT_POOL_MODE || 'legacy';
+    accountPoolMode = config.ACCOUNT_POOL_MODE || ENV.accountPoolMode || 'legacy';
     const effectiveMode = resolveAccountPoolMode(accountPoolMode);
     console.log(`[Initialization] ACCOUNT_POOL_MODE = ${accountPoolMode} (effective: ${effectiveMode})`);
 
