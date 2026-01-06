@@ -134,6 +134,9 @@ export function createRequestHandler(config, accountPoolManager) {
             }
             return;
         }
+        // Handle API requests
+        const apiHandled = await handleAPIRequests(method, path, req, res, currentConfig, apiService, accountPoolManager, PROMPT_LOG_FILENAME);
+        if (apiHandled) return;
 
         // Skip authentication for OAuth callback endpoints
         const isOAuthCallback = path === '/api/kiro/oauth/callback';
@@ -145,9 +148,6 @@ export function createRequestHandler(config, accountPoolManager) {
             return;
         }
 
-            // Handle API requests
-            const apiHandled = await handleAPIRequests(method, path, req, res, currentConfig, apiService, accountPoolManager, PROMPT_LOG_FILENAME);
-            if (apiHandled) return;
 
             // Fallback for unmatched routes
             res.writeHead(404, { 'Content-Type': 'application/json' });
