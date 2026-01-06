@@ -160,8 +160,20 @@ function stopWorker(graceful = true) {
         });
 
         if (graceful) {
-            // 发送优雅关闭信号
-            workerProcess.send({ type: 'shutdown' });
+            // 发送优雅关闭信号（如果 IPC 通道还可用）
+            try {
+                if (workerProcess.connected) {
+                    workerProcess.send({ type: 'shutdown' }, (error) => {
+                        // 忽略发送错误，继续执行 kill
+                        if (error) {
+                            logger.debug('[Master] Failed to send shutdown message', { error: error.message });
+                        }
+                    });
+                }
+            } catch (error) {
+                logger.debug('[Master] Exception sending shutdown message', { error: error.message });
+            }
+            // 发送 SIGTERM 信号
             workerProcess.kill('SIGTERM');
         } else {
             workerProcess.kill('SIGKILL');

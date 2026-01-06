@@ -30,5 +30,12 @@
   "REDIS_HOST": "localhost",
   "REDIS_PORT": 6379,
   "REDIS_PASSWORD": "",
-  "REDIS_DB": 0
+  "REDIS_DB": 0,
+  "_comment_account_pool": "账号池存储配置",
+  "ACCOUNT_POOL_FILE_PATH": "./configs/account_pool.json",
+  "USE_SQLITE_POOL": false,
+  "SQLITE_DB_PATH": "data/provider_pool.db",
+  "HEALTH_CHECK_CONCURRENCY": 5,
+  "USAGE_QUERY_CONCURRENCY": 10,
+  "HEALTH_CHECK_INTERVAL": 600000
 }

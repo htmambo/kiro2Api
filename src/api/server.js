@@ -1,13 +1,15 @@
 import * as http from 'http';
 import { initializeConfig, CONFIG } from '../config/manager.js';
-import { initApiService } from '../services/manager.js';
 import { initializeUIManagement } from '../ui-manager.js';
 import { initializeAPIManagement } from './manager.js';
 import { createRequestHandler } from './request-handler.js';
 import { initLogger, createLogger } from '../lib/logger.js';
+import { serviceInstances, getServiceAdapter } from '../kiro/adapter.js';
+import { createAccountStore } from '../account/index.js';
+import { AccountManager } from '../kiro/account-manager.js';
+import deepmerge from 'deepmerge';
 
 import 'dotenv/config'; // Import dotenv and configure it
-import { getAccountPoolManager } from '../services/manager.js';
 
 // 从环境变量读取日志级别
 const logLevel = process.env.LOG_LEVEL || 'info';
@@ -20,8 +22,8 @@ async function startServer() {
     // Initialize configuration
     await initializeConfig();
     
-    // Initialize API services
-    const services = await initApiService(CONFIG);
+    // Initialize Account services
+    const services = await initAccountService(CONFIG);
     
     // Initialize UI management features
     initializeUIManagement(CONFIG);
@@ -94,8 +96,93 @@ async function startServer() {
     });
     return server; // Return the server instance for testing purposes
 }
+let useSQLiteMode = false;
+
+/**
+ * Initialize API services and account manager
+ * @param {Object} config - The server configuration
+ * @returns {Promise<Object>} The initialized services
+ */
+export async function initAccountService(config) {
+    useSQLiteMode = config.USE_SQLITE_POOL === true;
+
+    const accountPool = config.accountPool || { accounts: [] };
+
+    // 使用工厂创建 AccountStore
+    const accountStore = createAccountStore({
+        USE_SQLITE: useSQLiteMode,
+        ACCOUNT_POOL_FILE_PATH: config.ACCOUNT_POOL_FILE_PATH || 'configs/account_pool.json',
+        SQLITE_DB_PATH: config.SQLITE_DB_PATH || 'data/provider_pool.db',
+        SAVE_DEBOUNCE_TIME: 1000
+    });
+
+    // 创建 AccountManager 管理 Store
+    accountManager = new AccountManager(accountStore, {
+        maxErrorCount: config.MAX_ERROR_COUNT ?? 3,
+        healthCheckInterval: config.HEALTH_CHECK_INTERVAL,
+        logLevel: 'info'
+    });
+
+    // 记录账号存储类型和配置
+    const storeType = useSQLiteMode ? 'SQLite' : 'JSON';
+    const storePath = useSQLiteMode
+        ? (config.SQLITE_DB_PATH || 'data/provider_pool.db')
+        : (config.ACCOUNT_POOL_FILE_PATH || 'configs/account_pool.json');
+    const accountCount = accountStore.listAccounts().length;
+
+    logger.info('========================================');
+    logger.info('[Account] Account Manager initialized');
+    logger.info(`[Account] Storage type: ${storeType}`);
+    logger.info(`[Account] Storage path: ${storePath}`);
+    logger.info(`[Account] Total accounts: ${accountCount}`);
+    logger.info(`[Account] Max error count: ${config.MAX_ERROR_COUNT ?? 3}`);
+    if (config.HEALTH_CHECK_INTERVAL) {
+        logger.info(`[Account] Health check interval: ${config.HEALTH_CHECK_INTERVAL}ms`);
+    }
+    logger.info('========================================');
+
+    getServiceAdapter(config); // 初始化主服务适配器实例
+
+    return serviceInstances;
+}
 
 startServer().catch(err => {
     logger.error('[Server] Failed to start server', err);
     process.exit(1);
 });
+
+let accountManager = null;
+
+/**
+ * Get API service adapter, selecting an account when available
+ * @param {Object} config - The current request configuration
+ * @param {string} [requestedModel] - Optional. The model name to filter accounts by.
+ * @returns {Promise<Object>} The API service adapter
+ */
+export async function getApiService(config, requestedModel = null) {
+    let serviceConfig = config;
+
+    if (accountManager) {
+        const selectedAccountConfig = accountManager.selectAccount(requestedModel, { skipUsageCount: true });
+        if (selectedAccountConfig) {
+            serviceConfig = deepmerge(config, selectedAccountConfig);
+            delete serviceConfig.accountPool;
+            delete serviceConfig.providerPools;
+            config.uuid = serviceConfig.uuid;
+            logger.info(`[API Service] Using account configuration: ${serviceConfig.uuid}${requestedModel ? ` (model: ${requestedModel})` : ''}`);
+        } else {
+            logger.warn(`[API Service] No healthy account found${requestedModel ? ` supporting model: ${requestedModel}` : ''}. Falling back to main config.`);
+        }
+    }
+
+    return getServiceAdapter(serviceConfig);
+}
+
+export function getAccountManager() {
+    return accountManager;
+}
+
+// 向后兼容：保留旧名称
+export function getAccountPoolManager() {
+    return accountManager;
+}

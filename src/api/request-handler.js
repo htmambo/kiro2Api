@@ -2,8 +2,7 @@ import deepmerge from 'deepmerge';
 import { isAuthorized } from '../utils/common.js';
 import { handleUIApiRequests, serveStaticFiles } from '../ui-manager.js';
 import { handleAPIRequests } from './manager.js';
-import { getApiService } from '../services/manager.js';
-import { getAccountPoolManager } from '../services/manager.js';
+import { getApiService, getAccountPoolManager } from '../api/server.js';
 import { MODEL_PROVIDER } from '../utils/common.js';
 import { PROMPT_LOG_FILENAME } from '../config/manager.js';
 import { errorMiddleware, createError } from './error-middleware.js';
@@ -74,12 +73,9 @@ export function createRequestHandler(config, accountPoolManager) {
         // Pool status and cache stats endpoint
         if (method === 'GET' && path === '/stats') {
             try {
-                const { getAccountPoolManager } = await import('../services/pools/json.js');
-
-                const accountPool = getAccountPoolManager();
-
-                const poolStats = accountPool ? accountPool.getPoolStats() : null;
-                const poolDetails = accountPool ? accountPool.getPoolDetails() : null;
+                // 使用传入的 accountPoolManager 参数,确保状态一致性
+                const poolStats = accountPoolManager ? accountPoolManager.getPoolStats() : null;
+                const poolDetails = accountPoolManager ? accountPoolManager.getPoolDetails() : null;
 
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({

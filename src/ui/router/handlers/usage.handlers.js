@@ -210,18 +210,10 @@ async function getProviderTypeUsage(providerType, currentConfig, providerPoolMan
 
     // 获取账号列表（支持 SQLite 和 JSON 两种模式）
     let providers = [];
-
-    const { isSQLiteMode } = await import('../../../services/manager.js');
-
-    if (isSQLiteMode() && providerPoolManager && typeof providerPoolManager.getProviderPools === 'function') {
-        // SQLite 模式
-        providers = providerPoolManager.getProviderPools(providerType);
-    } else {
-        // JSON 模式：从 account pool 获取
-        const { readAccountsFromStorage } = await import('../../../ui-manager.js');
-        const { accountPool } = readAccountsFromStorage(currentConfig, providerPoolManager);
-        providers = accountPool.accounts || [];
-    }
+    // JSON 模式：从 account pool 获取
+    const { readAccountsFromStorage } = await import('./account.handlers.js');
+    const { accountPool } = readAccountsFromStorage(currentConfig, providerPoolManager);
+    providers = accountPool.accounts || [];
 
     result.totalCount = providers.length;
 
@@ -332,7 +324,7 @@ async function getProviderTypeUsage(providerType, currentConfig, providerPoolMan
                         provider.cachedUserId = usage.user.userId;
                         provider.cachedEmail = usage.user.email;
                         provider.cachedAt = new Date().toISOString();
-
+                        const { findDuplicateUserId } = await import('../../../utils/account-utils.js');
                         // 检查是否有重复的 userId
                         const duplicate = findDuplicateUserId(providers, usage.user.userId, provider.uuid);
                         if (duplicate) {

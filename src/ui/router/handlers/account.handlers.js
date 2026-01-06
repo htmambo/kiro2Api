@@ -10,6 +10,33 @@
 // 由于 ui-manager.js 中的函数是直接在 handleUIApiRequests 中定义的
 // 我们需要重构或创建包装函数
 // 为了简化迁移，这里提供 handler 框架，实际实现需要从原代码提取
+import { createLogger } from '../../../lib/logger.js';
+
+const logger = createLogger('ui:account-handlers');
+
+
+/**
+ * 从 AccountPoolManager 读取账号池数据
+ * @param {Object} currentConfig - 当前配置
+ * @param {Object} poolManager - AccountPoolManager 实例
+ * @returns {Object} { accountMode, filePath, accountPool }
+ */
+export function readAccountsFromStorage(currentConfig, poolManager = null) {
+    if (poolManager && typeof poolManager.listAccounts === 'function') {
+        // 使用 AccountPoolManager 作为唯一数据源
+        return {
+            accountMode: true,
+            accountPool: { accounts: poolManager.listAccounts() }
+        };
+    }
+
+    // 降级处理：如果没有 poolManager，返回空数据
+    logger.warn('[UI API] No poolManager available, returning empty account pool');
+    return {
+        accountMode: true,
+        accountPool: { accounts: [] }
+    };
+}
 
 /**
  * 获取所有账号列表
@@ -20,7 +47,7 @@ export async function getAccounts({ res, currentConfig, providerPoolManager }) {
 
     // 临时实现：调用原有逻辑
     // 实际迁移时需要将 ui-manager.js 中的函数提取为独立函数
-    const { readAccountsFromStorage, parseErrorMessage } = await import('../../../ui-manager.js');
+    const { parseErrorMessage } = await import('../../../ui-manager.js');
     const { broadcastEvent } = await import('../../events.js');
 
     const { accountPool, filePath } = readAccountsFromStorage(currentConfig, providerPoolManager);
@@ -320,7 +347,6 @@ export async function healthCheckAll({ res, providerPoolManager }) {
  * 单个账号健康检查
  */
 export async function healthCheckAccount({ res, currentConfig, providerPoolManager, match }) {
-    const { readAccountsFromStorage } = await import('../../../ui-manager.js');
     const uuid = decodeURIComponent(match[1]);
 
     try {
@@ -362,7 +388,6 @@ export async function healthCheckAccount({ res, currentConfig, providerPoolManag
  * 测试账号
  */
 export async function testAccount({ res, currentConfig, providerPoolManager, match }) {
-    const { readAccountsFromStorage } = await import('../../../ui-manager.js');
     const { getServiceAdapter } = await import('../../../kiro/adapter.js');
     const uuid = decodeURIComponent(match[1]);
 
@@ -413,8 +438,6 @@ export async function generateAuthUrl({ res, currentConfig, providerPoolManager 
  */
 export async function cleanupDuplicates({ req, res, currentConfig, providerPoolManager }) {
     const { parseRequestBody } = await import('../../../ui-manager.js');
-    const { readAccountsFromStorage } = await import('../../../ui-manager.js');
-    const { findDuplicateUserId } = await import('../../../utils/account-utils.js');
     const { broadcastEvent } = await import('../../events.js');
 
     try {

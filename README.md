@@ -261,11 +261,46 @@ ufw allow from 127.0.0.1 to any port 8045
 | `KIRO_OAUTH_CREDS_FILE_PATH` | string | Token 文件路径 |
 | `KIRO_OAUTH_CREDS_BASE64` | string | Base64 编码的 Token |
 
+### 账号池存储配置
+
+账号池支持两种存储方式:JSON 文件和 SQLite 数据库。
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `USE_SQLITE_POOL` | boolean | `false` | 是否使用 SQLite 数据库 |
+| `ACCOUNT_POOL_FILE_PATH` | string | `"./configs/account_pool.json"` | JSON 存储路径 |
+| `SQLITE_DB_PATH` | string | `"data/provider_pool.db"` | SQLite 数据库路径 |
+| `HEALTH_CHECK_CONCURRENCY` | number | `5` | 健康检查并发数 |
+| `USAGE_QUERY_CONCURRENCY` | number | `10` | 使用查询并发数 |
+| `HEALTH_CHECK_INTERVAL` | number | `600000` | 健康检查间隔（毫秒，10分钟）|
+
+**选择存储方式**:
+
+- **JSON 模式**（默认）: 适合小规模部署（< 50 账号），配置简单，易于备份
+  ```json
+  {
+    "USE_SQLITE_POOL": false,
+    "ACCOUNT_POOL_FILE_PATH": "./configs/account_pool.json"
+  }
+  ```
+
+- **SQLite 模式**: 适合大规模部署（100+ 账号），性能更好，支持并发
+  ```json
+  {
+    "USE_SQLITE_POOL": true,
+    "SQLITE_DB_PATH": "data/provider_pool.db",
+    "HEALTH_CHECK_CONCURRENCY": 10,
+    "USAGE_QUERY_CONCURRENCY": 20
+  }
+  ```
+
+> 💡 **提示**: 切换存储方式时，系统会自动处理数据迁移。详细说明请参考[账号池迁移指南](docs/Usage/ACCOUNT_POOL_MIGRATION_GUIDE.md)。
+
 ### 高级配置
 
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `PROVIDER_POOLS_FILE_PATH` | string | `"provider_pools.json"` | Provider Pool 配置文件 |
+| `PROVIDER_POOLS_FILE_PATH` | string | `"provider_pools.json"` | Provider Pool 配置文件（已弃用，请使用 ACCOUNT_POOL_FILE_PATH）|
 | `REQUEST_MAX_RETRIES` | number | `8` | 最大重试次数 |
 | `REQUEST_BASE_DELAY` | number | `3000` | 重试延迟（毫秒）|
 | `CRON_REFRESH_TOKEN` | boolean | `true` | 自动刷新 Token |
@@ -319,9 +354,16 @@ proxy_read_timeout 300s;
 
 **4. Provider Pool 无可用账号**
 
-- 检查 `provider_pools.json` 中账号的 `isHealthy` 状态
+- 检查 `account_pool.json` 或数据库中账号的 `isHealthy` 状态
 - 通过管理界面查看账号详情
 - 删除失效账号或重新授权
+
+**5. 账号池存储问题**
+
+- 查看 [账号池故障排查指南](docs/Usage/ACCOUNT_POOL_TROUBLESHOOTING.md)
+- 检查启动日志中的存储类型和路径
+- 使用 `/stats` 端点查看账号池状态
+- 参考 [账号池迁移指南](docs/Usage/ACCOUNT_POOL_MIGRATION_GUIDE.md) 切换存储方式
 
 ## 📊 监控与日志
 

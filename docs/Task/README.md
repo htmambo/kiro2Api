@@ -9,6 +9,14 @@
 
 ### 2026-01
 
+- ✅ [账号池存储抽象层重构](Archive/2026-01/ACCOUNT_POOL_STORAGE_ABSTRACTION.md) - 完成于 2026-01-06
+  - 创建统一的 AccountStore 接口和 AccountPoolService 服务层
+  - 实现 JSONStore 和 SQLiteStore 适配器
+  - 通过工厂模式支持配置驱动的存储切换
+  - 修复 /stats 端点实例一致性问题
+  - 创建迁移指南和故障排查指南
+  - 完全向后��容,现有代码无需修改
+
 - ✅ [日志系统统一重构](Archive/2026-01/LOGGER_UNIFICATION_PLAN.md) - 完成于 2026-01-06
   - 将 550+ 处 console.* 调用统一为 logger 调用
   - 添加 verbose 日志级别支持
