@@ -11,7 +11,7 @@ import { countTokens } from '@anthropic-ai/tokenizer';
 import { streamApiReal } from './streaming.js';
 import { parseBracketToolCalls, deduplicateToolCalls } from './tools.js';
 import { executeWebSearch, formatSearchResults } from './search.js';
-import { MODEL_MAPPING } from './core.js';
+import { MODEL_MAPPING } from './adapter.js';
 import { KIRO_CONSTANTS, refreshAccessTokenIfNeeded } from './auth.js';
 
 /**
@@ -350,7 +350,7 @@ export async function callApi(service, method, model, body, isRetry = false, ret
  * @returns {Object} 处理后的响应数据
  */
 
-export function _processApiResponse(response) {
+function processApiResponse(response) {
         const rawResponseText = Buffer.isBuffer(response.data) ? response.data.toString('utf8') : String(response.data);
         //console.log(`[Kiro] Raw response length: ${rawResponseText.length}`);
         if (rawResponseText.includes("[Called")) {
@@ -424,7 +424,7 @@ export async function generateContent(service, model, requestBody) {
         const response = await callApi(service, '', finalModel, requestBody);
 
         try {
-            const { responseText, toolCalls } = _processApiResponse(response);
+            const { responseText, toolCalls } = processApiResponse(response);
             return buildClaudeResponse(responseText, false, 'assistant', model, toolCalls, inputTokens);
         } catch (error) {
             console.error('[Kiro] Error in generateContent:', error);

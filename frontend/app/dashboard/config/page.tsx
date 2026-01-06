@@ -583,10 +583,10 @@ export default function ConfigPage() {
           />
         </ConfigCard>
 
-        {/* 提供商池 */}
+        {/* 号池 */}
         <ConfigCard
           icon={IconShieldCheck}
-          title="提供商池"
+          title="号池管理"
           description="多账号池配置"
           gradient="from-fuchsia-500 to-pink-500"
         >

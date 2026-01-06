@@ -404,7 +404,7 @@ export async function awsSsoStart({ req, res, currentConfig, providerPoolManager
         console.log(`[AWS SSO] Client expires at: ${new Date(clientSecretExpiresAt * 1000).toISOString()}`);
 
         // 动态导入 KiroService
-        const { KiroService } = await import('../../../kiro/core.js');
+        const { KiroService } = await import('../../../kiro/adapter.js');
 
         // 创建临时实例用于设备授权
         const kiroService = new KiroService(currentConfig);

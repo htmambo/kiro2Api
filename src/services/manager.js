@@ -1,15 +1,8 @@
 import deepmerge from 'deepmerge';
-import { getServiceAdapter, serviceInstances } from '../kiro/core.js';
+import { getServiceAdapter, serviceInstances } from '../kiro/adapter.js';
 
 let accountPoolManager = null;
 let useSQLiteMode = false;
-let accountPoolMode = 'legacy';
-
-function resolveAccountPoolMode(mode) {
-    // 彻底移除 provider 层后，legacy 仅作为兼容别名存在
-    if (mode === 'legacy') return 'account';
-    return mode || 'account';
-}
 
 /**
  * Initialize API services and account pool manager
@@ -99,10 +92,6 @@ export async function getApiService(config, requestedModel = null) {
 
 export function getAccountPoolManager() {
     return accountPoolManager;
-}
-
-export function getAccountPoolMode() {
-    return accountPoolMode;
 }
 
 export function isSQLiteMode() {

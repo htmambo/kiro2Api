@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { getServiceAdapter } from '../../kiro/core.js';
+import { getServiceAdapter } from '../../kiro/adapter.js';
 import { generateContent } from '../../kiro/api-client.js';
 import { v4 as uuidv4 } from 'uuid';
 

@@ -4,7 +4,7 @@
  */
 
 import { getAccountPoolManager } from './manager.js';
-import { serviceInstances } from '../kiro/core.js';
+import { serviceInstances } from '../kiro/adapter.js';
 import { getUsageLimits } from '../kiro/api-client.js';
 import { MODEL_PROVIDER } from '../utils/common.js';
 

@@ -363,7 +363,7 @@ export async function healthCheckAccount({ res, currentConfig, providerPoolManag
  */
 export async function testAccount({ res, currentConfig, providerPoolManager, match }) {
     const { readAccountsFromStorage } = await import('../../../ui-manager.js');
-    const { getServiceAdapter } = await import('../../../kiro/core.js');
+    const { getServiceAdapter } = await import('../../../kiro/adapter.js');
     const uuid = decodeURIComponent(match[1]);
 
     try {

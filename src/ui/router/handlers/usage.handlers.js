@@ -225,7 +225,7 @@ async function getProviderTypeUsage(providerType, currentConfig, providerPoolMan
     // 遍历所有提供商实例获取用量
     for (const provider of providers) {
         const providerKey = providerType + (provider.uuid || '');
-        const { serviceInstances } = await import('../../../kiro/core.js');
+        const { serviceInstances } = await import('../../../kiro/adapter.js');
         let adapter = serviceInstances[providerKey];
 
         const instanceResult = {

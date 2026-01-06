@@ -4,7 +4,7 @@
  */
 
 import { sqliteDB } from '../storage/sqlite-db.js';
-import { getServiceAdapter } from '../kiro/corejs';
+import { getServiceAdapter } from '../kiro/adapter.js';
 import * as fs from 'fs';
 import { generateContent } from '../kiro/api-client.js';
 

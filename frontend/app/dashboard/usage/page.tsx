@@ -549,7 +549,7 @@ export default function UsagePage() {
           <div className="text-center py-12">
             <IconChartLine className="w-12 h-12 mx-auto text-gray-600 mb-4" />
             <p className="text-gray-400 text-lg">暂无用量数据</p>
-            <p className="text-gray-500 text-sm mt-2">配置提供商后将在此显示用量统计</p>
+            <p className="text-gray-500 text-sm mt-2">配置号池后将在此显示用量统计</p>
           </div>
         </CardSpotlight>
       )}

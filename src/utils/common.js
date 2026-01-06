@@ -2,7 +2,7 @@ import { promises as fs } from 'fs';
 import * as path from 'path';
 import * as http from 'http'; // Add http for IncomingMessage and ServerResponse types
 import * as crypto from 'crypto'; // Import crypto for MD5 hashing
-import { KiroService } from '../kiro/core.js'; // Import KiroService
+import { KiroService } from '../kiro/adapter.js'; // Import KiroService
 import { generateContent } from '../kiro/api-client.js';
 import { KiroStrategy } from '../kiro/strategy.js';
 import os from 'os';

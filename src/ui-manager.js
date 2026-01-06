@@ -5,7 +5,7 @@ import multer from 'multer';
 import crypto from 'crypto';
 import { getRequestBody } from './utils/common.js';
 import { CONFIG } from './config/manager.js';
-import { serviceInstances, getServiceAdapter } from './kiro/core.js';
+import { serviceInstances, getServiceAdapter } from './kiro/adapter.js';
 import { initApiService, getAccountPoolManager, isSQLiteMode } from './services/manager.js';
 import { sqliteDB } from './services/storage/sqlite-db.js';
 import { handleKiroOAuth } from './services/oauth-handlers.js';
