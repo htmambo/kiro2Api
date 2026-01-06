@@ -9,6 +9,13 @@
 
 ### 2026-01
 
+- ✅ [日志系统统一重构](Archive/2026-01/LOGGER_UNIFICATION_PLAN.md) - 完成于 2026-01-06
+  - 将 550+ 处 console.* 调用统一为 logger 调用
+  - 添加 verbose 日志级别支持
+  - 实现 LOG_LEVEL 环境变量控制
+  - 重构自定义日志方法（_log, logError）
+  - 32 个文件全部使用结构化日志，提升可维护性
+
 - ✅ [UI Router 路由系统重构](Archive/2026-01/UI_ROUTER_MIGRATION_COMPLETION_REPORT.md) - 完成于 2026-01-05
   - 将 1835 行 if-else 路由代码重构为模块化路由系统
   - 创建 6 个路由���置模块和 6 个 Handler 模块
@@ -30,5 +37,5 @@
 
 ---
 
-**更新时间**: 2026-01-05
+**更新时间**: 2026-01-06
 **维护说明**: 任务完成后自动归档到 Archive/YYYY-MM/ 目录
