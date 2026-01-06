@@ -3,7 +3,7 @@ import * as path from 'path';
 import * as http from 'http'; // Add http for IncomingMessage and ServerResponse types
 import * as crypto from 'crypto'; // Import crypto for MD5 hashing
 import { KiroService } from '../kiro/adapter.js'; // Import KiroService
-import { generateContent } from '../kiro/api-client.js';
+import { generateContent, generateContentStream } from '../kiro/api-client.js';
 import { KiroStrategy } from '../kiro/strategy.js';
 import os from 'os';
 
@@ -236,7 +236,7 @@ export async function handleStreamRequest(res, service, model, requestBody, from
     let streamStarted = false;
 
     try {
-        nativeStream = await service.generateContentStream(model, requestBody);
+        nativeStream = await generateContentStream(service, model, requestBody);
     } catch (initialError) {
         // 如果在生成stream时就失败了（还没有开始传输数据），尝试重试其他provider
         console.error('[Stream] Initial stream generation failed:', initialError.message);

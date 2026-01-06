@@ -54,7 +54,6 @@ import {
 
 // 导入工具函数模块
 import {
-    unescapeHTML,
     isZodSchema,
     detectImageFormat
 } from './utils.js';

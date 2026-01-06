@@ -13,6 +13,7 @@ import { parseBracketToolCalls, deduplicateToolCalls } from './tools.js';
 import { executeWebSearch, formatSearchResults } from './search.js';
 import { MODEL_MAPPING } from './adapter.js';
 import { KIRO_CONSTANTS, refreshAccessTokenIfNeeded } from './auth.js';
+import { unescapeHTML } from './utils.js';
 
 /**
  * 解析事件流数据块（SSE 格式）
@@ -509,7 +510,7 @@ export async function* generateContentStream(service, model, requestBody) {
             let thinkingBlockClosed = false;  // thinking 块是否已关闭（用于避免重复关闭）
 
             // 2-3. 流式接收并发送每个事件
-            for await (const event of streamApiReal(this, '', finalModel, requestBody)) {
+            for await (const event of streamApiReal(service, '', finalModel, requestBody)) {
                 // Debug: 记录事件类型（仅在调试时启用，生产环境注释掉以提升性能）
                 // console.log(`[Kiro Debug] Event received: type=${event.type}`);
 
