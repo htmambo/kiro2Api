@@ -3,6 +3,10 @@
  * 提供统一的错误类型定义和错误处理逻辑
  */
 
+import { createLogger } from './logger.js';
+
+const logger = createLogger('lib:error-handler');
+
 /**
  * 错误类型枚举
  */
@@ -127,7 +131,15 @@ export function getErrorConfig(errorType) {
  * @param {Function} options.logger - 自定义日志函数
  */
 export function handleError(res, error, options = {}) {
-    const { logToConsole = true, logger = console.error } = options;
+    const { logToConsole = true, logger: optionsLogger } = options;
+
+    const log = optionsLogger || ((message, meta) => {
+        if (meta !== undefined) {
+            logger.error(message, meta);
+        } else {
+            logger.error(message);
+        }
+    });
 
     const statusCode = error.response?.status || error.status || error.code || 500;
     const errorType = getErrorType(statusCode);
@@ -138,14 +150,14 @@ export function handleError(res, error, options = {}) {
 
     // 日志输出
     if (logToConsole) {
-        logger(`\n[Server] Request failed (${statusCode}): ${errorMessage}`);
+        log(`\n[Server] Request failed (${statusCode}): ${errorMessage}`);
         if (suggestions.length > 0) {
-            logger('[Server] Suggestions:');
+            log('[Server] Suggestions:');
             suggestions.forEach((suggestion, index) => {
-                logger(`  ${index + 1}. ${suggestion}`);
+                log(`  ${index + 1}. ${suggestion}`);
             });
         }
-        logger('[Server] Full error details:', error.stack || error);
+        log('[Server] Full error details:', error.stack || error);
     }
 
     // 发送响应

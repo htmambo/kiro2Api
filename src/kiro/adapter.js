@@ -9,6 +9,7 @@ import { KIRO_MODELS } from './constants.js';
 import { sanitizeMessageHistory, getContentText, sanitizeMessages } from './message-sanitizer.js';
 import { promises as fs } from 'fs';
 import {getMacAddressSha256, generateRandomUserAgentComponents, getOriginalMacAddressSha256} from './utils.js';
+import { createLogger } from '../lib/logger.js';
 
 // 导入搜索模块
 import { executeWebSearch, formatSearchResults } from './search.js';
@@ -57,6 +58,8 @@ import {
     isZodSchema,
     detectImageFormat
 } from './utils.js';
+
+const logger = createLogger('kiro:adapter');
 
 // 扩展认证模块的常量，添加上下文管理配置
 const KIRO_CONSTANTS = {
@@ -118,9 +121,9 @@ export class KiroService {
         this.useSystemProxy = config?.USE_SYSTEM_PROXY_KIRO ?? false;
         // 详细日志开关（默认关闭，只显示简洁日志）
         this.verboseLogging = config?.ENABLE_VERBOSE_LOGGING ?? false;
-        console.log(`[Kiro] System proxy ${this.useSystemProxy ? 'enabled' : 'disabled'}`);
-        console.log(`[Kiro] Verbose logging ${this.verboseLogging ? 'enabled' : 'disabled'}`);
-        console.log(`[Kiro] ENABLE_THINKING_BY_DEFAULT in config: ${config.ENABLE_THINKING_BY_DEFAULT}`);
+        logger.info(`[Kiro] System proxy ${this.useSystemProxy ? 'enabled' : 'disabled'}`);
+        logger.info(`[Kiro] Verbose logging ${this.verboseLogging ? 'enabled' : 'disabled'}`);
+        logger.info(`[Kiro] ENABLE_THINKING_BY_DEFAULT in config: ${config.ENABLE_THINKING_BY_DEFAULT}`);
 
         // Add kiro-oauth-creds-base64 and kiro-oauth-creds-file to config
         if (config.KIRO_OAUTH_CREDS_BASE64) {
@@ -128,9 +131,9 @@ export class KiroService {
                 const decodedCreds = Buffer.from(config.KIRO_OAUTH_CREDS_BASE64, 'base64').toString('utf8');
                 const parsedCreds = JSON.parse(decodedCreds);
                 this.base64Creds = parsedCreds;
-                console.info('[Kiro] Successfully decoded Base64 credentials in constructor.');
+                logger.info('[Kiro] Successfully decoded Base64 credentials in constructor.');
             } catch (error) {
-                console.error(`[Kiro] Failed to parse Base64 credentials in constructor: ${error.message}`);
+                logger.error(`[Kiro] Failed to parse Base64 credentials in constructor: ${error.message}`);
             }
         } else if (config.KIRO_OAUTH_CREDS_FILE_PATH) {
             this.credsFilePath = config.KIRO_OAUTH_CREDS_FILE_PATH;
@@ -142,7 +145,7 @@ export class KiroService {
  
     async checkToken() {
         if (this.isExpiryDateNear() === true) {
-            console.log(`[Kiro] Expiry date is near, refreshing token...`);
+            logger.info(`[Kiro] Expiry date is near, refreshing token...`);
             return initializeAuth(this, true);
         }
         return Promise.resolve();
@@ -150,7 +153,7 @@ export class KiroService {
 
     async initialize(skipAuthCheck = false) {
         if (this.isInitialized) return;
-        console.log('[Kiro] Initializing Kiro API Service...');
+        logger.info('[Kiro] Initializing Kiro API Service...');
         if (!skipAuthCheck) {
             await initializeAuth(this);
         }
@@ -217,7 +220,7 @@ export class KiroService {
      * 销毁旧的 agent 并重新初始化
      */
     async resetConnectionPool() {
-        console.log('[Kiro] Resetting connection pool...');
+        logger.info('[Kiro] Resetting connection pool...');
 
         // 销毁旧的 agent
         if (this.httpAgent) {
@@ -231,7 +234,7 @@ export class KiroService {
         this.isInitialized = false;
         await this.initialize();
 
-        console.log('[Kiro] Connection pool reset completed');
+        logger.info('[Kiro] Connection pool reset completed');
     }
 
     /**
@@ -250,7 +253,7 @@ export class KiroService {
             deviceAuthInfo.interval,
             deviceAuthInfo.expiresIn
         ).catch(error => {
-            console.error('[Kiro Device Auth] Background polling failed:', error.message);
+            logger.error('[Kiro Device Auth] Background polling failed:', { error: error.message });
         });
 
         return {
@@ -362,7 +365,7 @@ export class KiroService {
             typeof tool.type === 'string' && typeof tool.name === 'string' &&
             builtinTools.includes(tool.name)) {
             if (this.verboseLogging) {
-                console.log(`[Kiro] Detected builtin tool: ${tool.name}, passing through without conversion`);
+                logger.info(`[Kiro] Detected builtin tool: ${tool.name}, passing through without conversion`);
             }
             return tool;  // 内置工具原样传递
         }
@@ -399,7 +402,7 @@ export class KiroService {
 
             // 支持 Zod Schema（自动转换）
             if (isZodSchema(schema)) {
-                console.log('[Kiro] Converting Zod schema to JSON schema for tool:', tool.name);
+                logger.info('[Kiro] Converting Zod schema to JSON schema for tool:', { toolName: tool.name });
                 // 注意：需要安装 zod-to-json-schema 库才能完整支持
                 // 这里暂时保持原样，避免引入额外依赖
             }
@@ -423,7 +426,7 @@ export class KiroService {
         if (tool.id && 'description' in tool && tool.parameters) {
             let schema = tool.parameters;
             if (isZodSchema(schema)) {
-                console.log('[Kiro] Zod schema detected for tool:', tool.id);
+                logger.info('[Kiro] Zod schema detected for tool:', { toolId: tool.id });
             }
 
             schema = compressInputSchema(schema);
@@ -445,7 +448,7 @@ export class KiroService {
         if (tool.id && 'description' in tool && tool.schema) {
             let schema = tool.schema;
             if (isZodSchema(schema)) {
-                console.log('[Kiro] Zod schema detected for tool:', tool.id);
+                logger.info('[Kiro] Zod schema detected for tool:', { toolId: tool.id });
             }
 
             schema = compressInputSchema(schema);
@@ -464,7 +467,7 @@ export class KiroService {
         }
 
         // 无法识别的格式
-        console.error('[Kiro] Invalid tool format:', tool);
+        logger.error('[Kiro] Invalid tool format:', { tool });
         throw new Error('Invalid tool format. Supported: Anthropic, LangChain, Kiro native, or id+parameters/schema formats.');
     }
 
@@ -515,7 +518,7 @@ export class KiroService {
                 : desc;
 
             if (this.verboseLogging) {
-                console.log(`[Kiro] Mapped tool: ${toolName} → ${mapping.kiroTool} (keeping original CC schema)`);
+                logger.info(`[Kiro] Mapped tool: ${toolName} → ${mapping.kiroTool} (keeping original CC schema)`);
             }
 
             return {
@@ -543,7 +546,7 @@ export class KiroService {
         for (let i = messages.length - 1; i >= 0; i--) {
             const msg = messages[i];
             if (msg.additional_kwargs && msg.additional_kwargs[key]) {
-                console.log(`[Kiro] Extracted ${key}:`, msg.additional_kwargs[key]);
+                logger.debug(`[Kiro] Extracted ${key}:`, { value: msg.additional_kwargs[key] });
                 return msg.additional_kwargs[key];
             }
         }
@@ -627,7 +630,7 @@ export class KiroService {
             return this.tokenizer.decode(prunedTokens);
         } catch (error) {
             // Fallback: 字符估算
-            console.warn('[Kiro Pruning] Tokenizer failed, using character estimation');
+            logger.warn('[Kiro Pruning] Tokenizer failed, using character estimation');
             const estimatedChars = Math.floor(maxTokens * 3.5);
             return text.substring(text.length - estimatedChars);
         }
@@ -778,8 +781,8 @@ ${conversationData}`;
             let timeoutId;
             let aborted = false;
 
-            console.log('[Kiro AI-Summary] Starting streaming summarization...');
-            console.log(`[Kiro AI-Summary] Conversation data length: ${conversationData.length} chars`);
+            logger.info('[Kiro AI-Summary] Starting streaming summarization...');
+            logger.debug(`[Kiro AI-Summary] Conversation data length: ${conversationData.length} chars`);
             const streamStartTime = Date.now();
 
             const summaryPromise = (async () => {
@@ -809,18 +812,18 @@ ${conversationData}`;
             clearTimeout(timeoutId);
 
             const streamDuration = Date.now() - streamStartTime;
-            console.log(`[Kiro AI-Summary] Streaming completed in ${streamDuration}ms`);
+            logger.info(`[Kiro AI-Summary] Streaming completed in ${streamDuration}ms`);
 
             if (summary) {
                 // 使用摘要 + 最近消息构建新的消息历史
                 const originalCount = messages.length;
                 const newMessages = buildMessagesWithSummary(summary, recentMessages, originalCount);
                 this._lastSummarizationTime = now;
-                console.log(`[Kiro AI-Summary] Success! Summary length: ${summary.length} chars`);
+                logger.info(`[Kiro AI-Summary] Success! Summary length: ${summary.length} chars`);
                 return newMessages;
             }
         } catch (error) {
-            console.error(`[Kiro AI-Summary] Failed:`, error.message);
+            logger.error(`[Kiro AI-Summary] Failed:`, { error: error.message });
         }
 
         // 降级：AI 摘要失败，使用传统裁剪
@@ -1156,7 +1159,7 @@ ${conversationData}`;
         messages = sanitizeMessages(messages, this.verboseLogging);
         const sanitizeDuration = Date.now() - sanitizeStartTime;
         if (sanitizeDuration > 50) {
-            console.log(`[Kiro Perf] sanitizeMessages took ${sanitizeDuration}ms`);
+            logger.debug(`[Kiro Perf] sanitizeMessages took ${sanitizeDuration}ms`);
         }
 
         // Kiro 官方逻辑：使用MODEL_MAPPING映射到AWS支持的模型ID（提前定义，供后续使用）
@@ -1200,13 +1203,21 @@ ${conversationData}`;
         // 如果超过阈值，触发消息修剪
         const thresholdPct = Math.round(KIRO_CONSTANTS.AUTO_SUMMARIZE_THRESHOLD * 100);
         if (currentTokens > autoSummarizeThreshold) {
-            console.log(`[Kiro Auto-Pruning] Token usage: ${currentTokens}/${contextLength} (${Math.round(currentTokens/contextLength*100)}%) > ${thresholdPct}% threshold - TRIGGERING PRUNING`);
-            console.log(`[Kiro Token Detail] messages=${messages.length}, sysTokens=${systemPrompt ? countTextTokens(systemPrompt, true) : 0}, toolsTokens=${toolsTokens}`);
+            logger.debug(
+                `[Kiro Auto-Pruning] Token usage: ${currentTokens}/${contextLength} (${Math.round(currentTokens/contextLength*100)}%) > ${thresholdPct}% threshold - TRIGGERING PRUNING`
+            );
+            logger.debug(
+                `[Kiro Token Detail] messages=${messages.length}, sysTokens=${systemPrompt ? countTextTokens(systemPrompt, true) : 0}, toolsTokens=${toolsTokens}`
+            );
         } else {
             // ⚠️ 每10条消息打印一次详细日志
             if (messages.length % 10 === 0 || messages.length <= 5) {
-                console.log(`[Kiro Token-Check] ${currentTokens}/${contextLength} (${Math.round(currentTokens/contextLength*100)}%) < ${thresholdPct}% threshold - NO PRUNING`);
-                console.log(`[Kiro Token Detail] messages=${messages.length}, msgTokens=${currentTokens - toolsTokens - (systemPrompt ? countTextTokens(systemPrompt, true) : 0)}, sysTokens=${systemPrompt ? countTextTokens(systemPrompt, true) : 0}, toolsTokens=${toolsTokens}`);
+                logger.debug(
+                    `[Kiro Token-Check] ${currentTokens}/${contextLength} (${Math.round(currentTokens/contextLength*100)}%) < ${thresholdPct}% threshold - NO PRUNING`
+                );
+                logger.debug(
+                    `[Kiro Token Detail] messages=${messages.length}, msgTokens=${currentTokens - toolsTokens - (systemPrompt ? countTextTokens(systemPrompt, true) : 0)}, sysTokens=${systemPrompt ? countTextTokens(systemPrompt, true) : 0}, toolsTokens=${toolsTokens}`
+                );
             }
         }
 
@@ -1221,13 +1232,15 @@ ${conversationData}`;
             const pruneStartTime = Date.now();
             messages = await this.pruneChatHistoryWithAI(messages, contextLength, reservedTokens);
             const pruneDuration = Date.now() - pruneStartTime;
-            console.log(`[Kiro Perf] pruneChatHistoryWithAI took ${pruneDuration}ms`);
+            logger.debug(`[Kiro Perf] pruneChatHistoryWithAI took ${pruneDuration}ms`);
 
             // 修剪后重新计算 token 数（使用完整 token 计算方法）
             const prunedTokens = messages.reduce((acc, message) => {
                 return acc + this.getFullMessageTokens(message, true);
             }, 0);
-            console.log(`[Kiro Auto-Pruning] Completed: ${prunedTokens}/${contextLength} (${Math.round(prunedTokens/contextLength*100)}%)`);
+            logger.debug(
+                `[Kiro Auto-Pruning] Completed: ${prunedTokens}/${contextLength} (${Math.round(prunedTokens/contextLength*100)}%)`
+            );
         }
 
         // Kiro 优化 2：提取 conversationId 和 continuationId（多轮对话优化）
@@ -1245,7 +1258,7 @@ ${conversationData}`;
         const lastMessage = processedMessages[processedMessages.length - 1];
         if (processedMessages.length > 0 && lastMessage.role === 'assistant') {
             if (lastMessage.content[0].type === "text" && lastMessage.content[0].text === "{") {
-                console.log('[Kiro] Removing last assistant with "{" message from processedMessages');
+                logger.debug('[Kiro] Removing last assistant with "{" message from processedMessages');
                 processedMessages.pop();
             }
         }
@@ -1277,7 +1290,7 @@ ${conversationData}`;
                         lastMsg.content = [{ type: 'text', text: lastMsg.content }, ...currentMsg.content];
                     }
                     if (this.verboseLogging) {
-                        console.log(`[Kiro] Merged adjacent ${currentMsg.role} messages`);
+                        logger.info(`[Kiro] Merged adjacent ${currentMsg.role} messages`);
                     }
                 } else {
                     mergedMessages.push(currentMsg);
@@ -1387,7 +1400,7 @@ ${conversationData}`;
             const mapping = CC_TO_KIRO_TOOL_MAPPING[name];
             if (mapping?.remove) {
                 if (this.verboseLogging) {
-                    console.log(`[Kiro] Removing unsupported tool: ${name} (${mapping.reason || 'not supported'})`);
+                    logger.info(`[Kiro] Removing unsupported tool: ${name} (${mapping.reason || 'not supported'})`);
                 }
                 return true;
             }
@@ -1399,7 +1412,7 @@ ${conversationData}`;
             let filteredTools = tools.filter(tool => {
                 const isBuiltin = isBuiltinTool(tool);
                 if (isBuiltin && this.verboseLogging) {
-                    console.log(`[Kiro] Filtering out builtin tool: ${tool.name} (not supported by AWS CodeWhisperer)`);
+                    logger.info(`[Kiro] Filtering out builtin tool: ${tool.name} (not supported by AWS CodeWhisperer)`);
                 }
                 return !isBuiltin;
             });
@@ -1409,7 +1422,7 @@ ${conversationData}`;
 
             // 第三步：限制工具数量
             if (filteredTools.length > MAX_TOOL_COUNT) {
-                console.warn(`[Kiro] ⚠️ Too many tools: ${filteredTools.length} > ${MAX_TOOL_COUNT}, keeping first ${MAX_TOOL_COUNT}`);
+                logger.warn(`[Kiro] ⚠️ Too many tools: ${filteredTools.length} > ${MAX_TOOL_COUNT}, keeping first ${MAX_TOOL_COUNT}`);
                 filteredTools = filteredTools.slice(0, MAX_TOOL_COUNT);
             }
 
@@ -1419,7 +1432,7 @@ ${conversationData}`;
                     tools: filteredTools.map(tool => this.convertToQToolWithMapping(tool, compressInputSchema, DESCRIPTION_MAX_LENGTH))
                 };
                 if (this.verboseLogging) {
-                    console.log(`[Kiro] Processed ${filteredTools.length} tools (original: ${tools.length})`);
+                    logger.info(`[Kiro] Processed ${filteredTools.length} tools (original: ${tools.length})`);
                 }            }
         }
 
@@ -1451,7 +1464,7 @@ ${conversationData}`;
 
         // 日志输出工具裁剪信息
         if (tools && tools.length > MAX_TOOL_COUNT) {
-            console.log(`[Kiro] Tool trimming info: kept ${keptToolNames.size} tools, mapped ${toolUseIdToName.size} toolUseIds`);
+            logger.info(`[Kiro] Tool trimming info: kept ${keptToolNames.size} tools, mapped ${toolUseIdToName.size} toolUseIds`);
         }
 
         const history = [];
@@ -1506,7 +1519,7 @@ ${conversationData}`;
                             const toolName = toolUseIdToName.get(part.tool_use_id);
                             if (keptToolNames.size > 0 && toolName && !keptToolNames.has(toolName)) {
                                 if (this.verboseLogging) {
-                                    console.log(`[Kiro] Filtering out tool_result for trimmed tool: ${toolName} (toolUseId: ${part.tool_use_id})`);
+                                    logger.info(`[Kiro] Filtering out tool_result for trimmed tool: ${toolName} (toolUseId: ${part.tool_use_id})`);
                                 }
                                 continue; // 跳过这个 tool_result
                             }
@@ -1583,7 +1596,7 @@ ${conversationData}`;
                             // ⚠️ 关键修复：过滤掉被裁剪的工具
                             if (keptToolNames.size > 0 && !keptToolNames.has(part.name)) {
                                 if (this.verboseLogging) {
-                                    console.log(`[Kiro] Filtering out tool_use for trimmed tool: ${part.name}`);
+                                    logger.info(`[Kiro] Filtering out tool_use for trimmed tool: ${part.name}`);
                                 }
                                 continue; // 跳过这个 tool_use
                             }
@@ -1631,7 +1644,7 @@ ${conversationData}`;
         // 如果最后一条消息是 assistant，需要将其加入 history，然后创建一个 user 类型的 currentMessage
         // 因为 CodeWhisperer API 的 currentMessage 必须是 userInputMessage 类型
         if (currentMessage.role === 'assistant') {
-            console.log('[Kiro] Last message is assistant, moving it to history and creating user currentMessage');
+            logger.info('[Kiro] Last message is assistant, moving it to history and creating user currentMessage');
             
             // 构建 assistant 消息并加入 history
             let assistantResponseMessage = {
@@ -1646,7 +1659,7 @@ ${conversationData}`;
                         // ⚠️ 关键修复：过滤掉被裁剪的工具
                         if (keptToolNames.size > 0 && !keptToolNames.has(part.name)) {
                             if (this.verboseLogging) {
-                                console.log(`[Kiro] Filtering out tool_use for trimmed tool: ${part.name}`);
+                                logger.info(`[Kiro] Filtering out tool_use for trimmed tool: ${part.name}`);
                             }
                             continue;
                         }
@@ -1690,7 +1703,7 @@ ${conversationData}`;
                         const toolName = toolUseIdToName.get(part.tool_use_id);
                         if (keptToolNames.size > 0 && toolName && !keptToolNames.has(toolName)) {
                             if (this.verboseLogging) {
-                                console.log(`[Kiro] Filtering out tool_result for trimmed tool: ${toolName} (toolUseId: ${part.tool_use_id})`);
+                                logger.info(`[Kiro] Filtering out tool_result for trimmed tool: ${toolName} (toolUseId: ${part.tool_use_id})`);
                             }
                             continue;
                         }
@@ -1711,7 +1724,7 @@ ${conversationData}`;
                         // ⚠️ 关键修复：过滤掉被裁剪的工具
                         if (keptToolNames.size > 0 && !keptToolNames.has(part.name)) {
                             if (this.verboseLogging) {
-                                console.log(`[Kiro] Filtering out tool_use for trimmed tool: ${part.name}`);
+                                logger.info(`[Kiro] Filtering out tool_use for trimmed tool: ${part.name}`);
                             }
                             continue;
                         }
@@ -1754,7 +1767,7 @@ ${conversationData}`;
             // 之前只裁剪了 history，但 currentMessage 没有被裁剪
             const MAX_CURRENT_CONTENT_LENGTH = 32000;  // 32KB 限制
             if (currentContent.length > MAX_CURRENT_CONTENT_LENGTH) {
-                console.log(`[Kiro] ⚠️ currentContent too long (${currentContent.length} chars), truncating to ${MAX_CURRENT_CONTENT_LENGTH}`);
+                logger.info(`[Kiro] ⚠️ currentContent too long (${currentContent.length} chars), truncating to ${MAX_CURRENT_CONTENT_LENGTH}`);
 
                 // 智能截断：移除 <system-reminder> 块以保留更多有用内容
                 let truncatedContent = currentContent;
@@ -1773,7 +1786,7 @@ ${conversationData}`;
                 }
 
                 currentContent = truncatedContent;
-                console.log(`[Kiro] currentContent truncated to ${currentContent.length} chars`);
+                logger.info(`[Kiro] currentContent truncated to ${currentContent.length} chars`);
             }
         }
 
@@ -1788,13 +1801,13 @@ ${conversationData}`;
         // Kiro 优化：添加 agentContinuationId（多轮对话优化）
         if (continuationId) {
             request.conversationState.agentContinuationId = continuationId;
-            console.log('[Kiro] Using continuationId for multi-turn optimization:', continuationId);
+            logger.info('[Kiro] Using continuationId for multi-turn optimization:', continuationId);
         }
 
         // Kiro 优化：添加 agentTaskType（任务类型优化）
         if (taskType) {
             request.conversationState.agentTaskType = taskType;
-            console.log('[Kiro] Using taskType:', taskType);
+            logger.info('[Kiro] Using taskType:', taskType);
         }
 
         // 只有当 history 非空时才添加（API 可能不接受空数组）
@@ -1862,17 +1875,17 @@ ${conversationData}`;
         /*
         const requestJson = JSON.stringify(request);
         const requestSizeKB = (requestJson.length / 1024).toFixed(2);
-        console.log(`[Kiro Debug] Request size: ${requestSizeKB} KB`);
+        logger.info(`[Kiro Debug] Request size: ${requestSizeKB} KB`);
         if (request.conversationState) {
             const historySize = JSON.stringify(request.conversationState.history || []).length;
-            console.log(`[Kiro Debug] - History: ${(historySize / 1024).toFixed(2)} KB`);
+            logger.info(`[Kiro Debug] - History: ${(historySize / 1024).toFixed(2)} KB`);
         }
         */
 
         // ⚠️ 性能计时：buildCodewhispererRequest 总耗时
         const buildDuration = Date.now() - buildStartTime;
         if (buildDuration > 100) {
-            console.log(`[Kiro Perf] buildCodewhispererRequest total: ${buildDuration}ms (messages: ${messages.length})`);
+            logger.info(`[Kiro Perf] buildCodewhispererRequest total: ${buildDuration}ms (messages: ${messages.length})`);
         }
 
         return request;
@@ -1910,11 +1923,11 @@ ${conversationData}`;
             const cronNearMinutesInMillis = (this.config.CRON_NEAR_MINUTES || 10) * 60 * 1000;
             const thresholdTime = new Date(currentTime.getTime() + cronNearMinutesInMillis);
             if (this.verboseLogging) {
-                console.log(`[Kiro] Expiry date: ${expirationTime.getTime()}, Current time: ${currentTime.getTime()}, ${this.config.CRON_NEAR_MINUTES || 10} minutes from now: ${thresholdTime.getTime()}`);
+                logger.info(`[Kiro] Expiry date: ${expirationTime.getTime()}, Current time: ${currentTime.getTime()}, ${this.config.CRON_NEAR_MINUTES || 10} minutes from now: ${thresholdTime.getTime()}`);
             }
             return expirationTime.getTime() <= thresholdTime.getTime();
         } catch (error) {
-            console.error(`[Kiro] Error checking expiry date: ${this.expiresAt}, Error: ${error.message}`);
+            logger.error(`[Kiro] Error checking expiry date: ${this.expiresAt}, Error: ${error.message}`);
             return false; // Treat as expired if parsing fails
         }
     }
@@ -1927,7 +1940,7 @@ export const serviceInstances = {};
 
 // 服务适配器工厂 - 简化为仅支持 Kiro OAuth
 export function getServiceAdapter(config) {
-    console.log(`[Adapter] getServiceAdapter, provider: ${config.MODEL_PROVIDER}, uuid: ${config.uuid}`);
+    logger.info(`[Adapter] getServiceAdapter, provider: ${config.MODEL_PROVIDER}, uuid: ${config.uuid}`);
     const provider = config.MODEL_PROVIDER;
     const providerKey = config.uuid ? provider + config.uuid : provider;
 

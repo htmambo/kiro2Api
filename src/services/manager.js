@@ -1,5 +1,8 @@
 import deepmerge from 'deepmerge';
 import { getServiceAdapter, serviceInstances } from '../kiro/adapter.js';
+import { createLogger } from '../lib/logger.js';
+
+const logger = createLogger('services:manager');
 
 let accountPoolManager = null;
 let useSQLiteMode = false;
@@ -58,7 +61,7 @@ export async function initApiService(config) {
         try {
             getServiceAdapter({ ...config, MODEL_PROVIDER: provider });
         } catch (error) {
-            console.warn(`[Initialization Warning] Failed to initialize service adapter for ${provider}: ${error.message}`);
+            logger.warn(`[Initialization Warning] Failed to initialize service adapter for ${provider}: ${error.message}`);
         }
     }
 
@@ -81,9 +84,9 @@ export async function getApiService(config, requestedModel = null) {
             delete serviceConfig.accountPool;
             delete serviceConfig.providerPools;
             config.uuid = serviceConfig.uuid;
-            console.log(`[API Service] Using pooled account configuration: ${serviceConfig.uuid}${requestedModel ? ` (model: ${requestedModel})` : ''}`);
+            logger.info(`[API Service] Using pooled account configuration: ${serviceConfig.uuid}${requestedModel ? ` (model: ${requestedModel})` : ''}`);
         } else {
-            console.warn(`[API Service] No healthy account found${requestedModel ? ` supporting model: ${requestedModel}` : ''}. Falling back to main config.`);
+            logger.warn(`[API Service] No healthy account found${requestedModel ? ` supporting model: ${requestedModel}` : ''}. Falling back to main config.`);
         }
     }
 
@@ -97,4 +100,3 @@ export function getAccountPoolManager() {
 export function isSQLiteMode() {
     return useSQLiteMode;
 }
-

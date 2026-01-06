@@ -5,8 +5,11 @@
 import { existsSync, readFileSync, writeFileSync } from 'fs';
 import { promises as fs } from 'fs';
 import path from 'path';
+import { createLogger } from '../../../lib/logger.js';
 import { getRequestBody } from '../../../utils/common.js';
 import { broadcastEvent } from '../../events.js';
+
+const logger = createLogger('ui:handlers:config');
 
 /**
  * 获取配置
@@ -18,7 +21,7 @@ export async function getConfig({ res, currentConfig }) {
         try {
             systemPrompt = readFileSync(currentConfig.SYSTEM_PROMPT_FILE_PATH, 'utf-8');
         } catch (e) {
-            console.warn('[UI API] Failed to read system prompt file:', e.message);
+            logger.warn(`[UI API] Failed to read system prompt file: ${e.message}`);
         }
     }
 
@@ -57,7 +60,7 @@ export async function updateConfig({ req, res, currentConfig }) {
                     timestamp: new Date().toISOString()
                 });
             } catch (e) {
-                console.warn('[UI API] Failed to write system prompt:', e.message);
+                logger.warn(`[UI API] Failed to write system prompt: ${e.message}`);
             }
         }
 
@@ -66,7 +69,7 @@ export async function updateConfig({ req, res, currentConfig }) {
         try {
             writeFileSync(configPath, JSON.stringify(currentConfig, null, 2), 'utf8');
         } catch (error) {
-            console.error('[UI API] Failed to save configuration to file:', error.message);
+            logger.error('[UI API] Failed to save configuration to file:', error);
         }
 
         res.writeHead(200, { 'Content-Type': 'application/json' });

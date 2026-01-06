@@ -4,6 +4,9 @@
  */
 import { promises as fs, existsSync } from 'fs';
 import path from 'path';
+import { createLogger } from '../../../lib/logger.js';
+
+const logger = createLogger('ui:handlers:upload');
 
 /**
  * Helper function to attempt quick link for a single file
@@ -52,7 +55,7 @@ async function attemptQuickLinkFile(filePath, providerPoolManager) {
 
         // Add account through AccountPoolManager
         const newProvider = providerPoolManager.addAccount(newProviderConfig);
-        console.log(`[UI API] Quick linked config: ${filePath}`);
+        logger.info(`[UI API] Quick linked config: ${filePath}`);
 
         // Broadcast update event
         broadcastEvent('config_update', {
@@ -75,7 +78,7 @@ async function attemptQuickLinkFile(filePath, providerPoolManager) {
             providerType: providerType
         };
     } catch (error) {
-        console.error(`[UI API] Quick link for ${filePath} failed:`, error);
+        logger.error(`[UI API] Quick link for ${filePath} failed:`, error);
         return { success: false, message: '关联失败: ' + error.message };
     }
 }
@@ -119,7 +122,7 @@ export async function uploadCredentials({ req, res, currentConfig }) {
             timestamp: new Date().toISOString()
         });
 
-        console.log(`[Upload] OAuth凭据文件已上传: ${targetFilePath} (提供商: ${provider})`);
+        logger.info(`[Upload] OAuth凭据文件已上传: ${targetFilePath} (提供商: ${provider})`);
 
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
@@ -131,7 +134,7 @@ export async function uploadCredentials({ req, res, currentConfig }) {
         }));
 
     } catch (error) {
-        console.error('[Upload] 文件上传处理错误:', error);
+        logger.error('[Upload] 文件上传处理错误:', error);
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
             error: {
@@ -151,7 +154,7 @@ export async function getUploadConfigs({ res, currentConfig, providerPoolManager
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(configFiles));
     } catch (error) {
-        console.error('[UI API] Failed to scan config files:', error);
+        logger.error('[UI API] Failed to scan config files:', error);
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
             error: { message: 'Failed to scan config files: ' + error.message }
@@ -198,7 +201,7 @@ export async function viewConfig({ res, match }) {
             name: path.basename(fullPath)
         }));
     } catch (error) {
-        console.error('[UI API] Failed to view config file:', error);
+        logger.error('[UI API] Failed to view config file:', error);
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
             error: { message: 'Failed to view config file: ' + error.message }
@@ -251,7 +254,7 @@ export async function deleteConfig({ res, match }) {
             filePath: relativePath
         }));
     } catch (error) {
-        console.error('[UI API] Failed to delete config file:', error);
+        logger.error('[UI API] Failed to delete config file:', error);
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
             error: { message: 'Failed to delete config file: ' + error.message }
@@ -285,7 +288,7 @@ export async function quickLink({ req, res, providerPoolManager }) {
             providerType: result.providerType
         }));
     } catch (error) {
-        console.error('[UI API] Quick link failed:', error);
+        logger.error('[UI API] Quick link failed:', error);
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
             error: { message: '关联失败: ' + error.message }
@@ -311,7 +314,7 @@ export async function bulkQuickLink({ req, res, providerPoolManager }) {
 
         const uniquePaths = Array.from(new Set(filePaths.filter(Boolean)));
 
-        console.log(`[UI API] Bulk quick link started for ${uniquePaths.length} files`);
+        logger.info(`[UI API] Bulk quick link started for ${uniquePaths.length} files`);
 
         const results = await Promise.all(uniquePaths.map(async filePath => {
             const result = await attemptQuickLinkFile(filePath, providerPoolManager);
@@ -328,7 +331,7 @@ export async function bulkQuickLink({ req, res, providerPoolManager }) {
         const failureCount = results.filter(r => !r.success && !r.alreadyLinked).length;
         const skippedCount = results.filter(r => r.alreadyLinked).length;
 
-        console.log(`[UI API] Bulk quick link completed: ${successCount} succeeded, ${failureCount} failed, ${skippedCount} skipped`);
+        logger.info(`[UI API] Bulk quick link completed: ${successCount} succeeded, ${failureCount} failed, ${skippedCount} skipped`);
 
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
@@ -343,7 +346,7 @@ export async function bulkQuickLink({ req, res, providerPoolManager }) {
             results
         }));
     } catch (error) {
-        console.error('[UI API] Bulk quick link failed:', error);
+        logger.error('[UI API] Bulk quick link failed:', error);
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
             error: { message: '批量关联失败: ' + error.message }
@@ -398,7 +401,7 @@ function pathsEqual(path1, path2) {
         
         return false;
     } catch (error) {
-        console.warn(`[Path Comparison] Error comparing paths: ${path1} vs ${path2}`, error.message);
+        logger.warn(`[Path Comparison] Error comparing paths: ${path1} vs ${path2} ${error.message}`);
         return false;
     }
 }
@@ -510,7 +513,7 @@ async function scanConfigFiles(currentConfig, accountPoolManager) {
         const configsFiles = await scanOAuthDirectory(configsPath, usedPaths, currentConfig);
         configFiles.push(...configsFiles);
     } catch (error) {
-        console.warn(`[Config Scanner] Failed to scan configs directory:`, error.message);
+        logger.warn(`[Config Scanner] Failed to scan configs directory: ${error.message}`);
     }
 
     return configFiles;
@@ -554,7 +557,7 @@ async function scanOAuthDirectory(dirPath, usedPaths, currentConfig) {
             }
         }
     } catch (error) {
-        console.warn(`[OAuth Scanner] Failed to scan directory ${dirPath}:`, error.message);
+        logger.warn(`[OAuth Scanner] Failed to scan directory ${dirPath}: ${error.message}`);
     }
     
     return oauthFiles;
@@ -638,7 +641,7 @@ async function analyzeOAuthFile(filePath, usedPaths, currentConfig) {
             preview: content.substring(0, 100) + (content.length > 100 ? '...' : '')
         };
     } catch (error) {
-        console.warn(`[OAuth Analyzer] Failed to analyze file ${filePath}:`, error.message);
+        logger.warn(`[OAuth Analyzer] Failed to analyze file ${filePath}: ${error.message}`);
         return null;
     }
 }

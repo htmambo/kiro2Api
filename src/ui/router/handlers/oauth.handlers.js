@@ -3,7 +3,10 @@
  * 处理 OAuth 相关的 API 请求
  */
 import { startDeviceAuthorization, pollDeviceToken } from '../../../kiro/auth.js';
+import { createLogger } from '../../../lib/logger.js';
 // OAuth 相关的全局状态和函数需要从 ui-manager.js 导入
+
+const logger = createLogger('ui:handlers:oauth');
 
 /**
  * OAuth 网页回调 Handler
@@ -18,7 +21,7 @@ export async function webCallback({ req, res }) {
         const code = urlObj.searchParams.get('code');
         const state = urlObj.searchParams.get('state');
 
-        console.log(`[Kiro OAuth Web] Received callback: code=${code?.substring(0, 10)}..., state=${state?.substring(0, 10)}...`);
+        logger.info(`[Kiro OAuth Web] Received callback: code=${code?.substring(0, 10)}..., state=${state?.substring(0, 10)}...`);
 
         if (!code || !state) {
             res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -45,7 +48,7 @@ export async function webCallback({ req, res }) {
         const redirectUri = stateData.redirectUri;
 
         // 交换 code 获取 token
-        console.log('[Kiro OAuth Web] Exchanging code for token...');
+        logger.info('[Kiro OAuth Web] Exchanging code for token...');
         const tokenResponse = await fetch(KIRO_OAUTH_CONFIG.TOKEN_ENDPOINT, {
             method: 'POST',
             headers: {
@@ -63,14 +66,14 @@ export async function webCallback({ req, res }) {
 
         if (!tokenResponse.ok) {
             const errorText = await tokenResponse.text();
-            console.error('[Kiro OAuth Web] Token exchange failed:', errorText);
+            logger.error(`[Kiro OAuth Web] Token exchange failed: ${errorText}`);
             res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
             res.end(generateOAuthResultPage(false, `Token 交换失败: ${tokenResponse.status} - ${errorText}`));
             return;
         }
 
         const tokenData = await tokenResponse.json();
-        console.log('[Kiro OAuth Web] Token exchange successful!');
+        logger.info('[Kiro OAuth Web] Token exchange successful!');
 
         // 保存 token 到文件
         const accountNumber = stateData.accountNumber || 1;
@@ -95,7 +98,7 @@ export async function webCallback({ req, res }) {
         };
 
         fs.default.writeFileSync(tokenFilePath, JSON.stringify(fullTokenData, null, 2));
-        console.log(`[Kiro OAuth Web] Token saved to: ${tokenFilePath}`);
+        logger.info(`[Kiro OAuth Web] Token saved to: ${tokenFilePath}`);
 
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
         res.end(generateOAuthResultPage(true, `账号 #${accountNumber} 授权成功！`, {
@@ -104,7 +107,7 @@ export async function webCallback({ req, res }) {
             provider: stateData.provider
         }));
     } catch (error) {
-        console.error('[Kiro OAuth Web] Callback handling error:', error);
+        logger.error('[Kiro OAuth Web] Callback handling error:', error);
         res.writeHead(500, { 'Content-Type': 'text/html; charset=utf-8' });
         res.end('<html><body><h1>处理失败</h1></body></html>');
     }
@@ -141,7 +144,7 @@ export async function checkState({ req, res }) {
             }));
         }
     } catch (error) {
-        console.error('[Kiro OAuth] Check state error:', error);
+        logger.error('[Kiro OAuth] Check state error:', error);
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: error.message }));
     }
@@ -180,7 +183,7 @@ export async function manualImport({ req, res, currentConfig, providerPoolManage
             return;
         }
 
-        console.log(`[Kiro Manual Import] Importing refreshToken for account ${accountNumber}`);
+        logger.info(`[Kiro Manual Import] Importing refreshToken for account ${accountNumber}`);
 
         // Test refresh by calling Kiro token refresh API
         const REFRESH_URL = 'https://prod.us-east-1.auth.desktop.kiro.dev/oauth/token';
@@ -200,8 +203,8 @@ export async function manualImport({ req, res, currentConfig, providerPoolManage
             const { accessToken: newAccessToken, expiresAt, profileArn: fetchedProfileArn } = refreshResponse.data;
             const finalProfileArn = profileArn || fetchedProfileArn;
 
-            console.log('[Kiro Manual Import] RefreshToken validated and refreshed successfully');
-            console.log(`[Kiro Manual Import] ProfileArn: ${finalProfileArn}`);
+            logger.info('[Kiro Manual Import] RefreshToken validated and refreshed successfully');
+            logger.info(`[Kiro Manual Import] ProfileArn: ${finalProfileArn}`);
 
             // Save token to configs/kiro directory
             const kiroConfigDir = path.join(process.cwd(), 'configs', 'kiro');
@@ -218,7 +221,7 @@ export async function manualImport({ req, res, currentConfig, providerPoolManage
             };
 
             await (await import('fs')).writeFile(tokenFilePath, JSON.stringify(credentialsData, null, 2));
-            console.log('[Kiro Manual Import] Token saved to:', tokenFilePath);
+            logger.info(`[Kiro Manual Import] Token saved to: ${tokenFilePath}`);
 
             // Check for duplicates and add to provider_pools.json
             const { PROVIDER_POOLS_FILE } = await import('../../../ui-manager.js');
@@ -253,11 +256,11 @@ export async function manualImport({ req, res, currentConfig, providerPoolManage
                 if (userIdResult) {
                     isDuplicate = true;
                     duplicateProvider = userIdResult.existingProvider;
-                    console.log(`[Kiro Manual Import] Duplicate account detected: ${userIdResult.userId}`);
+                    logger.info(`[Kiro Manual Import] Duplicate account detected: ${userIdResult.userId}`);
 
                     // Delete the token file
                     await (await import('fs')).unlink(tokenFilePath);
-                    console.log(`[Kiro Manual Import] Deleted duplicate token file: ${tokenFilePath}`);
+                    logger.info(`[Kiro Manual Import] Deleted duplicate token file: ${tokenFilePath}`);
 
                     res.writeHead(200, { 'Content-Type': 'application/json' });
                     res.end(JSON.stringify({
@@ -291,7 +294,7 @@ export async function manualImport({ req, res, currentConfig, providerPoolManage
 
                     providerPools['claude-kiro-oauth'].push(newProvider);
                     writeFileSync(poolsFilePath, JSON.stringify(providerPools, null, 2), 'utf8');
-                    console.log(`[Kiro Manual Import] Added to provider pool with UUID: ${newProvider.uuid}`);
+                    logger.info(`[Kiro Manual Import] Added to provider pool with UUID: ${newProvider.uuid}`);
 
                     if (providerPoolManager) {
                         providerPoolManager.providerPools = providerPools;
@@ -306,7 +309,7 @@ export async function manualImport({ req, res, currentConfig, providerPoolManage
                     });
                 }
             } catch (error) {
-                console.error('[Kiro Manual Import] Failed to add to provider pool:', error.message);
+                logger.error(`[Kiro Manual Import] Failed to add to provider pool: ${error.message}`);
             }
 
             broadcastEvent('oauth_success', {
@@ -323,7 +326,7 @@ export async function manualImport({ req, res, currentConfig, providerPoolManage
                 profileArn: finalProfileArn
             }));
         } catch (refreshError) {
-            console.error('[Kiro Manual Import] RefreshToken validation failed:', refreshError.message);
+            logger.error(`[Kiro Manual Import] RefreshToken validation failed: ${refreshError.message}`);
             res.writeHead(400, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
                 success: false,
@@ -331,7 +334,7 @@ export async function manualImport({ req, res, currentConfig, providerPoolManage
             }));
         }
     } catch (error) {
-        console.error('[Kiro Manual Import] Error:', error);
+        logger.error('[Kiro Manual Import] Error:', error);
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
             success: false,
@@ -365,8 +368,8 @@ export async function awsSsoStart({ req, res, currentConfig, providerPoolManager
             'codewhisperer:taskassist'
         ];
 
-        console.log(`[AWS SSO] Starting automatic client registration...`);
-        console.log(`[AWS SSO] Region: ${region}, Start URL: ${finalStartUrl}`);
+        logger.info(`[AWS SSO] Starting automatic client registration...`);
+        logger.info(`[AWS SSO] Region: ${region}, Start URL: ${finalStartUrl}`);
 
         // Step 1: 自动注册 Client
         const registerClientUrl = `https://oidc.${region}.amazonaws.com/client/register`;
@@ -399,9 +402,9 @@ export async function awsSsoStart({ req, res, currentConfig, providerPoolManager
             throw new Error('Failed to register client: missing clientId or clientSecret in response');
         }
 
-        console.log(`[AWS SSO] Client registered successfully!`);
-        console.log(`[AWS SSO] Client ID: ${clientId.substring(0, 10)}...`);
-        console.log(`[AWS SSO] Client expires at: ${new Date(clientSecretExpiresAt * 1000).toISOString()}`);
+        logger.info(`[AWS SSO] Client registered successfully!`);
+        logger.info(`[AWS SSO] Client ID: ${clientId.substring(0, 10)}...`);
+        logger.info(`[AWS SSO] Client expires at: ${new Date(clientSecretExpiresAt * 1000).toISOString()}`);
 
         // 动态导入 KiroService
         const { KiroService } = await import('../../../kiro/adapter.js');
@@ -414,15 +417,15 @@ export async function awsSsoStart({ req, res, currentConfig, providerPoolManager
         kiroService.authMethod = 'IdC';
         await kiroService.initialize(true); // skipAuthCheck=true
 
-        console.log(`[AWS SSO] Starting device authorization for account ${accountNumber}`);
-        console.log(`[AWS SSO] Start URL: ${finalStartUrl}`);
+        logger.info(`[AWS SSO] Starting device authorization for account ${accountNumber}`);
+        logger.info(`[AWS SSO] Start URL: ${finalStartUrl}`);
 
         // 启动设备授权
         const deviceAuthInfo = await startDeviceAuthorization(kiroService, finalStartUrl);
 
-        console.log(`[AWS SSO] Device authorization started`);
-        console.log(`[AWS SSO] User Code: ${deviceAuthInfo.userCode}`);
-        console.log(`[AWS SSO] Verification URI: ${deviceAuthInfo.verificationUriComplete}`);
+        logger.info(`[AWS SSO] Device authorization started`);
+        logger.info(`[AWS SSO] User Code: ${deviceAuthInfo.userCode}`);
+        logger.info(`[AWS SSO] Verification URI: ${deviceAuthInfo.verificationUriComplete}`);
 
         // 启动后台轮询（不等待完成）
         const fs = await import('fs');
@@ -452,12 +455,12 @@ export async function awsSsoStart({ req, res, currentConfig, providerPoolManager
             };
 
             await fs.promises.writeFile(tokenFilePath, JSON.stringify(credentialsData, null, 2));
-            console.log(`[AWS SSO] Token saved to: ${tokenFilePath}`);
+            logger.info(`[AWS SSO] Token saved to: ${tokenFilePath}`);
 
             // 自动添加到 provider_pools.json
             try {
                 const result = providerPoolManager.addTokenFile(tokenFilePath);
-                console.log(`[AWS SSO] Token added to provider_pools.json: ${result}`);
+                logger.info(`[AWS SSO] Token added to provider_pools.json: ${result}`);
 
                 if(result === 1) {
                     // 广播提供商更新事件
@@ -469,7 +472,7 @@ export async function awsSsoStart({ req, res, currentConfig, providerPoolManager
                     });
                 }
             } catch (error) {
-                console.error(`[AWS SSO] Failed to add token to provider_pools.json: ${error.message}`);
+                logger.error(`[AWS SSO] Failed to add token to provider_pools.json: ${error.message}`);
             }
 
             // 广播OAuth成功事件
@@ -479,9 +482,9 @@ export async function awsSsoStart({ req, res, currentConfig, providerPoolManager
                 timestamp: new Date().toISOString()
             });
 
-            console.log(`[AWS SSO] Device authorization completed successfully for account ${accountNumber}`);
+            logger.info(`[AWS SSO] Device authorization completed successfully for account ${accountNumber}`);
         }).catch(error => {
-            console.error(`[AWS SSO] Device authorization polling failed: ${error.message}`);
+            logger.error(`[AWS SSO] Device authorization polling failed: ${error.message}`);
         });
 
         // 立即返回设备授权信息给前端
@@ -498,7 +501,7 @@ export async function awsSsoStart({ req, res, currentConfig, providerPoolManager
             deviceCode: deviceAuthInfo.deviceCode
         }));
     } catch (error) {
-        console.error('[AWS SSO] Error:', error);
+        logger.error('[AWS SSO] Error:', error);
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
             success: false,

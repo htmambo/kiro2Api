@@ -14,6 +14,9 @@ import { executeWebSearch, formatSearchResults } from './search.js';
 import { MODEL_MAPPING } from './adapter.js';
 import { KIRO_CONSTANTS, refreshAccessTokenIfNeeded } from './auth.js';
 import { unescapeHTML } from './utils.js';
+import { createLogger } from '../lib/logger.js';
+
+const logger = createLogger('kiro:api-client');
 
 /**
  * 解析事件流数据块（SSE 格式）
@@ -80,7 +83,7 @@ function parseEventStreamChunk(rawData) {
                     }
                 }
             } catch (e) {
-                console.warn('[Kiro] Failed to parse event data:', e.message);
+                logger.warn('[Kiro] Failed to parse event data:', e.message);
             }
 
             // 重置状态
@@ -129,7 +132,7 @@ export async function callApi(service, method, model, body, isRetry = false, ret
         const requestData = await service.buildCodewhispererRequest(body.messages, model, body.tools, body.system, enableThinking);
         const buildDuration = Date.now() - buildStartTime;
         if (buildDuration > 100) {
-            console.log(`[Kiro Perf] buildCodewhispererRequest took ${buildDuration}ms (messages: ${body.messages?.length || 0})`);
+            logger.info(`[Kiro Perf] buildCodewhispererRequest took ${buildDuration}ms (messages: ${body.messages?.length || 0})`);
         }
 
         // ========================================
@@ -148,21 +151,21 @@ export async function callApi(service, method, model, body, isRetry = false, ret
 
         // 简洁模式：只显示关键信息
         if (!service.verboseLogging) {
-            console.log(`[Kiro] 📤 REQUEST [${model}] - ${new Date().toISOString()}`);
+            logger.info(`[Kiro] 📤 REQUEST [${model}] - ${new Date().toISOString()}`);
         } else {
             // 详细模式：显示所有信息
-            console.log('\n' + '='.repeat(60));
-            console.log(`📤 REQUEST [${model}]${isRetry ? ' (retry ' + retryCount + ')' : ''}`);
-            console.log('='.repeat(60));
-            console.log(`Timestamp: ${new Date().toISOString()}`);
-            console.log(`URL: ${model.startsWith('amazonq') ? service.amazonQUrl : service.baseUrl}`);
-            console.log(`Messages: ${(conversationState?.history?.length || 0) + 1} | Tools: ${conversationState?.currentMessage?.userInputMessage?.userInputMessageContext?.tools?.length || 0} | System: ${body.system ? 'yes' : 'no'}`);
-            console.log(`Request Size: ${requestSizeKB} KB | Thinking: ${enableThinking ? 'enabled' : 'disabled'}`);
+            logger.info('\n' + '='.repeat(60));
+            logger.info(`📤 REQUEST [${model}]${isRetry ? ' (retry ' + retryCount + ')' : ''}`);
+            logger.info('='.repeat(60));
+            logger.info(`Timestamp: ${new Date().toISOString()}`);
+            logger.info(`URL: ${model.startsWith('amazonq') ? service.amazonQUrl : service.baseUrl}`);
+            logger.info(`Messages: ${(conversationState?.history?.length || 0) + 1} | Tools: ${conversationState?.currentMessage?.userInputMessage?.userInputMessageContext?.tools?.length || 0} | System: ${body.system ? 'yes' : 'no'}`);
+            logger.info(`Request Size: ${requestSizeKB} KB | Thinking: ${enableThinking ? 'enabled' : 'disabled'}`);
             if (conversationState?.conversationId) {
-                console.log(`Conversation ID: ${conversationState.conversationId}`);
+                logger.info(`Conversation ID: ${conversationState.conversationId}`);
             }
-            console.log(`Message Preview: ${contentPreview}`);
-            console.log('='.repeat(60));
+            logger.info(`Message Preview: ${contentPreview}`);
+            logger.info('='.repeat(60));
         }
 
         try {
@@ -185,14 +188,14 @@ export async function callApi(service, method, model, body, isRetry = false, ret
 
             // 简洁模式：只显示关键信息
             if (!service.verboseLogging) {
-                console.log(`[Kiro] 📥 RESPONSE [${response.status}] [${requestDuration}s]`);
+                logger.info(`[Kiro] 📥 RESPONSE [${response.status}] [${requestDuration}s]`);
             } else {
                 // 详细模式：显示所有信息
-                console.log('\n' + '='.repeat(60));
-                console.log(`📥 RESPONSE [${response.status} ${response.statusText}] [${requestDuration}s]`);
-                console.log('='.repeat(60));
-                console.log(`Response Size: ${responseSizeKB} KB`);
-                console.log('='.repeat(60) + '\n');
+                logger.info('\n' + '='.repeat(60));
+                logger.info(`📥 RESPONSE [${response.status} ${response.statusText}] [${requestDuration}s]`);
+                logger.info('='.repeat(60));
+                logger.info(`Response Size: ${responseSizeKB} KB`);
+                logger.info('='.repeat(60) + '\n');
             }
 
             return response;
@@ -210,8 +213,8 @@ export async function callApi(service, method, model, body, isRetry = false, ret
             );
 
             if (isSocketError && retryCount < maxRetries) {
-                console.log(`[Kiro] Socket error detected: ${error.code || error.message}`);
-                console.log(`[Kiro] Resetting connection pool and retrying... (attempt ${retryCount + 1}/${maxRetries})`);
+                logger.info(`[Kiro] Socket error detected: ${error.code || error.message}`);
+                logger.info(`[Kiro] Resetting connection pool and retrying... (attempt ${retryCount + 1}/${maxRetries})`);
 
                 // 重置连接池
                 await service.resetConnectionPool();
@@ -222,26 +225,26 @@ export async function callApi(service, method, model, body, isRetry = false, ret
 
                 return callApi(service, method, model, body, isRetry, retryCount + 1);
             } else if (isSocketError) {
-                console.error('[Kiro] Socket error after max retries:', error.code || error.message);
+                logger.error('[Kiro] Socket error after max retries:', error.code || error.message);
                 throw new Error(`Connection failed: ${error.message}. Please check your network or try restarting the service.`);
             }
 
             // 403 错误处理
             if (error.response?.status === 403 && !isRetry) {
-                console.log('[Kiro] Received 403. Attempting token refresh and retrying...');
+                logger.info('[Kiro] Received 403. Attempting token refresh and retrying...');
                 try {
                     await initializeAuth(service, true); // Force refresh token
                     return callApi(service, method, model, body, true, retryCount);
                 } catch (refreshError) {
-                    console.error('[Kiro] Token refresh failed during 403 retry:', refreshError.message);
+                    logger.error('[Kiro] Token refresh failed during 403 retry:', refreshError.message);
                     throw refreshError;
                 }
             }
 
             // 400 错误详细日志(帮助调试请求格式问题)
             if (error.response?.status === 400) {
-                console.error('[Kiro] ❌ 400 Bad Request Error - Request format issue detected');
-                console.error('[Kiro] Error details:', {
+                logger.error('[Kiro] ❌ 400 Bad Request Error - Request format issue detected');
+                logger.error('[Kiro] Error details:', {
                     status: error.response.status,
                     statusText: error.response.statusText,
                     data: JSON.stringify(error.response.data).substring(0, 500),
@@ -250,7 +253,7 @@ export async function callApi(service, method, model, body, isRetry = false, ret
                 // 打印请求体的关键信息帮助调试
                 try {
                     const reqState = requestData?.conversationState;
-                    console.error('[Kiro] Request debug info:', {
+                    logger.error('[Kiro] Request debug info:', {
                         historyLength: reqState?.history?.length || 0,
                         hasCurrentMessage: !!reqState?.currentMessage,
                         currentMsgType: reqState?.currentMessage?.userInputMessage ? 'userInputMessage' : 'unknown',
@@ -264,7 +267,7 @@ export async function callApi(service, method, model, body, isRetry = false, ret
                     // ⚠️ 关键调试：打印 toolResults 结构
                     const toolResults = reqState?.currentMessage?.userInputMessage?.userInputMessageContext?.toolResults;
                     if (toolResults && toolResults.length > 0) {
-                        console.error('[Kiro] ToolResults structure:', JSON.stringify(toolResults.map(tr => ({
+                        logger.error('[Kiro] ToolResults structure:', JSON.stringify(toolResults.map(tr => ({
                             toolUseId: tr.toolUseId,
                             status: tr.status,
                             hasContent: !!tr.content,
@@ -285,13 +288,13 @@ export async function callApi(service, method, model, body, isRetry = false, ret
                         for (let idx = 0; idx < reqState.history.length; idx++) {
                             const h = reqState.history[idx];
                             if (h.userInputMessage) {
-                                console.error(`[Kiro] History[${idx}] userInputMessage.content length:`, h.userInputMessage.content?.length || 0);
+                                logger.error(`[Kiro] History[${idx}] userInputMessage.content length:`, h.userInputMessage.content?.length || 0);
                             }
                             if (h.assistantResponseMessage) {
-                                console.error(`[Kiro] History[${idx}] assistantResponseMessage.content length:`, h.assistantResponseMessage.content?.length || 0);
+                                logger.error(`[Kiro] History[${idx}] assistantResponseMessage.content length:`, h.assistantResponseMessage.content?.length || 0);
                                 if (h.assistantResponseMessage.toolUses) {
                                     // ⚠️ 增强调试：打印完整的 toolUse 结构，检查是否有 input 字段
-                                    console.error(`[Kiro] History[${idx}] toolUses:`, JSON.stringify(h.assistantResponseMessage.toolUses.map(tu => ({
+                                    logger.error(`[Kiro] History[${idx}] toolUses:`, JSON.stringify(h.assistantResponseMessage.toolUses.map(tu => ({
                                         toolUseId: tu.toolUseId,
                                         name: tu.name,
                                         hasInput: tu.input !== undefined,
@@ -303,7 +306,7 @@ export async function callApi(service, method, model, body, isRetry = false, ret
                         }
                     }
                 } catch (debugErr) {
-                    console.error('[Kiro] Failed to log request debug info:', debugErr.message);
+                    logger.error('[Kiro] Failed to log request debug info:', debugErr.message);
                 }
                 // 400 错误是请求格式问题,属于致命错误,直接抛出(会被health check捕获)
                 throw error;
@@ -313,7 +316,7 @@ export async function callApi(service, method, model, body, isRetry = false, ret
             if (error.response?.status === 429) {
                 if (retryCount < maxRetries) {
                     const delay = baseDelay * Math.pow(2, retryCount);
-                    console.log(`[Kiro] Received 429 (Rate Limit). Retrying in ${delay}ms... (attempt ${retryCount + 1}/${maxRetries})`);
+                    logger.info(`[Kiro] Received 429 (Rate Limit). Retrying in ${delay}ms... (attempt ${retryCount + 1}/${maxRetries})`);
                     await new Promise(resolve => setTimeout(resolve, delay));
                     return callApi(service, method, model, body, isRetry, retryCount + 1);
                 } else {
@@ -328,16 +331,16 @@ export async function callApi(service, method, model, body, isRetry = false, ret
             // 5xx 服务器错误处理(可重试)
             if (error.response?.status >= 500 && error.response?.status < 600 && retryCount < maxRetries) {
                 const delay = baseDelay * Math.pow(2, retryCount);
-                console.log(`[Kiro] Received ${error.response.status} server error. Retrying in ${delay}ms... (attempt ${retryCount + 1}/${maxRetries})`);
+                logger.info(`[Kiro] Received ${error.response.status} server error. Retrying in ${delay}ms... (attempt ${retryCount + 1}/${maxRetries})`);
                 await new Promise(resolve => setTimeout(resolve, delay));
                 return callApi(service, method, model, body, isRetry, retryCount + 1);
             }
 
             // 其他错误
-            console.error('[Kiro] API call failed:', error.message);
+            logger.error('[Kiro] API call failed:', error.message);
             if (error.response) {
-                console.error('[Kiro] Response status:', error.response.status);
-                console.error('[Kiro] Response data:', JSON.stringify(error.response.data).substring(0, 300));
+                logger.error('[Kiro] Response status:', error.response.status);
+                logger.error('[Kiro] Response data:', JSON.stringify(error.response.data).substring(0, 300));
             }
             throw error;
         }
@@ -355,7 +358,7 @@ function processApiResponse(response) {
         const rawResponseText = Buffer.isBuffer(response.data) ? response.data.toString('utf8') : String(response.data);
         //console.log(`[Kiro] Raw response length: ${rawResponseText.length}`);
         if (rawResponseText.includes("[Called")) {
-            console.log("[Kiro] Raw response contains [Called marker.");
+            logger.info("[Kiro] Raw response contains [Called marker.");
         }
 
         // 1. Parse structured events and bracket calls from parsed content
@@ -415,12 +418,12 @@ export async function generateContent(service, model, requestBody) {
         // Kiro 官方逻辑：如果model在MODEL_MAPPING中则使用，否则使用默认模型
         const finalModel = MODEL_MAPPING[model] ? model : service.modelName;
         if (service.verboseLogging) {
-            console.log(`[Kiro] Calling generateContent with model: ${finalModel}`);
+            logger.info(`[Kiro] Calling generateContent with model: ${finalModel}`);
         }
 
         // Estimate input tokens before making the API call
         const inputTokens = estimateInputTokens(requestBody);
-        console.log(`[Kiro Token] generateContent estimateInputTokens: ${inputTokens} tokens (${requestBody.messages?.length || 0} messages)`);
+        logger.info(`[Kiro Token] generateContent estimateInputTokens: ${inputTokens} tokens (${requestBody.messages?.length || 0} messages)`);
         
         const response = await callApi(service, '', finalModel, requestBody);
 
@@ -428,7 +431,7 @@ export async function generateContent(service, model, requestBody) {
             const { responseText, toolCalls } = processApiResponse(response);
             return buildClaudeResponse(responseText, false, 'assistant', model, toolCalls, inputTokens);
         } catch (error) {
-            console.error('[Kiro] Error in generateContent:', error);
+            logger.error('[Kiro] Error in generateContent:', error);
             throw new Error(`Error processing response: ${error.message}`);
         }
     }
@@ -468,7 +471,7 @@ export async function* generateContentStream(service, model, requestBody) {
                              requestBody.extended_thinking === true ||
                              service.config.ENABLE_THINKING_BY_DEFAULT === true;
         if (service.verboseLogging) {
-            console.log(`[Kiro] Calling generateContentStream with model: ${finalModel} (real streaming, thinking: ${enableThinking})`);
+            logger.info(`[Kiro] Calling generateContentStream with model: ${finalModel} (real streaming, thinking: ${enableThinking})`);
         }
 
         // ⚠️ 性能计时：token 估算
@@ -476,7 +479,7 @@ export async function* generateContentStream(service, model, requestBody) {
         const inputTokens = estimateInputTokens(requestBody);
         const tokenDuration = Date.now() - tokenStartTime;
         // ⚠️ 调试：打印 token 计算结果
-        console.log(`[Kiro Token] estimateInputTokens: ${inputTokens} tokens (${requestBody.messages?.length || 0} messages, ${tokenDuration}ms)`);
+        logger.info(`[Kiro Token] estimateInputTokens: ${inputTokens} tokens (${requestBody.messages?.length || 0} messages, ${tokenDuration}ms)`);
         const messageId = `${uuidv4()}`;
         
         try {
@@ -762,7 +765,7 @@ export async function* generateContentStream(service, model, requestBody) {
                             // ⭐ 服务端执行 webSearch 工具
                             if (currentToolCall.name === 'webSearch') {
                                 if (serviceverboseLogging) {
-                                    console.log('[Kiro WebSearch] Detected webSearch tool call, executing on server...');
+                                    logger.info('[Kiro WebSearch] Detected webSearch tool call, executing on server...');
                                 }
                                 currentToolCall.serverSideExecute = true;  // 标记为服务端执行
                             }
@@ -786,7 +789,7 @@ export async function* generateContentStream(service, model, requestBody) {
                     if (references && references.length > 0) {
                         codeReferences.push(...references);
                         if (service.verboseLogging) {
-                            console.log(`[Kiro] Code references detected: ${references.length} sources`);
+                            logger.info(`[Kiro] Code references detected: ${references.length} sources`);
                         }
                     }
                 }
@@ -870,7 +873,7 @@ export async function* generateContentStream(service, model, requestBody) {
 
             if (serverSideTools.length > 0) {
                 if (service.verboseLogging) {
-                    console.log(`[Kiro WebSearch] Processing ${serverSideTools.length} server-side tool calls...`);
+                    logger.info(`[Kiro WebSearch] Processing ${serverSideTools.length} server-side tool calls...`);
                 }
 
                 let searchResultsContent = '';
@@ -907,7 +910,7 @@ export async function* generateContentStream(service, model, requestBody) {
 
                     totalContent += searchResultsContent;
                     if (service.verboseLogging) {
-                        console.log('[Kiro WebSearch] Search results added to response');
+                        logger.info('[Kiro WebSearch] Search results added to response');
                     }
                 }
             }
@@ -934,8 +937,8 @@ export async function* generateContentStream(service, model, requestBody) {
                         } catch (e) {
                             // ⚠️ 修复：不完整的工具调用应该被跳过
                             // 打印详细日志帮助调试
-                            console.warn(`[Kiro] Failed to parse tool input as JSON for ${tc.name}:`, toolInput.substring(0, 100));
-                            console.warn(`[Kiro] Skipping incomplete tool call: ${tc.name} (toolUseId: ${tc.toolUseId})`);
+                            logger.warn(`[Kiro] Failed to parse tool input as JSON for ${tc.name}:`, toolInput.substring(0, 100));
+                            logger.warn(`[Kiro] Skipping incomplete tool call: ${tc.name} (toolUseId: ${tc.toolUseId})`);
                             // 跳过这个工具调用，不要发送空参数
                             continue;
                         }
@@ -946,8 +949,8 @@ export async function* generateContentStream(service, model, requestBody) {
                         const hasFilePath = toolInput.file_path || toolInput.path;
                         const hasContent = toolInput.content !== undefined;
                         if (!hasFilePath || !hasContent) {
-                            console.warn(`[Kiro] Incomplete Write tool call - missing required params. file_path: ${!!hasFilePath}, content: ${!!hasContent}`);
-                            console.warn(`[Kiro] Skipping incomplete Write tool call (toolUseId: ${tc.toolUseId})`);
+                            logger.warn(`[Kiro] Incomplete Write tool call - missing required params. file_path: ${!!hasFilePath}, content: ${!!hasContent}`);
+                            logger.warn(`[Kiro] Skipping incomplete Write tool call (toolUseId: ${tc.toolUseId})`);
                             continue;
                         }
                     }
@@ -1013,8 +1016,8 @@ export async function* generateContentStream(service, model, requestBody) {
             yield { type: "message_stop" };
 
         } catch (error) {
-            console.error('[Kiro] Error in streaming generation:', error);
-            console.error('[Kiro] Error stack:', error.stack);
+            logger.error('[Kiro] Error in streaming generation:', error);
+            logger.error('[Kiro] Error stack:', error.stack);
 
             // ⚠️ CRITICAL FIX: 如果stream已经开始传输,不能throw error,应该yield error event
             // 这样客户端能看到错误信息而不是静默断开
@@ -1207,7 +1210,7 @@ export function buildClaudeResponse(content, isStream = false, role = 'assistant
                         inputObject = JSON.parse(inputObject);
                     }
                 } catch (e) {
-                    console.warn(`[Kiro] Invalid JSON for tool call arguments (${tc.function.name}):`,
+                    logger.warn(`[Kiro] Invalid JSON for tool call arguments (${tc.function.name}):`,
                         typeof tc.function.arguments === 'string' ? tc.function.arguments.substring(0, 100) : tc.function.arguments);
                     inputObject = {};
                 }
@@ -1278,7 +1281,7 @@ export function buildClaudeResponse(content, isStream = false, role = 'assistant
                         inputObject = JSON.parse(inputObject);
                     }
                 } catch (e) {
-                    console.warn(`[Kiro] Invalid JSON for tool call arguments (${tc.function.name}):`,
+                    logger.warn(`[Kiro] Invalid JSON for tool call arguments (${tc.function.name}):`,
                         typeof tc.function.arguments === 'string' ? tc.function.arguments.substring(0, 100) : tc.function.arguments);
                     inputObject = {};
                 }
@@ -1353,26 +1356,26 @@ export async function getUsageLimits(service) {
 
     try {
         const response = await service.axiosInstance.get(fullUrl, { headers });
-        console.log('[Kiro] Usage limits fetched successfully');
+        logger.info('[Kiro] Usage limits fetched successfully');
         return response.data;
     } catch (error) {
         // 如果是 403 错误，尝试刷新 token 后重试
         if (error.response?.status === 403) {
-            console.log('[Kiro] Received 403 on getUsageLimits. Attempting token refresh and retrying...');
+            logger.info('[Kiro] Received 403 on getUsageLimits. Attempting token refresh and retrying...');
             try {
                 await service.initializeAuth(true);
                 // 更新 Authorization header
                 headers['Authorization'] = `Bearer ${service.accessToken}`;
                 headers['amz-sdk-invocation-id'] = uuidv4();
                 const retryResponse = await service.axiosInstance.get(fullUrl, { headers });
-                console.log('[Kiro] Usage limits fetched successfully after token refresh');
+                logger.info('[Kiro] Usage limits fetched successfully after token refresh');
                 return retryResponse.data;
             } catch (refreshError) {
-                console.error('[Kiro] Token refresh failed during getUsageLimits retry:', refreshError.message);
+                logger.error('[Kiro] Token refresh failed during getUsageLimits retry:', refreshError.message);
                 throw refreshError;
             }
         }
-        console.error('[Kiro] Failed to fetch usage limits:', error.message);
+        logger.error('[Kiro] Failed to fetch usage limits:', error.message);
         throw error;
     }
 }

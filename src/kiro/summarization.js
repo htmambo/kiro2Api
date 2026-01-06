@@ -5,6 +5,10 @@
  * 提供智能的对话摘要功能，替代简单的 100 字符截断
  */
 
+import { createLogger } from '../lib/logger.js';
+
+const logger = createLogger('kiro:summarization');
+
 // 摘要指令模板（复刻 Kiro getSummarizationInstructions）
 export const SUMMARIZATION_INSTRUCTIONS = `You are preparing a summary for a new agent instance who will pick up this conversation.
 
@@ -209,14 +213,14 @@ export function extractUsefulInformation(messages) {
  * @returns {Promise<string|null>} - 摘要文本，失败返回 null
  */
 export async function generateConversationSummary(messages, kiroApiInstance) {
-    console.log('[Kiro Summarize] Starting AI summarization...');
-    console.log('[Kiro Summarize] Input messages count:', messages.length);
+    logger.info('[Kiro Summarize] Starting AI summarization...');
+    logger.debug('[Kiro Summarize] Input messages count:', { count: messages.length });
 
     // 使用 Kiro 风格的提取函数
     const extractedInfo = extractUsefulInformation(messages);
     const userQueries = extractUserQueries(messages);
 
-    console.log('[Kiro Summarize] Extracted info length:', extractedInfo.length, 'chars');
+    logger.debug('[Kiro Summarize] Extracted info length:', { length: extractedInfo.length, unit: 'chars' });
 
     // 限制总长度避免摘要请求本身超限
     let conversationData = extractedInfo;
@@ -244,16 +248,16 @@ ${userQueries}`;
         if (summaryResponse && summaryResponse.content) {
             // 添加 user queries 到摘要末尾（和 Kiro 一样）
             const fullSummary = summaryResponse.content + (userQueries || '');
-            console.log('[Kiro Summarize] Summary generated successfully');
-            console.log('[Kiro Summarize] Summary length:', fullSummary.length, 'chars');
+            logger.info('[Kiro Summarize] Summary generated successfully');
+            logger.debug('[Kiro Summarize] Summary length:', { length: fullSummary.length, unit: 'chars' });
             return fullSummary;
         }
     } catch (error) {
-        console.error('[Kiro Summarize] Failed to generate summary:', error.message);
+        logger.error('[Kiro Summarize] Failed to generate summary:', { error: error.message });
     }
 
     // 降级：如果 AI 摘要失败，返回 null
-    console.log('[Kiro Summarize] Falling back to simple truncation');
+    logger.info('[Kiro Summarize] Falling back to simple truncation');
     return null;
 }
 

@@ -2,9 +2,12 @@
  * 用量 Handler 实现
  */
 import path from 'path';
+import { createLogger } from '../../../lib/logger.js';
 
 import { KIRO_MODELS } from '../../../kiro/constants.js';
 import { getUsageLimits } from '../../../kiro/api-client.js';
+
+const logger = createLogger('ui:handlers:usage');
 
 /**
  * 获取所有用量
@@ -248,7 +251,7 @@ async function getProviderTypeUsage(providerType, currentConfig, providerPoolMan
         } else if (!adapter) {
             // 服务实例未初始化，尝试自动初始化
             try {
-                console.log(`[Usage API] Auto-initializing service adapter for ${providerType}: ${provider.uuid}`);
+                logger.info(`[Usage API] Auto-initializing service adapter for ${providerType}: ${provider.uuid}`);
                 // 构建配置对象
                 const serviceConfig = {
                     ...CONFIG,
@@ -257,7 +260,7 @@ async function getProviderTypeUsage(providerType, currentConfig, providerPoolMan
                 };
                 adapter = getServiceAdapter(serviceConfig);
             } catch (initError) {
-                console.error(`[Usage API] Failed to initialize adapter for ${providerType}: ${provider.uuid}:`, initError.message);
+                logger.error(`[Usage API] Failed to initialize adapter for ${providerType}: ${provider.uuid}:`, initError);
                 instanceResult.error = `服务实例初始化失败: ${initError.message}`;
                 result.errorCount++;
             }
@@ -333,8 +336,8 @@ async function getProviderTypeUsage(providerType, currentConfig, providerPoolMan
                         // 检查是否有重复的 userId
                         const duplicate = findDuplicateUserId(providers, usage.user.userId, provider.uuid);
                         if (duplicate) {
-                            console.warn(`[Usage API] 检测到重复账号: ${usage.user.email} (userId: ${usage.user.userId})`);
-                            console.warn(`[Usage API] 重复的 token: ${provider.KIRO_OAUTH_CREDS_FILE_PATH} 与 ${duplicate.path}`);
+                            logger.warn(`[Usage API] 检测到重复账号: ${usage.user.email} (userId: ${usage.user.userId})`);
+                            logger.warn(`[Usage API] 重复的 token: ${provider.KIRO_OAUTH_CREDS_FILE_PATH} 与 ${duplicate.path}`);
                             instanceResult.isDuplicate = true;
                             instanceResult.duplicateOf = duplicate.path;
                         }
@@ -356,10 +359,10 @@ async function getProviderTypeUsage(providerType, currentConfig, providerPoolMan
             const filePath = currentConfig.PROVIDER_POOLS_FILE_PATH || PROVIDER_POOLS_FILE;
             const currentPools = providerPoolManager.providerPools || {};
             currentPools[providerType] = providers;
-            writeFileSync(filePath, JSON.stringify(currentPools, null, 2), 'utf8');
-            console.log('[Usage API] Provider pools updated with cached userId/email');
+                    writeFileSync(filePath, JSON.stringify(currentPools, null, 2), 'utf8');
+            logger.info('[Usage API] Provider pools updated with cached userId/email');
         } catch (saveError) {
-            console.error('[Usage API] Failed to save provider pools:', saveError.message);
+            logger.error('[Usage API] Failed to save provider pools:', saveError);
         }
     }
 

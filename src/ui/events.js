@@ -3,6 +3,10 @@
  * 处理日志广播和事件流
  */
 
+import Logger, { createLogger } from '../lib/logger.js';
+
+const logger = createLogger('ui:events');
+
 /**
  * 初始化UI管理功能
  * 设置日志广播和事件客户端
@@ -16,16 +20,32 @@ export function initializeUIManagement() {
         global.logBuffer = [];
     }
 
-    // Override console.log to broadcast logs
-    const originalLog = console.log;
-    console.log = function(...args) {
-        originalLog.apply(console, args);
-        const message = args.map(arg => typeof arg === 'string' ? arg : JSON.stringify(arg)).join(' ');
+    // Patch Logger.prototype so broadcasting survives initLogger()/new Logger() calls.
+    if (Logger.prototype.__uiBroadcastPatched) {
+        return;
+    }
+
+    const originalLog = Logger.prototype.log;
+    Logger.prototype.log = function(level, message, meta = {}) {
+        originalLog.call(this, level, message, meta);
+
+        let metaForEntry = meta;
+        if (metaForEntry && typeof metaForEntry !== 'object') {
+            metaForEntry = { meta: metaForEntry };
+        }
+        try {
+            JSON.stringify(metaForEntry);
+        } catch {
+            metaForEntry = { unserializableMeta: true };
+        }
+
         const logEntry = {
             timestamp: new Date().toISOString(),
-            level: 'info',
-            message: message
+            level,
+            message,
+            meta: metaForEntry
         };
+
         global.logBuffer.push(logEntry);
         if (global.logBuffer.length > 100) {
             global.logBuffer.shift();
@@ -33,22 +53,8 @@ export function initializeUIManagement() {
         broadcastEvent('log', logEntry);
     };
 
-    // Override console.error to broadcast errors
-    const originalError = console.error;
-    console.error = function(...args) {
-        originalError.apply(console, args);
-        const message = args.map(arg => typeof arg === 'string' ? arg : JSON.stringify(arg)).join(' ');
-        const logEntry = {
-            timestamp: new Date().toISOString(),
-            level: 'error',
-            message: message
-        };
-        global.logBuffer.push(logEntry);
-        if (global.logBuffer.length > 100) {
-            global.logBuffer.shift();
-        }
-        broadcastEvent('log', logEntry);
-    };
+    Logger.prototype.__uiBroadcastPatched = true;
+    logger.info('UI log broadcasting initialized');
 }
 
 /**

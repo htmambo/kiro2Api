@@ -1,6 +1,9 @@
 import fs from 'fs';
 import path from 'path';
 import { startDeviceAuthorization, pollDeviceToken } from '../kiro/auth.js';
+import { createLogger } from '../lib/logger.js';
+
+const logger = createLogger('services:oauth');
 
 // 延迟导入 broadcastEvent 避免循环依赖
 let _broadcastEvent = null;
@@ -44,8 +47,8 @@ export async function handleKiroOAuth(currentConfig, poolManager = null) {
             'codewhisperer:taskassist'
         ];
 
-        console.log(`${KIRO_OAUTH_CONFIG.logPrefix} Starting automatic client registration...`);
-        console.log(`${KIRO_OAUTH_CONFIG.logPrefix} Region: ${region}, Start URL: ${startUrl}`);
+        logger.info(`${KIRO_OAUTH_CONFIG.logPrefix} Starting automatic client registration...`);
+        logger.info(`${KIRO_OAUTH_CONFIG.logPrefix} Region: ${region}, Start URL: ${startUrl}`);
 
         // Step 1: 自动注册 Client (调用 AWS SSO OIDC RegisterClient API)
         const registerClientUrl = `https://oidc.${region}.amazonaws.com/client/register`;
@@ -79,9 +82,9 @@ export async function handleKiroOAuth(currentConfig, poolManager = null) {
             throw new Error('Failed to register client: missing clientId or clientSecret in response');
         }
 
-        console.log(`${KIRO_OAUTH_CONFIG.logPrefix} Client registered successfully!`);
-        console.log(`${KIRO_OAUTH_CONFIG.logPrefix} Client ID: ${clientId.substring(0, 10)}...`);
-        console.log(`${KIRO_OAUTH_CONFIG.logPrefix} Client expires at: ${new Date(clientSecretExpiresAt * 1000).toISOString()}`);
+        logger.info(`${KIRO_OAUTH_CONFIG.logPrefix} Client registered successfully!`);
+        logger.info(`${KIRO_OAUTH_CONFIG.logPrefix} Client ID: ${clientId.substring(0, 10)}...`);
+        logger.info(`${KIRO_OAUTH_CONFIG.logPrefix} Client expires at: ${new Date(clientSecretExpiresAt * 1000).toISOString()}`);
 
         // 动态导入 KiroService (避免循环依赖)
         const { KiroService } = await import('../kiro/adapter.js');
@@ -98,15 +101,15 @@ export async function handleKiroOAuth(currentConfig, poolManager = null) {
         // 初始化 axios 实例 (skipAuthCheck=true 因为设备授权前没有现有凭据)
         await kiroService.initialize(true);
 
-        console.log(`${KIRO_OAUTH_CONFIG.logPrefix} 启动设备授权流程`);
-        console.log(`${KIRO_OAUTH_CONFIG.logPrefix} Start URL: ${startUrl}`);
+        logger.info(`${KIRO_OAUTH_CONFIG.logPrefix} 启动设备授权流程`);
+        logger.info(`${KIRO_OAUTH_CONFIG.logPrefix} Start URL: ${startUrl}`);
 
         // 启动设备授权流程
         const deviceAuthInfo = await startDeviceAuthorization(kiroService, startUrl);
 
-        console.log(`${KIRO_OAUTH_CONFIG.logPrefix} Device authorization started`);
-        console.log(`${KIRO_OAUTH_CONFIG.logPrefix} User Code: ${deviceAuthInfo.userCode}`);
-        console.log(`${KIRO_OAUTH_CONFIG.logPrefix} Verification URI: ${deviceAuthInfo.verificationUriComplete}`);
+        logger.info(`${KIRO_OAUTH_CONFIG.logPrefix} Device authorization started`);
+        logger.info(`${KIRO_OAUTH_CONFIG.logPrefix} User Code: ${deviceAuthInfo.userCode}`);
+        logger.info(`${KIRO_OAUTH_CONFIG.logPrefix} Verification URI: ${deviceAuthInfo.verificationUriComplete}`);
 
         // 启动后台轮询（不等待完成）
         pollDeviceToken(
@@ -136,7 +139,7 @@ export async function handleKiroOAuth(currentConfig, poolManager = null) {
             };
 
             await fs.promises.writeFile(tokenFilePath, JSON.stringify(credentialsData, null, 2));
-            console.log(`${KIRO_OAUTH_CONFIG.logPrefix} Token saved to: ${tokenFilePath}`);
+            logger.info(`${KIRO_OAUTH_CONFIG.logPrefix} Token saved to: ${tokenFilePath}`);
 
             // 自动添加到 account_pool.json（provider 层已移除）
             try {
@@ -160,7 +163,7 @@ export async function handleKiroOAuth(currentConfig, poolManager = null) {
                 };
 
                 const addedAccount = poolManager.addAccount(newAccount);
-                console.log(`${KIRO_OAUTH_CONFIG.logPrefix} Auto-added to account pool with UUID: ${addedAccount.uuid}`);
+                logger.info(`${KIRO_OAUTH_CONFIG.logPrefix} Auto-added to account pool with UUID: ${addedAccount.uuid}`);
 
                 const broadcast = await getBroadcastEvent();
                 if (broadcast) {
@@ -172,7 +175,7 @@ export async function handleKiroOAuth(currentConfig, poolManager = null) {
                     });
                 }
             } catch (poolError) {
-                console.error(`${KIRO_OAUTH_CONFIG.logPrefix} Failed to add to account pool:`, poolError.message);
+                logger.error(`${KIRO_OAUTH_CONFIG.logPrefix} Failed to add to account pool: ${poolError.message}`);
             }
 
             // 广播授权成功事件
@@ -184,7 +187,7 @@ export async function handleKiroOAuth(currentConfig, poolManager = null) {
                 });
             }
         }).catch(async error => {
-            console.error(`${KIRO_OAUTH_CONFIG.logPrefix} Background polling failed:`, error.message);
+            logger.error(`${KIRO_OAUTH_CONFIG.logPrefix} Background polling failed: ${error.message}`);
             const broadcast = await getBroadcastEvent();
             if (broadcast) {
                 broadcast('oauth_error', {
@@ -210,7 +213,7 @@ export async function handleKiroOAuth(currentConfig, poolManager = null) {
             }
         };
     } catch (error) {
-        console.error(`${KIRO_OAUTH_CONFIG.logPrefix} 授权失败:`, error);
+        logger.error(`${KIRO_OAUTH_CONFIG.logPrefix} 授权失败:`, error);
         throw new Error(`Kiro OAuth 授权失败: ${error.message}`);
     }
 }

@@ -6,6 +6,9 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { KIRO_CONSTANTS, initializeAuth } from './auth.js';
+import { createLogger } from '../lib/logger.js';
+
+const logger = createLogger('kiro:streaming');
 
 /**
  * 解析单个 AWS Event Stream 消息
@@ -186,7 +189,7 @@ export function parseAwsEventStreamBuffer(buffer) {
                 }
             }
         } catch (e) {
-            console.warn(`[Kiro Streaming] 解析 payload 失败 (${message.eventType}):`, e.message);
+            logger.warn(`[Kiro Streaming] 解析 payload 失败 (${message.eventType}):`, { error: e.message });
         }
     }
 
@@ -235,7 +238,9 @@ export async function* streamApiReal(service, method, model, body, isRetry = fal
     );
     const buildDuration = Date.now() - buildStartTime;
     if (buildDuration > 100) {
-        console.log(`[Kiro Perf] streamApiReal buildCodewhispererRequest took ${buildDuration}ms (messages: ${body.messages?.length || 0})`);
+        logger.debug(
+            `[Kiro Perf] streamApiReal buildCodewhispererRequest took ${buildDuration}ms (messages: ${body.messages?.length || 0})`
+        );
     }
 
     // ========================================
@@ -254,21 +259,23 @@ export async function* streamApiReal(service, method, model, body, isRetry = fal
 
     // 简洁模式：只显示关键信息
     if (!service.verboseLogging) {
-        console.log(`[Kiro] 📤 STREAM [${model}] - ${new Date().toISOString()}`);
+        logger.info(`[Kiro] 📤 STREAM [${model}] - ${new Date().toISOString()}`);
     } else {
         // 详细模式：显示所有信息
-        console.log('\n' + '='.repeat(60));
-        console.log(`📤 STREAM REQUEST [${model}]${isRetry ? ' (retry ' + retryCount + ')' : ''}`);
-        console.log('='.repeat(60));
-        console.log(`Timestamp: ${new Date().toISOString()}`);
-        console.log(`URL: ${model.startsWith('amazonq') ? service.amazonQUrl : service.baseUrl}`);
-        console.log(`Messages: ${(conversationState?.history?.length || 0) + 1} | Tools: ${conversationState?.currentMessage?.userInputMessage?.userInputMessageContext?.tools?.length || 0} | System: ${body.system ? 'yes' : 'no'}`);
-        console.log(`Request Size: ${requestSizeKB} KB | Thinking: ${enableThinking ? 'enabled' : 'disabled'}`);
+        logger.debug('\n' + '='.repeat(60));
+        logger.debug(`📤 STREAM REQUEST [${model}]${isRetry ? ' (retry ' + retryCount + ')' : ''}`);
+        logger.debug('='.repeat(60));
+        logger.debug(`Timestamp: ${new Date().toISOString()}`);
+        logger.debug(`URL: ${model.startsWith('amazonq') ? service.amazonQUrl : service.baseUrl}`);
+        logger.debug(
+            `Messages: ${(conversationState?.history?.length || 0) + 1} | Tools: ${conversationState?.currentMessage?.userInputMessage?.userInputMessageContext?.tools?.length || 0} | System: ${body.system ? 'yes' : 'no'}`
+        );
+        logger.debug(`Request Size: ${requestSizeKB} KB | Thinking: ${enableThinking ? 'enabled' : 'disabled'}`);
         if (conversationState?.conversationId) {
-            console.log(`Conversation ID: ${conversationState.conversationId}`);
+            logger.debug(`Conversation ID: ${conversationState.conversationId}`);
         }
-        console.log(`Message Preview: ${contentPreview}`);
-        console.log('='.repeat(60));
+        logger.debug(`Message Preview: ${contentPreview}`);
+        logger.debug('='.repeat(60));
     }
 
     const token = service.accessToken;
@@ -321,7 +328,7 @@ export async function* streamApiReal(service, method, model, body, isRetry = fal
                 // 记录首字时间（TTFT）
                 if (firstTokenTime === null && (event.type === 'content' || event.type === 'thinking')) {
                     firstTokenTime = Date.now() - requestStartTime;
-                    console.log(`[Kiro] ⚡ TTFT: ${(firstTokenTime / 1000).toFixed(2)}s`);
+                    logger.info(`[Kiro] ⚡ TTFT: ${(firstTokenTime / 1000).toFixed(2)}s`);
                 }
 
                 if (event.type === 'content' && event.data) {
@@ -359,14 +366,14 @@ export async function* streamApiReal(service, method, model, body, isRetry = fal
 
         // 简洁模式：只显示关键信息
         if (!service.verboseLogging) {
-            console.log(`[Kiro] 📥 STREAM [Complete] [${requestDuration}s]`);
+            logger.info(`[Kiro] 📥 STREAM [Complete] [${requestDuration}s]`);
         } else {
             // 详细模式：显示所有信息
-            console.log('\n' + '='.repeat(60));
-            console.log(`📥 STREAM RESPONSE [Complete] [${requestDuration}s]`);
-            console.log('='.repeat(60));
-            console.log(`Total Events: ${eventCount} | Total Size: ${totalSizeKB} KB`);
-            console.log('='.repeat(60) + '\n');
+            logger.debug('\n' + '='.repeat(60));
+            logger.debug(`📥 STREAM RESPONSE [Complete] [${requestDuration}s]`);
+            logger.debug('='.repeat(60));
+            logger.debug(`Total Events: ${eventCount} | Total Size: ${totalSizeKB} KB`);
+            logger.debug('='.repeat(60) + '\n');
         }
     } catch (error) {
         // 确保出错时关闭流
@@ -386,8 +393,10 @@ export async function* streamApiReal(service, method, model, body, isRetry = fal
         );
 
         if (isSocketError && retryCount < maxRetries) {
-            console.log(`[Kiro Stream] Socket error detected: ${error.code || error.message}`);
-            console.log(`[Kiro Stream] Resetting connection pool and retrying... (attempt ${retryCount + 1}/${maxRetries})`);
+            logger.warn(`[Kiro Stream] Socket error detected: ${error.code || error.message}`);
+            logger.warn(
+                `[Kiro Stream] Resetting connection pool and retrying... (attempt ${retryCount + 1}/${maxRetries})`
+            );
 
             // 重置连接池
             await service.resetConnectionPool();
@@ -398,13 +407,13 @@ export async function* streamApiReal(service, method, model, body, isRetry = fal
             yield* streamApiReal(service, method, model, body, isRetry, retryCount + 1);
             return;
         } else if (isSocketError) {
-            console.error('[Kiro Stream] Socket error after max retries:', error.code || error.message);
+            logger.error('[Kiro Stream] Socket error after max retries:', { error: error.code || error.message });
             throw new Error(`Stream connection failed: ${error.message}. Please check your network or try restarting the service.`);
         }
 
         // 403 错误：Token 过期，刷新后重试
         if (error.response?.status === 403 && !isRetry) {
-            console.log('[Kiro] Received 403 in stream. Attempting token refresh and retrying...');
+            logger.info('[Kiro] Received 403 in stream. Attempting token refresh and retrying...');
             await initializeAuth(service, true);
             yield* streamApiReal(service, method, model, body, true, retryCount);
             return;
@@ -413,7 +422,7 @@ export async function* streamApiReal(service, method, model, body, isRetry = fal
         // 429 错误：速率限制，指数退避重试
         if (error.response?.status === 429 && retryCount < maxRetries) {
             const delay = baseDelay * Math.pow(2, retryCount);
-            console.log(`[Kiro] Received 429 in stream. Retrying in ${delay}ms...`);
+            logger.warn(`[Kiro] Received 429 in stream. Retrying in ${delay}ms...`);
             await new Promise(resolve => setTimeout(resolve, delay));
             yield* streamApiReal(service, method, model, body, isRetry, retryCount + 1);
             return;
@@ -421,7 +430,7 @@ export async function* streamApiReal(service, method, model, body, isRetry = fal
 
         // ⚠️ 400 错误：详细日志用于调试
         if (error.response?.status === 400) {
-            console.error('[Kiro Stream] ❌ 400 Bad Request Error in streaming');
+            logger.error('[Kiro Stream] ❌ 400 Bad Request Error in streaming');
 
             // 安全获取响应数据（可能是流对象）
             let errorData = 'Unable to read response data';
@@ -438,7 +447,7 @@ export async function* streamApiReal(service, method, model, body, isRetry = fal
                 errorData = `[Error reading data: ${e.message}]`;
             }
 
-            console.error('[Kiro Stream] Error details:', {
+            logger.error('[Kiro Stream] Error details:', {
                 status: error.response.status,
                 statusText: error.response.statusText,
                 data: errorData,
@@ -448,7 +457,7 @@ export async function* streamApiReal(service, method, model, body, isRetry = fal
             // 打印请求体的关键信息
             try {
                 const reqState = requestData?.conversationState;
-                console.error('[Kiro Stream] Request debug info:', {
+                logger.error('[Kiro Stream] Request debug info:', {
                     historyLength: reqState?.history?.length || 0,
                     hasCurrentMessage: !!reqState?.currentMessage,
                     currentMsgType: reqState?.currentMessage?.userInputMessage ? 'userInputMessage' : 'unknown',
@@ -464,15 +473,17 @@ export async function* streamApiReal(service, method, model, body, isRetry = fal
                     for (let idx = 0; idx < reqState.history.length; idx++) {
                         const h = reqState.history[idx];
                         if (h.userInputMessage) {
-                            console.error(`[Kiro Stream] History[${idx}] user.content len: ${h.userInputMessage.content?.length || 0}`);
+                            logger.error(`[Kiro Stream] History[${idx}] user.content len: ${h.userInputMessage.content?.length || 0}`);
                         }
                         if (h.assistantResponseMessage) {
-                            console.error(`[Kiro Stream] History[${idx}] assistant.content len: ${h.assistantResponseMessage.content?.length || 0}, hasToolUses: ${!!h.assistantResponseMessage.toolUses}`);
+                            logger.error(
+                                `[Kiro Stream] History[${idx}] assistant.content len: ${h.assistantResponseMessage.content?.length || 0}, hasToolUses: ${!!h.assistantResponseMessage.toolUses}`
+                            );
                         }
                     }
                 }
             } catch (debugError) {
-                console.error('[Kiro Stream] Error printing debug info:', debugError.message);
+                logger.error('[Kiro Stream] Error printing debug info:', { error: debugError.message });
             }
         }
 

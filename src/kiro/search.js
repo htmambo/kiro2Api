@@ -4,6 +4,9 @@
  */
 
 import axios from 'axios';
+import { createLogger } from '../lib/logger.js';
+
+const logger = createLogger('kiro:search');
 
 /**
  * Web 搜索配置
@@ -27,7 +30,7 @@ const WEB_SEARCH_CONFIG = {
  */
 export async function executeWebSearch(query, verboseLogging = false) {
     if (verboseLogging) {
-        console.log(`[Kiro WebSearch] Executing search: "${query}"`);
+        logger.info(`[Kiro WebSearch] Executing search: "${query}"`);
     }
 
     try {
@@ -39,7 +42,7 @@ export async function executeWebSearch(query, verboseLogging = false) {
         // 否则使用 DuckDuckGo (免费，无需 API Key)
         return await duckDuckGoSearch(query, verboseLogging);
     } catch (error) {
-        console.error('[Kiro WebSearch] Error:', error.message);
+        logger.error('[Kiro WebSearch] Error:', { error: error.message });
         return {
             success: false,
             results: [],
@@ -96,7 +99,7 @@ export async function duckDuckGoSearch(query, verboseLogging = false) {
     }
 
     if (verboseLogging) {
-        console.log(`[Kiro WebSearch] DuckDuckGo found ${results.length} results`);
+        logger.info(`[Kiro WebSearch] DuckDuckGo found ${results.length} results`);
     }
 
     return {
@@ -134,7 +137,7 @@ export async function bingSearch(query, verboseLogging = false) {
     }));
 
     if (verboseLogging) {
-        console.log(`[Kiro WebSearch] Bing found ${results.length} results`);
+        logger.info(`[Kiro WebSearch] Bing found ${results.length} results`);
     }
 
     return {

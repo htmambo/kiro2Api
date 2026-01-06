@@ -5,6 +5,9 @@
 
 import { getNoCacheHeaders } from '../utils/response.js';
 import { parseRequestBody } from '../../../ui-manager.js';
+import { createLogger } from '../../../lib/logger.js';
+
+const logger = createLogger('ui:handlers:system');
 
 /**
  * 登录 Handler
@@ -37,7 +40,7 @@ export async function login({ req, res }) {
                 expiryTime
             });
 
-            console.log('[Login] User logged in successfully');
+            logger.info('[Login] User logged in successfully');
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
                 success: true,
@@ -46,7 +49,7 @@ export async function login({ req, res }) {
                 expiresIn: '1小时'
             }));
         } else {
-            console.log('[Login] Failed login attempt');
+            logger.info('[Login] Failed login attempt');
             res.writeHead(401, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
                 success: false,
@@ -54,7 +57,7 @@ export async function login({ req, res }) {
             }));
         }
     } catch (error) {
-        console.error('[Login] Error:', error);
+        logger.error('[Login] Error:', error);
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
             success: false,
@@ -93,7 +96,7 @@ export async function getSystemInfo({ res }) {
             throw new Error('VERSION file does not exist: ' + versionFilePath);
         }
     } catch (error) {
-        console.warn('[UI API] Failed to read VERSION file:', error.message);
+        logger.warn(`[UI API] Failed to read VERSION file: ${error.message}`);
     }
 
     // 计算 CPU 使用率
@@ -116,7 +119,7 @@ export async function getSystemInfo({ res }) {
  */
 export async function restartServer({ res }) {
     if (process.send && process.env.IS_WORKER_PROCESS) {
-        console.log('[System] Sending restart request to master...');
+        logger.info('[System] Sending restart request to master...');
 
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({

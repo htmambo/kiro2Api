@@ -1,5 +1,8 @@
 import { v4 as uuidv4 } from 'uuid';
 import { findMatchingBracket, repairJson } from './utils.js';
+import { createLogger } from '../lib/logger.js';
+
+const logger = createLogger('kiro:tools');
 
 export const CC_TO_KIRO_TOOL_MAPPING = {
     Read: {
@@ -193,7 +196,7 @@ export function mapToolUseParams(toolName, input, verboseLogging = false) {
 
     if (typeof input !== 'object') {
         if (verboseLogging) {
-            console.log(`[Kiro ParamMap] ${toolName}: input is not object (${typeof input}), wrapping in object`);
+            logger.debug(`[Kiro ParamMap] ${toolName}: input is not object (${typeof input}), wrapping in object`);
         }
         return { value: input };
     }
@@ -201,7 +204,7 @@ export function mapToolUseParams(toolName, input, verboseLogging = false) {
     const mapping = CC_TO_KIRO_TOOL_MAPPING[toolName];
     if (!mapping) {
         if (verboseLogging) {
-            console.log(`[Kiro ParamMap] ${toolName}: no mapping found, using original input`);
+            logger.debug(`[Kiro ParamMap] ${toolName}: no mapping found, using original input`);
         }
         return input;
     }
@@ -213,7 +216,9 @@ export function mapToolUseParams(toolName, input, verboseLogging = false) {
             if (input[ccParam] !== undefined) {
                 mappedInput[kiroParam] = input[ccParam];
                 if (verboseLogging || toolName === 'Task') {
-                    console.log(`[Kiro ParamMap] ${toolName}: mapped ${ccParam} → ${kiroParam} = ${JSON.stringify(input[ccParam])}`);
+                    logger.debug(
+                        `[Kiro ParamMap] ${toolName}: mapped ${ccParam} → ${kiroParam} = ${JSON.stringify(input[ccParam])}`
+                    );
                 }
             }
         }
@@ -259,7 +264,7 @@ export function reverseMapToolInput(toolName, input, verboseLogging = false) {
         if (reverseMap[key]) {
             reversedInput[reverseMap[key]] = value;
             if (verboseLogging) {
-                console.log(`[Kiro ReverseMap] ${toolName}: reversed ${key} → ${reverseMap[key]}`);
+                logger.debug(`[Kiro ReverseMap] ${toolName}: reversed ${key} → ${reverseMap[key]}`);
             }
         } else if (!kiroOnlyParams.includes(key)) {
             reversedInput[key] = value;
@@ -312,7 +317,7 @@ export function parseSingleToolCall(toolCallText) {
             }
         };
     } catch (e) {
-        console.error(`Failed to parse tool call arguments: ${e.message}`, jsonCandidate);
+        logger.error(`Failed to parse tool call arguments: ${e.message}`, { jsonCandidate });
         return null;
     }
 }
@@ -376,7 +381,7 @@ export function deduplicateToolCalls(toolCalls) {
             seen.add(key);
             uniqueToolCalls.push(tc);
         } else {
-            console.log(`Skipping duplicate tool call: ${tc.function.name}`);
+            logger.debug(`Skipping duplicate tool call: ${tc.function.name}`);
         }
     }
     return uniqueToolCalls;

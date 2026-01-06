@@ -10,9 +10,11 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
+import { createLogger } from '../../lib/logger.js';
 
 const SCHEMA_VERSION = 2;
 const DEFAULT_PROVIDER_TYPE = 'claude-kiro-oauth';
+const logger = createLogger('services:storage:sqlite-db');
 
 class SQLiteDB {
     constructor() {
@@ -27,7 +29,7 @@ class SQLiteDB {
     init(dbPath = 'data/provider_pool.db') {
         if (this.db) {
             if (this.dbPath !== dbPath) {
-                console.warn(
+                logger.warn(
                     `[SQLiteDB] Database already initialized with path: ${this.dbPath}, ignoring new path: ${dbPath}`
                 );
             }
@@ -52,7 +54,7 @@ class SQLiteDB {
         this._migrateIfNeeded();
         this._createTablesV2();
 
-        console.log(`[SQLiteDB] Database initialized: ${dbPath} (schema v${SCHEMA_VERSION})`);
+        logger.info(`[SQLiteDB] Database initialized: ${dbPath} (schema v${SCHEMA_VERSION})`);
         return this.db;
     }
 
@@ -67,7 +69,7 @@ class SQLiteDB {
         if (this.db) {
             this.db.close();
             this.db = null;
-            console.log('[SQLiteDB] Database connection closed');
+            logger.info('[SQLiteDB] Database connection closed');
         }
     }
 
@@ -95,7 +97,7 @@ class SQLiteDB {
         if (this._tableExists('providers')) {
             const backupPath = `${this.dbPath}.bak-${Date.now()}`;
             fs.copyFileSync(this.dbPath, backupPath);
-            console.log(`[SQLiteDB] Backup created: ${backupPath}`);
+            logger.info(`[SQLiteDB] Backup created: ${backupPath}`);
 
             // 校验：只能存在一种 provider_type
             try {
@@ -106,7 +108,7 @@ class SQLiteDB {
                     throw new Error('Multiple provider types found, cannot migrate to accounts schema');
                 }
             } catch (error) {
-                console.error('[SQLiteDB] Migration validation failed:', error.message);
+                logger.error('[SQLiteDB] Migration validation failed:', error);
                 throw error;
             }
 
@@ -218,7 +220,7 @@ class SQLiteDB {
                 db.pragma(`user_version = ${SCHEMA_VERSION}`);
             })();
 
-            console.log('[SQLiteDB] Migration to accounts schema completed');
+            logger.info('[SQLiteDB] Migration to accounts schema completed');
             return;
         }
 
@@ -511,7 +513,7 @@ class SQLiteDB {
         try {
             config = JSON.parse(row.config);
         } catch (e) {
-            console.error('[SQLiteDB] Failed to parse account config:', e);
+            logger.error('[SQLiteDB] Failed to parse account config:', e);
         }
 
         let notSupportedModels = null;
@@ -675,7 +677,7 @@ class SQLiteDB {
         const db = this.getDb();
         const result = db.prepare(`DELETE FROM usage_cache WHERE expires_at <= ?`).run(Date.now());
         if (result.changes > 0) {
-            console.log(`[SQLiteDB] Cleaned ${result.changes} expired usage cache entries`);
+            logger.info(`[SQLiteDB] Cleaned ${result.changes} expired usage cache entries`);
         }
         return result;
     }
@@ -712,7 +714,7 @@ class SQLiteDB {
             WHERE check_time < datetime('now', '-' || ? || ' days')
         `).run(days);
         if (result.changes > 0) {
-            console.log(`[SQLiteDB] Cleaned ${result.changes} old health check history entries`);
+            logger.info(`[SQLiteDB] Cleaned ${result.changes} old health check history entries`);
         }
         return result;
     }
@@ -746,4 +748,3 @@ class SQLiteDB {
 
 export const sqliteDB = new SQLiteDB();
 export default sqliteDB;
-

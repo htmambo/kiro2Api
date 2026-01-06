@@ -8,6 +8,9 @@ import { MODEL_PROVIDER } from '../utils/common.js';
 import { PROMPT_LOG_FILENAME } from '../config/manager.js';
 import { errorMiddleware, createError } from './error-middleware.js';
 import { checkRateLimit, isRateLimitWhitelisted } from './rate-limiter.js';
+import { createLogger } from '../lib/logger.js';
+
+const logger = createLogger('api:request-handler');
 /**
  * Main request handler. It authenticates the request, determines the endpoint type,
  * and delegates to the appropriate specialized handler function.
@@ -54,8 +57,8 @@ export function createRequestHandler(config, accountPoolManager) {
         const uiHandled = await handleUIApiRequests(method, path, req, res, currentConfig, accountPoolManager);
         if (uiHandled) return;
 
-        console.log(`\n${new Date().toLocaleString()}`);
-        console.log(`[Server] Received request: ${req.method} http://${req.headers.host}${req.url}`);
+        logger.info(`\n${new Date().toLocaleString()}`);
+        logger.info(`[Server] Received request: ${req.method} http://${req.headers.host}${req.url}`);
 
         // Health check endpoint
         if (method === 'GET' && path === '/health') {
@@ -97,7 +100,7 @@ export function createRequestHandler(config, accountPoolManager) {
 
         // Ignore count_tokens requests
         if (path.includes('/count_tokens')) {
-            console.log(`[Server] Ignoring count_tokens request: ${path}`);
+            logger.info(`[Server] Ignoring count_tokens request: ${path}`);
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
                 tokens: 0,

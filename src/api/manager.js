@@ -2,6 +2,9 @@ import {
     handleContentGenerationRequest,
     ENDPOINT_TYPE
 } from '../utils/common.js';
+import { createLogger } from '../lib/logger.js';
+
+const logger = createLogger('api:manager');
 
 /**
  * Handle API authentication and routing
@@ -34,13 +37,13 @@ export async function handleAPIRequests(method, path, req, res, currentConfig, a
  */
 export function initializeAPIManagement(services) {
     return async function heartbeatAndRefreshToken() {
-        console.log(`[Heartbeat] Server is running. Current time: ${new Date().toLocaleString()}`, Object.keys(services));
+        logger.info(`[Heartbeat] Server is running. Current time: ${new Date().toLocaleString()}`, { providers: Object.keys(services) });
         for (const providerKey in services) {
             const serviceAdapter = services[providerKey];
             try {
                 await serviceAdapter.checkToken();
             } catch (error) {
-                console.error(`[Token Refresh Error] Failed to refresh token for ${providerKey}: ${error.message}`);
+                logger.error(`[Token Refresh Error] Failed to refresh token for ${providerKey}`, error);
             }
         }
     };

@@ -1,11 +1,13 @@
 import * as fs from 'fs';
 import { promises as pfs } from 'fs';
 import { INPUT_SYSTEM_PROMPT_FILE, MODEL_PROVIDER } from '../utils/common.js';
+import { createLogger } from '../lib/logger.js';
 
 export let CONFIG = {}; // Make CONFIG exportable
 export let PROMPT_LOG_FILENAME = ''; // Make PROMPT_LOG_FILENAME exportable
 
 const ALL_MODEL_PROVIDERS = Object.values(MODEL_PROVIDER);
+const logger = createLogger('config:manager');
 
 function normalizeConfiguredProviders(config) {
     const fallbackProvider = MODEL_PROVIDER.KIRO_API;
@@ -21,7 +23,7 @@ function normalizeConfiguredProviders(config) {
         }
         const matched = ALL_MODEL_PROVIDERS.find((provider) => provider.toLowerCase() === trimmed.toLowerCase());
         if (!matched) {
-            console.warn(`[Config Warning] Unknown model provider '${trimmed}'. This entry will be ignored.`);
+            logger.warn(`[Config Warning] Unknown model provider '${trimmed}'. This entry will be ignored.`);
             return;
         }
         if (!dedupedProviders.includes(matched)) {
@@ -60,10 +62,10 @@ export async function initializeConfig(args = process.argv.slice(2), configFileP
         const configData = fs.readFileSync(configFilePath, 'utf8');
         currentConfig = JSON.parse(configData);
         configFileExists = true;
-        console.log('[Config] Loaded configuration from config.json');
+        logger.info('[Config] Loaded configuration from config.json');
     } catch (error) {
         if (error.code === 'ENOENT') {
-            console.log('[Config] config.json not found, checking for config.json.example...');
+            logger.info('[Config] config.json not found, checking for config.json.example...');
 
             // 尝试从 config.json.example 复制
             try {
@@ -73,13 +75,13 @@ export async function initializeConfig(args = process.argv.slice(2), configFileP
 
                     // 创建 config.json
                     fs.writeFileSync(configFilePath, exampleData, 'utf8');
-                    console.log('[Config] Created config.json from config.json.example');
-                    console.log('[Config] ⚠️  Please edit config.json and set your REQUIRED_API_KEY');
+                    logger.info('[Config] Created config.json from config.json.example');
+                    logger.info('[Config] ⚠️  Please edit config.json and set your REQUIRED_API_KEY');
                 } else {
                     throw new Error('config.json.example not found');
                 }
             } catch (exampleError) {
-                console.log('[Config] config.json.example not found, creating default config.json...');
+                logger.info('[Config] config.json.example not found, creating default config.json...');
 
                 // 使用默认配置
                 currentConfig = {
@@ -115,11 +117,11 @@ export async function initializeConfig(args = process.argv.slice(2), configFileP
 
                 // 创建 config.json
                 fs.writeFileSync(configFilePath, JSON.stringify(currentConfig, null, 2), 'utf8');
-                console.log('[Config] Created default config.json');
-                console.log('[Config] ⚠️  Please edit config.json and set your REQUIRED_API_KEY');
+                logger.info('[Config] Created default config.json');
+                logger.info('[Config] ⚠️  Please edit config.json and set your REQUIRED_API_KEY');
             }
         } else {
-            console.error('[Config Error] Failed to load config.json:', error.message);
+            logger.error('[Config Error] Failed to load config.json:', error.message);
             // Fallback to default values if config.json is invalid
             currentConfig = {
                 REQUIRED_API_KEY: "123456",
@@ -151,20 +153,21 @@ export async function initializeConfig(args = process.argv.slice(2), configFileP
                 HEALTH_CHECK_CONCURRENCY: 5,
                 USAGE_QUERY_CONCURRENCY: 10
             };
-            console.log('[Config] Using default configuration.');
+            logger.info('[Config] Using default configuration.');
         }
     }
 
     // 确保 configs/kiro 目录存在
     if (!fs.existsSync('configs')) {
         fs.mkdirSync('configs', { recursive: true });
-        console.log('[Config] Created configs directory');
+        logger.info('[Config] Created configs directory');
     }
     if (!fs.existsSync('configs/kiro')) {
         fs.mkdirSync('configs/kiro', { recursive: true });
-        console.log('[Config] Created configs/kiro directory');
+        logger.info('[Config] Created configs/kiro directory');
     }
 
+    currentConfig.OPEN_SERVER_URL  = true;
     // Parse command-line arguments
     for (let i = 0; i < args.length; i++) {
         if (args[i] === '--api-key') {
@@ -172,7 +175,7 @@ export async function initializeConfig(args = process.argv.slice(2), configFileP
                 currentConfig.REQUIRED_API_KEY = args[i + 1];
                 i++;
             } else {
-                console.warn(`[Config Warning] --api-key flag requires a value.`);
+                logger.warn(`[Config Warning] --api-key flag requires a value.`);
             }
         } else if (args[i] === '--log-prompts') {
             if (i + 1 < args.length) {
@@ -180,32 +183,32 @@ export async function initializeConfig(args = process.argv.slice(2), configFileP
                 if (mode === 'console' || mode === 'file') {
                     currentConfig.PROMPT_LOG_MODE = mode;
                 } else {
-                    console.warn(`[Config Warning] Invalid mode for --log-prompts. Expected 'console' or 'file'. Prompt logging is disabled.`);
+                    logger.warn(`[Config Warning] Invalid mode for --log-prompts. Expected 'console' or 'file'. Prompt logging is disabled.`);
                 }
                 i++;
             } else {
-                console.warn(`[Config Warning] --log-prompts flag requires a value.`);
+                logger.warn(`[Config Warning] --log-prompts flag requires a value.`);
             }
         } else if (args[i] === '--port') {
             if (i + 1 < args.length) {
                 currentConfig.SERVER_PORT = parseInt(args[i + 1], 10);
                 i++;
             } else {
-                console.warn(`[Config Warning] --port flag requires a value.`);
+                logger.warn(`[Config Warning] --port flag requires a value.`);
             }
         } else if (args[i] === '--model-provider') {
             if (i + 1 < args.length) {
                 currentConfig.MODEL_PROVIDER = args[i + 1];
                 i++;
             } else {
-                console.warn(`[Config Warning] --model-provider flag requires a value.`);
+                logger.warn(`[Config Warning] --model-provider flag requires a value.`);
             }
         } else if (args[i] === '--system-prompt-file') {
             if (i + 1 < args.length) {
                 currentConfig.SYSTEM_PROMPT_FILE_PATH = args[i + 1];
                 i++;
             } else {
-                console.warn(`[Config Warning] --system-prompt-file flag requires a value.`);
+                logger.warn(`[Config Warning] --system-prompt-file flag requires a value.`);
             }
         } else if (args[i] === '--system-prompt-mode') {
             if (i + 1 < args.length) {
@@ -213,61 +216,63 @@ export async function initializeConfig(args = process.argv.slice(2), configFileP
                 if (mode === 'overwrite' || mode === 'append') {
                     currentConfig.SYSTEM_PROMPT_MODE = mode;
                 } else {
-                    console.warn(`[Config Warning] Invalid mode for --system-prompt-mode. Expected 'overwrite' or 'append'. Using default 'overwrite'.`);
+                    logger.warn(`[Config Warning] Invalid mode for --system-prompt-mode. Expected 'overwrite' or 'append'. Using default 'overwrite'.`);
                 }
                 i++;
             } else {
-                console.warn(`[Config Warning] --system-prompt-mode flag requires a value.`);
+                logger.warn(`[Config Warning] --system-prompt-mode flag requires a value.`);
             }
         } else if (args[i] === '--host') {
             if (i + 1 < args.length) {
                 currentConfig.HOST = args[i + 1];
                 i++;
             } else {
-                console.warn(`[Config Warning] --host flag requires a value.`);
+                logger.warn(`[Config Warning] --host flag requires a value.`);
             }
         } else if (args[i] === '--prompt-log-base-name') {
             if (i + 1 < args.length) {
                 currentConfig.PROMPT_LOG_BASE_NAME = args[i + 1];
                 i++;
             } else {
-                console.warn(`[Config Warning] --prompt-log-base-name flag requires a value.`);
+                logger.warn(`[Config Warning] --prompt-log-base-name flag requires a value.`);
             }
         } else if (args[i] === '--kiro-oauth-creds-base64') {
             if (i + 1 < args.length) {
                 currentConfig.KIRO_OAUTH_CREDS_BASE64 = args[i + 1];
                 i++;
             } else {
-                console.warn(`[Config Warning] --kiro-oauth-creds-base64 flag requires a value.`);
+                logger.warn(`[Config Warning] --kiro-oauth-creds-base64 flag requires a value.`);
             }
        } else if (args[i] === '--cron-near-minutes') {
             if (i + 1 < args.length) {
                 currentConfig.CRON_NEAR_MINUTES = parseInt(args[i + 1], 10);
                 i++;
             } else {
-                console.warn(`[Config Warning] --cron-near-minutes flag requires a value.`);
+                logger.warn(`[Config Warning] --cron-near-minutes flag requires a value.`);
             }
         } else if (args[i] === '--cron-refresh-token') {
             if (i + 1 < args.length) {
                 currentConfig.CRON_REFRESH_TOKEN = args[i + 1].toLowerCase() === 'true';
                 i++;
             } else {
-                console.warn(`[Config Warning] --cron-refresh-token flag requires a value.`);
+                logger.warn(`[Config Warning] --cron-refresh-token flag requires a value.`);
             }
         } else if (args[i] === '--provider-pools-file') {
             if (i + 1 < args.length) {
                 currentConfig.PROVIDER_POOLS_FILE_PATH = args[i + 1];
                 i++;
             } else {
-                console.warn(`[Config Warning] --provider-pools-file flag requires a value.`);
+                logger.warn(`[Config Warning] --provider-pools-file flag requires a value.`);
             }
         } else if (args[i] === '--max-error-count') {
             if (i + 1 < args.length) {
                 currentConfig.MAX_ERROR_COUNT = parseInt(args[i + 1], 10);
                 i++;
             } else {
-                console.warn(`[Config Warning] --max-error-count flag requires a value.`);
+                logger.warn(`[Config Warning] --max-error-count flag requires a value.`);
             }
+        } else if (args[i] === '--disableopenserverurl') {
+            currentConfig.OPEN_SERVER_URL  = false;
         }
     }
 
@@ -296,7 +301,7 @@ export async function initializeConfig(args = process.argv.slice(2), configFileP
             return parsed;
         } catch (error) {
             if (error.code !== 'ENOENT') {
-                console.error(`[Config Error] Failed to load account pool from ${currentConfig.ACCOUNT_POOL_FILE_PATH}: ${error.message}`);
+                logger.error(`[Config Error] Failed to load account pool from ${currentConfig.ACCOUNT_POOL_FILE_PATH}: ${error.message}`);
                 return { accounts: [] };
             }
         }
@@ -315,11 +320,11 @@ export async function initializeConfig(args = process.argv.slice(2), configFileP
                 for (const acc of legacyAccounts) {
                     if (!acc || typeof acc !== 'object') continue;
                     if (!acc.uuid || typeof acc.uuid !== 'string') {
-                        console.warn('[Config] Skipping legacy account without uuid');
+                        logger.warn('[Config] Skipping legacy account without uuid');
                         continue;
                     }
                     if (seen.has(acc.uuid)) {
-                        console.warn(`[Config] Duplicate uuid in legacy pools, skipping: ${acc.uuid}`);
+                        logger.warn(`[Config] Duplicate uuid in legacy pools, skipping: ${acc.uuid}`);
                         continue;
                     }
                     seen.add(acc.uuid);
@@ -330,10 +335,10 @@ export async function initializeConfig(args = process.argv.slice(2), configFileP
                 const backupPath = `${currentConfig.PROVIDER_POOLS_FILE_PATH}.bak-${Date.now()}`;
                 fs.copyFileSync(currentConfig.PROVIDER_POOLS_FILE_PATH, backupPath);
                 fs.writeFileSync(currentConfig.ACCOUNT_POOL_FILE_PATH, JSON.stringify(migrated, null, 2), 'utf8');
-                console.log(`[Config] Migrated provider_pools.json -> account_pool.json (backup: ${backupPath})`);
+                logger.info(`[Config] Migrated provider_pools.json -> account_pool.json (backup: ${backupPath})`);
                 return migrated;
             } catch (migrateError) {
-                console.error(`[Config Error] Failed to migrate provider pools to account pool: ${migrateError.message}`);
+                logger.error(`[Config Error] Failed to migrate provider pools to account pool: ${migrateError.message}`);
                 return { accounts: [] };
             }
         }
@@ -341,12 +346,12 @@ export async function initializeConfig(args = process.argv.slice(2), configFileP
         // 无任何文件：创建空账号池文件（provider 层已移除，账号池为唯一入口）
         const emptyPool = { accounts: [] };
         fs.writeFileSync(currentConfig.ACCOUNT_POOL_FILE_PATH, JSON.stringify(emptyPool, null, 2), 'utf8');
-        console.log(`[Config] Created empty ${currentConfig.ACCOUNT_POOL_FILE_PATH}`);
+        logger.info(`[Config] Created empty ${currentConfig.ACCOUNT_POOL_FILE_PATH}`);
         return emptyPool;
     };
 
     currentConfig.accountPool = await loadOrMigrateAccountPool();
-    console.log(`[Config] Loaded account pool (${currentConfig.accountPool.accounts.length} account(s)) from ${currentConfig.ACCOUNT_POOL_FILE_PATH}`);
+    logger.info(`[Config] Loaded account pool (${currentConfig.accountPool.accounts.length} account(s)) from ${currentConfig.ACCOUNT_POOL_FILE_PATH}`);
 
     // Set PROMPT_LOG_FILENAME based on the determined config
     if (currentConfig.PROMPT_LOG_MODE === 'file') {
@@ -373,9 +378,9 @@ export async function getSystemPromptFileContent(filePath) {
         await pfs.access(filePath, pfs.constants.F_OK);
     } catch (error) {
         if (error.code === 'ENOENT') {
-            console.warn(`[System Prompt] Specified system prompt file not found: ${filePath}`);
+            logger.warn(`[System Prompt] Specified system prompt file not found: ${filePath}`);
         } else {
-            console.error(`[System Prompt] Error accessing system prompt file ${filePath}: ${error.message}`);
+            logger.error(`[System Prompt] Error accessing system prompt file ${filePath}: ${error.message}`);
         }
         return null;
     }
@@ -385,10 +390,10 @@ export async function getSystemPromptFileContent(filePath) {
         if (!content.trim()) {
             return null;
         }
-        console.log(`[System Prompt] Loaded system prompt from ${filePath}`);
+        logger.info(`[System Prompt] Loaded system prompt from ${filePath}`);
         return content;
     } catch (error) {
-        console.error(`[System Prompt] Error reading system prompt file ${filePath}: ${error.message}`);
+        logger.error(`[System Prompt] Error reading system prompt file ${filePath}: ${error.message}`);
         return null;
     }
 }

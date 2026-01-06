@@ -7,6 +7,7 @@
  * 日志级别枚举
  */
 export const LogLevel = {
+    VERBOSE: 'verbose',
     DEBUG: 'debug',
     INFO: 'info',
     WARN: 'warn',
@@ -17,6 +18,7 @@ export const LogLevel = {
  * 日志级别优先级
  */
 const LOG_LEVEL_PRIORITY = {
+    [LogLevel.VERBOSE]: -1,
     [LogLevel.DEBUG]: 0,
     [LogLevel.INFO]: 1,
     [LogLevel.WARN]: 2,
@@ -27,10 +29,11 @@ const LOG_LEVEL_PRIORITY = {
  * 日志级别颜色（ANSI 颜色码）
  */
 const LOG_LEVEL_COLORS = {
-    [LogLevel.DEBUG]: '\x1b[36m', // Cyan
-    [LogLevel.INFO]: '\x1b[32m',  // Green
-    [LogLevel.WARN]: '\x1b[33m',  // Yellow
-    [LogLevel.ERROR]: '\x1b[31m', // Red
+    [LogLevel.VERBOSE]: '\x1b[90m', // Gray
+    [LogLevel.DEBUG]: '\x1b[36m',   // Cyan
+    [LogLevel.INFO]: '\x1b[32m',    // Green
+    [LogLevel.WARN]: '\x1b[33m',    // Yellow
+    [LogLevel.ERROR]: '\x1b[31m',   // Red
 };
 
 const RESET_COLOR = '\x1b[0m';
@@ -131,12 +134,22 @@ class Logger {
             case LogLevel.WARN:
                 console.warn(formattedMessage);
                 break;
+            case LogLevel.VERBOSE:
             case LogLevel.DEBUG:
             case LogLevel.INFO:
             default:
                 console.log(formattedMessage);
                 break;
         }
+    }
+
+    /**
+     * Verbose 级别日志
+     * @param {string} message - 日志消息
+     * @param {Object} meta - 元数据
+     */
+    verbose(message, meta = {}) {
+        this.log(LogLevel.VERBOSE, message, meta);
     }
 
     /**
@@ -239,6 +252,7 @@ export function createLogger(context) {
 
 // 导出便捷方法
 export const logger = {
+    verbose: (message, meta) => getLogger().verbose(message, meta),
     debug: (message, meta) => getLogger().debug(message, meta),
     info: (message, meta) => getLogger().info(message, meta),
     warn: (message, meta) => getLogger().warn(message, meta),

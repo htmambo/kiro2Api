@@ -1,4 +1,7 @@
 import { extractSystemPromptFromRequestBody } from '../utils/common.js';
+import { createLogger } from '../lib/logger.js';
+
+const logger = createLogger('kiro:strategy');
 
 /**
  * Claude provider strategy implementation.
@@ -58,7 +61,9 @@ class KiroStrategy {
             : filePromptContent;
 
         requestBody.system = newSystemText;
-        console.log(`[System Prompt] Applied system prompt from ${config.SYSTEM_PROMPT_FILE_PATH} in '${config.SYSTEM_PROMPT_MODE}' mode for provider 'claude'.`);
+        logger.info(
+            `[System Prompt] Applied system prompt from ${config.SYSTEM_PROMPT_FILE_PATH} in '${config.SYSTEM_PROMPT_MODE}' mode for provider 'claude'.`
+        );
 
         return requestBody;
     }

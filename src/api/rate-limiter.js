@@ -12,6 +12,9 @@
  */
 
 import crypto from 'crypto';
+import { createLogger } from '../lib/logger.js';
+
+const logger = createLogger('api:rate-limiter');
 
 // 默认配置
 const DEFAULT_WINDOW_MS = 60000; // 60 秒
@@ -43,7 +46,7 @@ function startCleanup() {
         }
 
         if (cleanedCount > 0) {
-            console.log(`[Rate Limiter] Cleaned up ${cleanedCount} expired records. Current size: ${records.size}`);
+            logger.info(`[Rate Limiter] Cleaned up ${cleanedCount} expired records. Current size: ${records.size}`);
         }
     }, CLEANUP_INTERVAL_MS);
 

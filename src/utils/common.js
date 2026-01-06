@@ -6,6 +6,9 @@ import { KiroService } from '../kiro/adapter.js'; // Import KiroService
 import { generateContent, generateContentStream } from '../kiro/api-client.js';
 import { KiroStrategy } from '../kiro/strategy.js';
 import os from 'os';
+import { createLogger } from '../lib/logger.js';
+
+const logger = createLogger('utils:common');
 
 export const API_ACTIONS = {
     GENERATE_CONTENT: 'generateContent',
@@ -120,25 +123,6 @@ export function getRequestBody(req) {
     });
 }
 
-export async function logConversation(type, content, logMode, logFilename) {
-    if (logMode === 'none') return;
-    if (!content) return;
-
-    const timestamp = new Date().toLocaleString();
-    const logEntry = `${timestamp} [${type.toUpperCase()}]:\n${content}\n--------------------------------------\n`;
-
-    if (logMode === 'console') {
-        console.log(logEntry);
-    } else if (logMode === 'file') {
-        try {
-            // Append to the file
-            await fs.appendFile(logFilename, logEntry);
-        } catch (err) {
-            console.error(`[Error] Failed to write conversation log to ${logFilename}:`, err);
-        }
-    }
-}
-
 /**
  * Checks if the request is authorized based on API key.
  * @param {http.IncomingMessage} req - The HTTP request object.
@@ -164,7 +148,7 @@ export function isAuthorized(req, requestUrl, REQUIRED_API_KEY) {
         return true;
     }
 
-    console.log(`[Auth] Unauthorized request denied. Bearer: "${authHeader ? 'present' : 'N/A'}", Query Key: "${queryKey}", x-api-key: "${claudeApiKey}"`);
+    logger.warn(`[Auth] Unauthorized request denied. Bearer: "${authHeader ? 'present' : 'N/A'}", Query Key: "${queryKey}", x-api-key: "${claudeApiKey}"`);
     return false;
 }
 
@@ -239,7 +223,7 @@ export async function handleStreamRequest(res, service, model, requestBody, from
         nativeStream = await generateContentStream(service, model, requestBody);
     } catch (initialError) {
         // 如果在生成stream时就失败了（还没有开始传输数据），尝试重试其他provider
-        console.error('[Stream] Initial stream generation failed:', initialError.message);
+        logger.error(`[Stream] Initial stream generation failed: ${initialError.message}`);
         throw initialError; // 抛出让外层重试逻辑处理
     }
 
@@ -281,17 +265,17 @@ export async function handleStreamRequest(res, service, model, requestBody, from
 
         // 流式请求成功完成，统计使用次数，错误次数重置为0
         if (poolManager && pooluuid) {
-            console.log(`[Pool] Increasing usage count for ${toProvider} (${pooluuid}) after successful stream request`);
+            logger.info(`[Pool] Increasing usage count for ${toProvider} (${pooluuid}) after successful stream request`);
             _markPoolHealthy(toProvider, poolManager, pooluuid);
         }
 
     }  catch (error) {
-        console.error('\n[Server] Error during stream processing:', error.stack);
+        logger.error(`[Server] Error during stream processing: ${error.stack}`);
 
         // 如果stream已经开始传输数据，则无法重试，直接返回错误
         if (streamStarted) {
             if (poolManager && pooluuid) {
-                console.log(`[Pool] Marking ${toProvider} (${pooluuid}) as unhealthy due to stream error`);
+                logger.warn(`[Pool] Marking ${toProvider} (${pooluuid}) as unhealthy due to stream error`);
                 _markPoolUnhealthy(toProvider, poolManager, pooluuid, error);
             }
 
@@ -314,9 +298,7 @@ export async function handleStreamRequest(res, service, model, requestBody, from
         if (!responseClosed) {
             res.end();
         }
-        await logConversation('output', fullResponseText, PROMPT_LOG_MODE, PROMPT_LOG_FILENAME);
-        // fs.writeFile('oldResponseChunk'+Date.now()+'.json', fullOldResponseJson);
-        // fs.writeFile('responseChunk'+Date.now()+'.json', fullResponseJson);
+        logger.verbose(fullResponseText);
     }
 }
 
@@ -335,21 +317,20 @@ export async function handleUnaryRequest(res, service, model, requestBody, fromP
         //console.log(`[Response] Sending response to client: ${JSON.stringify(clientResponse)}`);
         await handleUnifiedResponse(res, JSON.stringify(clientResponse), false);
         responseWritten = true;
-        await logConversation('output', responseText, PROMPT_LOG_MODE, PROMPT_LOG_FILENAME);
-        // fs.writeFile('oldResponse'+Date.now()+'.json', JSON.stringify(clientResponse));
+        logger.verbose(responseText);
 
         // 一元请求成功完成，统计使用次数，错误次数重置为0
         if (poolManager && pooluuid) {
-            console.log(`[Pool] Increasing usage count for ${toProvider} (${pooluuid}) after successful unary request`);
+            logger.info(`[Pool] Increasing usage count for ${toProvider} (${pooluuid}) after successful unary request`);
             _markPoolHealthy(toProvider, poolManager, pooluuid);
         }
     } catch (error) {
-        console.error('\n[Server] Error during unary processing:', error.stack);
+        logger.error(`[Server] Error during unary processing: ${error.stack}`);
 
         // 如果响应已经写入，无法重试，直接返回错误
         if (responseWritten) {
             if (poolManager && pooluuid) {
-                console.log(`[Pool] Marking ${toProvider} (${pooluuid}) as unhealthy due to unary error`);
+                logger.warn(`[Pool] Marking ${toProvider} (${pooluuid}) as unhealthy due to unary error`);
                 _markPoolUnhealthy(toProvider, poolManager, pooluuid, error);
             }
 
@@ -385,7 +366,7 @@ export async function handleContentGenerationRequest(req, res, service, endpoint
 
     const fromProvider = clientProviderMap[endpointType];
     const toProvider = CONFIG.MODEL_PROVIDER;
-    console.warn(`[Content Generation] fromProvider: ${fromProvider}, toProvider: ${toProvider}`);
+    logger.warn(`[Content Generation] fromProvider: ${fromProvider}, toProvider: ${toProvider}`);
 
     if (!fromProvider) {
         throw new Error(`Unsupported endpoint type for content generation: ${endpointType}`);
@@ -400,14 +381,14 @@ export async function handleContentGenerationRequest(req, res, service, endpoint
     if (!model) {
         throw new Error("Could not determine the model from the request.");
     }
-    console.warn(`[Content Generation] Model: ${model}, Stream: ${isStream}`);
+    logger.warn(`[Content Generation] Model: ${model}, Stream: ${isStream}`);
 
     // 2.5. 如果使用了提供商池，根据模型重新选择提供商
     // 注意：这里使用 skipUsageCount: true，因为初次选择时已经增加了 usageCount
     if (_canUsePool(CONFIG, providerPoolManager)) {
         const { getApiService } = await import('../services/manager.js');
         service = await getApiService(CONFIG, model);
-        console.log(`[Content Generation] Re-selected service adapter based on model: ${model}`);
+        logger.info(`[Content Generation] Re-selected service adapter based on model: ${model}`);
     }
 
     // 3. Apply system prompt from file if configured.
@@ -416,7 +397,7 @@ export async function handleContentGenerationRequest(req, res, service, endpoint
 
     // 4. Log the incoming prompt (after potential conversion to the backend's format).
     const promptText = extractPromptText(processedRequestBody, toProvider);
-    await logConversation('input', promptText, CONFIG.PROMPT_LOG_MODE, PROMPT_LOG_FILENAME);
+    logger.verbose(promptText);
 
     // 5. 添加重试逻辑：如果使用了提供商池，当请求失败时自动切换到下一个健康的provider
     // 限制最多重试3次，避免把所有provider都试一遍
@@ -450,25 +431,25 @@ export async function handleContentGenerationRequest(req, res, service, endpoint
             );
 
             if (isClientError) {
-                console.log(`[Provider Retry] Client error detected, not retrying: ${error.message}`);
+                logger.warn(`[Provider Retry] Client error detected, not retrying: ${error.message}`);
                 // 客户端错误不计入provider的错误计数，直接抛出
                 throw error;
             }
 
             // 标记当前provider为unhealthy
             if (providerPoolManager && pooluuid) {
-                console.log(`[Pool Retry] Request failed with ${pooluuid}, attempt ${retryCount}/${maxRetries}`);
+                logger.info(`[Pool Retry] Request failed with ${pooluuid}, attempt ${retryCount}/${maxRetries}`);
                 _markPoolUnhealthy(toProvider, providerPoolManager, pooluuid, error);
             }
 
             // 如果还有重试机会，选择下一个健康的provider
             if (retryCount < maxRetries && _canUsePool(CONFIG, providerPoolManager)) {
-                console.log('[Pool Retry] Selecting next healthy account/provider...');
+                logger.info('[Pool Retry] Selecting next healthy account/provider...');
                 const { getApiService } = await import('../services/manager.js');
                 const newConfig = { ...CONFIG };
                 service = await getApiService(newConfig, model);
                 pooluuid = newConfig.uuid;
-                console.log(`[Pool Retry] Switched to: ${pooluuid}`);
+                logger.info(`[Pool Retry] Switched to: ${pooluuid}`);
             } else {
                 // 没有重试机会了，抛出最后的错误
                 break;
@@ -477,7 +458,7 @@ export async function handleContentGenerationRequest(req, res, service, endpoint
     }
 
     // 所有重试都失败，抛出最后一个错误
-    console.error(`[Pool Retry] All ${maxRetries} attempts failed. Last error:`, lastError?.message);
+    logger.error(`[Pool Retry] All ${maxRetries} attempts failed. Last error:`, lastError?.message);
     throw lastError || new Error('All accounts/providers failed');
 }
 
@@ -505,20 +486,20 @@ async function _manageSystemPrompt(requestBody, provider) {
         currentSystemText = await fs.readFile(FETCH_SYSTEM_PROMPT_FILE, 'utf8');
     } catch (error) {
         if (error.code !== 'ENOENT') {
-            console.error(`[System Prompt Manager] Error reading system prompt file: ${error.message}`);
+            logger.error(`[System Prompt Manager] Error reading system prompt file: ${error.message}`);
         }
     }
 
     try {
         if (incomingSystemText && incomingSystemText !== currentSystemText) {
             await fs.writeFile(FETCH_SYSTEM_PROMPT_FILE, incomingSystemText);
-            console.log(`[System Prompt Manager] System prompt updated.`);
+            logger.info('[System Prompt Manager] System prompt updated.');
         } else if (!incomingSystemText && currentSystemText) {
             await fs.writeFile(FETCH_SYSTEM_PROMPT_FILE, '');
-            console.log('[System Prompt Manager] System prompt cleared from file.');
+            logger.info('[System Prompt Manager] System prompt cleared from file.');
         }
     } catch (error) {
-        console.error(`[System Prompt Manager] Failed to manage system prompt file: ${error.message}`);
+        logger.error(`[System Prompt Manager] Failed to manage system prompt file: ${error.message}`);
     }
 }
 
@@ -585,14 +566,14 @@ export function handleError(res, error) {
             }
     }
 
-    console.error(`\n[Server] Request failed (${statusCode}): ${errorMessage}`);
+    logger.error(`[Server] Request failed (${statusCode}): ${errorMessage}`);
     if (suggestions.length > 0) {
-        console.error('[Server] Suggestions:');
+        logger.error('[Server] Suggestions:');
         suggestions.forEach((suggestion, index) => {
-            console.error(`  ${index + 1}. ${suggestion}`);
+            logger.error(`  ${index + 1}. ${suggestion}`);
         });
     }
-    console.error('[Server] Full error details:', error.stack);
+    logger.error(`[Server] Full error details: ${error.stack}`);
 
     if (!res.headersSent) {
         res.writeHead(statusCode, { 'Content-Type': 'application/json' });
@@ -731,13 +712,5 @@ function createStreamErrorResponse(error, fromProvider) {
                 }
             };
             return `data: ${JSON.stringify(defaultError)}\n\n`;
-    }
-}
-
-function _log(level, message) {
-    const levels = { debug: 0, info: 1, warn: 2, error: 3 };
-    if (levels[level] >= levels[this.logLevel]) {
-        const logMethod = level === 'debug' ? 'log' : level;
-        console[logMethod](`[AccountPoolManager] ${message}`);
     }
 }

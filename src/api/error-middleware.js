@@ -11,8 +11,10 @@
  */
 
 import { createErrorResponse } from '../utils/common.js';
+import { createLogger } from '../lib/logger.js';
 
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+const logger = createLogger('api:error-middleware');
 
 /**
  * 错误类型到建议信息的映射
@@ -169,20 +171,21 @@ function logError(error, req, statusCode) {
     const errorMessage = error.message || 'Unknown error';
 
     // 结构化日志输出
-    console.error(
+    logger.error(
         `[Error] ${timestamp} | ${method} ${safePath} | ` +
         `Status: ${statusCode} | Type: ${errorType} | ` +
-        `Message: ${errorMessage}`
+        `Message: ${errorMessage}`,
+        { timestamp, method, path: safePath, statusCode, errorType, errorMessage }
     );
 
     // 开发环境：输出完整堆栈
     if (!IS_PRODUCTION && error.stack) {
-        console.error('[Error Stack]', error.stack);
+        logger.error('[Error Stack]', { stack: error.stack });
     }
 
     // 如果有响应数据，也记录下来（开发环境）
     if (!IS_PRODUCTION && error.response?.data) {
-        console.error('[Error Response Data]', JSON.stringify(error.response.data, null, 2));
+        logger.error('[Error Response Data]', { responseData: error.response.data });
     }
 }
 
@@ -198,7 +201,7 @@ function sendSSEError(res, payload, method, path) {
         const eventData = `event: error\ndata: ${JSON.stringify(payload)}\n\n`;
         res.write(eventData);
     } catch (writeError) {
-        console.error(
+        logger.error(
             `[Error Middleware] Failed to emit SSE error event for ${method} ${path}: ` +
             `${writeError.message}`
         );
@@ -216,7 +219,7 @@ function sendSSEError(res, payload, method, path) {
 function sendJSONError(res, payload, statusCode, method, path) {
     // 检查 headers 是否已发送
     if (res.headersSent) {
-        console.warn(
+        logger.warn(
             `[Error Middleware] Headers already sent for ${method} ${path}, ` +
             `cannot send JSON error response`
         );
@@ -227,7 +230,7 @@ function sendJSONError(res, payload, statusCode, method, path) {
         res.writeHead(statusCode, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(payload));
     } catch (writeError) {
-        console.error(
+        logger.error(
             `[Error Middleware] Failed to send JSON error response for ${method} ${path}: ` +
             `${writeError.message}`
         );

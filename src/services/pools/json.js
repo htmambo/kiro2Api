@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { getServiceAdapter } from '../../kiro/adapter.js';
 import { generateContent } from '../../kiro/api-client.js';
+import { createLogger } from '../../lib/logger.js';
 import { v4 as uuidv4 } from 'uuid';
 
 /**
@@ -31,6 +32,7 @@ export class AccountPoolManager {
         this.maxErrorCount = options.maxErrorCount ?? 3;
         this.healthCheckInterval = options.healthCheckInterval ?? 10 * 60 * 1000;
         this.logLevel = options.logLevel || 'info';
+        this.logger = createLogger('services:pools:json');
 
         // 保存与防抖
         this.accountPoolFilePath = options.accountPoolFilePath ||
@@ -46,10 +48,9 @@ export class AccountPoolManager {
     }
 
     _log(level, message) {
-        const levels = { debug: 0, info: 1, warn: 2, error: 3 };
+        const levels = { verbose: -1, debug: 0, info: 1, warn: 2, error: 3 };
         if (levels[level] >= levels[this.logLevel]) {
-            const logMethod = level === 'debug' ? 'log' : level;
-            console[logMethod](`[AccountPoolManager] ${message}`);
+            this.logger[level](message);
         }
     }
 

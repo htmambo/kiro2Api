@@ -14,6 +14,7 @@ import {
 } from './utils/account-utils.js';
 import { serveStaticFiles } from './ui/static.js';
 import { initializeUIManagement, broadcastEvent } from './ui/events.js';
+import { createLogger } from './lib/logger.js';
 
 // 路由器相关导入
 import { createRouter } from './ui/router/index.js';
@@ -31,6 +32,7 @@ const TOKEN_STORE_FILE = './configs/token-store.json';
 const USAGE_CACHE_FILE = './configs/usage-cache.json';
 const ACCOUNT_POOL_FILE = './configs/account_pool.json';
 export const DEFAULT_PROVIDER_TYPE_FOR_ACCOUNTS = 'claude-kiro-oauth';
+const logger = createLogger('ui:manager');
 
 function isAccountMode(config) {
     // Provider 层已彻底移除，始终使用 account 模式
@@ -57,7 +59,7 @@ export function readAccountsFromStorage(currentConfig, poolManager = null) {
     }
 
     // 降级处理：如果没有 poolManager，返回空数据
-    console.warn('[UI API] No poolManager available, returning empty account pool');
+    logger.warn('[UI API] No poolManager available, returning empty account pool');
     return {
         accountMode: true,
         filePath,
@@ -149,10 +151,10 @@ async function loadOAuthStates() {
                 kiroOAuthStates.set(state, stateData);
             }
 
-            console.log(`[Kiro OAuth] Loaded ${validStates.length} valid states from file`);
+            logger.info(`[Kiro OAuth] Loaded ${validStates.length} valid states from file`);
         }
     } catch (error) {
-        console.warn('[Kiro OAuth] Failed to load OAuth states from file:', error.message);
+        logger.warn('[Kiro OAuth] Failed to load OAuth states from file', error);
     }
 }
 
@@ -162,13 +164,13 @@ async function saveOAuthStates() {
         const statesObject = Object.fromEntries(kiroOAuthStates.entries());
         await fs.writeFile(KIRO_OAUTH_STATE_FILE, JSON.stringify(statesObject, null, 2));
     } catch (error) {
-        console.error('[Kiro OAuth] Failed to save OAuth states to file:', error.message);
+        logger.error('[Kiro OAuth] Failed to save OAuth states to file', error);
     }
 }
 
 // 启动时加载OAuth状态
 loadOAuthStates().catch(err => {
-    console.warn('[Kiro OAuth] Error during initial state loading:', err.message);
+    logger.warn('[Kiro OAuth] Error during initial state loading', err);
 });
 
 // Kiro OAuth 配置
@@ -283,7 +285,7 @@ export async function readUsageCache() {
         }
         return null;
     } catch (error) {
-        console.warn('[Usage Cache] Failed to read usage cache:', error.message);
+        logger.warn('[Usage Cache] Failed to read usage cache', error);
         return null;
     }
 }
@@ -295,9 +297,9 @@ export async function readUsageCache() {
 export async function writeUsageCache(usageData) {
     try {
         await fs.writeFile(USAGE_CACHE_FILE, JSON.stringify(usageData, null, 2), 'utf8');
-        console.log('[Usage Cache] Usage data cached to', USAGE_CACHE_FILE);
+        logger.info(`[Usage Cache] Usage data cached to ${USAGE_CACHE_FILE}`);
     } catch (error) {
-        console.error('[Usage Cache] Failed to write usage cache:', error.message);
+        logger.error('[Usage Cache] Failed to write usage cache', error);
     }
 }
 
@@ -332,7 +334,7 @@ export async function readTokenStore() {
             return { tokens: {} };
         }
     } catch (error) {
-        console.error('读取token存储文件失败:', error);
+        logger.error('读取token存储文件失败', error);
         return { tokens: {} };
     }
 }
@@ -344,7 +346,7 @@ export async function writeTokenStore(tokenStore) {
     try {
         await fs.writeFile(TOKEN_STORE_FILE, JSON.stringify(tokenStore, null, 2), 'utf8');
     } catch (error) {
-        console.error('写入token存储文件失败:', error);
+        logger.error('写入token存储文件失败', error);
     }
 }
 
@@ -432,7 +434,7 @@ async function readPasswordFile() {
         const password = await fs.readFile('./pwd', 'utf8');
         return password.trim();
     } catch (error) {
-        console.error('读取密码文件失败:', error);
+        logger.error('读取密码文件失败', error);
         return null;
     }
 }
@@ -534,7 +536,7 @@ async function handleLoginRequest(req, res) {
             }));
         }
     } catch (error) {
-        console.error('登录处理错误:', error);
+        logger.error('登录处理错误', error);
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
             success: false,
@@ -616,17 +618,17 @@ export async function reloadConfig() {
 
         // Update global CONFIG
         Object.assign(CONFIG, newConfig);
-        console.log('[UI API] Configuration reloaded:');
+        logger.info('[UI API] Configuration reloaded:');
 
         // Update initApiService - 清空并重新初始化服务实例
         Object.keys(serviceInstances).forEach(key => delete serviceInstances[key]);
         initApiService(CONFIG);
 
-        console.log('[UI API] Configuration reloaded successfully');
+        logger.info('[UI API] Configuration reloaded successfully');
 
         return newConfig;
     } catch (error) {
-        console.error('[UI API] Failed to reload configuration:', error);
+        logger.error('[UI API] Failed to reload configuration', error);
         throw error;
     }
 }
@@ -639,7 +641,7 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
 
         uploadMiddleware(req, res, async (err) => {
             if (err) {
-                console.error('文件上传错误:', err.message);
+                logger.error('文件上传错误', err);
                 res.writeHead(400, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({
                     error: {
@@ -664,7 +666,7 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
                 const { uploadCredentials } = await import('./ui/router/handlers/upload.handlers.js');
                 await uploadCredentials({ req, res, currentConfig });
             } catch (error) {
-                console.error('[Router] Upload handler error:', error);
+                logger.error('[Router] Upload handler error', error);
                 if (!res.headersSent) {
                     res.writeHead(500, { 'Content-Type': 'application/json' });
                     res.end(JSON.stringify({
@@ -681,7 +683,7 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
     if (!global.uiRouter || process.env.NODE_ENV !== 'production') {
         global.uiRouter = createRouter();
         if (ROUTER_CONFIG.ENABLE_ROUTER_LOGGING) {
-            console.log('[Router] Router initialized with', global.uiRouter.getRoutes().length, 'routes');
+            logger.verbose(`Router initialized with ${global.uiRouter.getRoutes().length} routes`);
         }
     }
 
@@ -692,7 +694,7 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
         const { route, match } = matched;
 
         if (ROUTER_CONFIG.ENABLE_ROUTER_LOGGING) {
-            console.log(`[Router] Matched: ${method} ${pathParam} -> ${route.description || '(no description)'}`);
+            logger.verbose(`Router matched: ${method} ${pathParam} -> ${route.description || '(no description)'}`);
         }
 
         // 认证检查
@@ -714,13 +716,11 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
                 match
             });
 
-            if (ROUTER_CONFIG.ENABLE_ROUTER_LOGGING) {
-                console.log(`[Router] Handler completed: ${method} ${pathParam}`);
-            }
+            logger.verbose(`Router handler completed: ${method} ${pathParam}`);
 
             return true;
         } catch (error) {
-            console.error(`[Router] Error handling ${method} ${pathParam}:`, error);
+            logger.error(`Router error handling ${method} ${pathParam}`, error);
             if (!res.headersSent) {
                 res.writeHead(500, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ error: { message: 'Internal Server Error' } }));
@@ -730,9 +730,7 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
     }
 
     // 未匹配到路由，返回 false 继续处理
-    if (ROUTER_CONFIG.ENABLE_ROUTER_LOGGING) {
-        console.log(`[Router] No match found for: ${method} ${pathParam}`);
-    }
+    logger.debug(`Router no match found for: ${method} ${pathParam}`);
     return false;
 }
 

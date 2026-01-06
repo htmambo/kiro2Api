@@ -7,6 +7,7 @@ import { sqliteDB } from '../storage/sqlite-db.js';
 import { getServiceAdapter } from '../kiro/adapter.js';
 import * as fs from 'fs';
 import { generateContent } from '../kiro/api-client.js';
+import { createLogger } from '../../lib/logger.js';
 
 export class SQLiteAccountPoolManager {
     static DEFAULT_HEALTH_CHECK_MODEL = 'claude-sonnet-4-20250514';
@@ -17,6 +18,7 @@ export class SQLiteAccountPoolManager {
         this.maxErrorCount = options.maxErrorCount ?? 3;
         this.healthCheckInterval = options.healthCheckInterval ?? 10 * 60 * 1000;
         this.logLevel = options.logLevel || 'info';
+        this.logger = createLogger('services:pools:sqlite');
 
         // 轮询索引（内存中维护）
         this.roundRobinIndex = {};
@@ -29,10 +31,9 @@ export class SQLiteAccountPoolManager {
     }
 
     _log(level, message) {
-        const levels = { debug: 0, info: 1, warn: 2, error: 3 };
+        const levels = { verbose: -1, debug: 0, info: 1, warn: 2, error: 3 };
         if (levels[level] >= levels[this.logLevel]) {
-            const logMethod = level === 'debug' ? 'log' : level;
-            console[logMethod](`[SQLiteAccountPoolManager] ${message}`);
+            this.logger[level](message);
         }
     }
 

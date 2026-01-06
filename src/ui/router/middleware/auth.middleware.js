@@ -3,6 +3,10 @@
  * 检查请求是否包含有效的认证 token
  */
 
+import { createLogger } from '../../../lib/logger.js';
+
+const logger = createLogger('ui:middleware:auth');
+
 // 从 ui-manager.js 导入 token 验证函数
 // 这些函数需要在迁移时保持兼容
 
@@ -49,7 +53,7 @@ async function verifyToken(token) {
 
         return tokenInfo;
     } catch (error) {
-        console.error('[Auth Middleware] Token verification error:', error);
+        logger.error('[Auth Middleware] Token verification error:', error);
         return null;
     }
 }
@@ -68,7 +72,7 @@ async function deleteToken(token) {
             await writeTokenStore(tokenStore);
         }
     } catch (error) {
-        console.error('[Auth Middleware] Delete token error:', error);
+        logger.error('[Auth Middleware] Delete token error:', error);
     }
 }
 
