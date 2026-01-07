@@ -8,7 +8,7 @@ import { logErrorInDev } from '../../../utils/error-logger.js';
 
 import { KIRO_MODELS } from '../../../kiro/constants.js';
 import { getUsageLimits } from '../../../kiro/api-client.js';
-import { serviceInstances, getServiceAdapter, isSQLiteMode } from '../../../services/manager.js';
+import { serviceInstances, getServiceAdapter } from '../../../services/manager.js';
 
 const logger = createLogger('ui:handlers:usage');
 
@@ -52,96 +52,34 @@ export async function getAllUsage({ req, res, currentConfig, accountPoolManager 
 }
 
 /**
- * 按段获取用量
- */
-export async function getUsageBySegment({ req, res, currentConfig, accountPoolManager, match }) {
-    const segment = decodeURIComponent(match[1]);
-    const { DEFAULT_PROVIDER_TYPE_FOR_ACCOUNTS } = await import('../../../ui-manager.js');
-    const isProviderType = segment === DEFAULT_PROVIDER_TYPE_FOR_ACCOUNTS;
-
-    try {
-        const url = new URL(req.url, `http://${req.headers.host}`);
-        const refresh = url.searchParams.get('refresh') === 'true';
-
-        let usageResults;
-
-        if (isProviderType) {
-            const providerType = segment;
-            if (!refresh) {
-                const { readProviderUsageCache } = await import('../../../ui-manager.js');
-                const cachedData = await readProviderUsageCache(providerType);
-                if (cachedData) {
-                    usageResults = cachedData;
-                }
-            }
-            if (!usageResults) {
-                usageResults = await getProviderTypeUsage(providerType, currentConfig, accountPoolManager);
-                await updateProviderUsageCache(providerType, usageResults);
-            }
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify(usageResults));
-        } else {
-            const uuid = segment;
-            const providerType = DEFAULT_PROVIDER_TYPE_FOR_ACCOUNTS;
-            const providerUsage = await getProviderTypeUsage(providerType, currentConfig, accountPoolManager);
-            const accountUsage = providerUsage?.instances?.find(i => i.uuid === uuid);
-
-            if (accountUsage) {
-                await updateProviderUsageCache(providerType, providerUsage);
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ success: true, account: accountUsage }));
-            } else {
-                res.writeHead(404, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: { message: `未找到账号 ${uuid}` } }));
-            }
-        }
-    } catch (error) {
-        logErrorInDev(error, {
-            handler: 'getUsageBySegment',
-            method: req.method,
-            url: req.url,
-            segment,
-            isProviderType
-        });
-
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: { message: error.message } }));
-    }
-}
-
-/**
  * 获取账号用量
  */
 export async function getAccountUsage({ req, res, currentConfig, accountPoolManager, match }) {
-    const providerType = decodeURIComponent(match[1]);
-    const uuid = decodeURIComponent(match[2]);
+    const uuid = decodeURIComponent(match[1]);
+    let usageResults;
 
     try {
-        const url = new URL(req.url, `http://${req.headers.host}`);
-        const refresh = url.searchParams.get('refresh') === 'true';
 
-        let usageResults = await getProviderTypeUsage(providerType, currentConfig, accountPoolManager);
+        usageResults = await getAllProvidersUsage(currentConfig, accountPoolManager);
         const accountUsage = usageResults?.instances?.find(i => i.uuid === uuid);
 
         if (accountUsage) {
-            await updateProviderUsageCache(providerType, usageResults);
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ success: true, account: accountUsage }));
         } else {
             res.writeHead(404, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: { message: `未找到账号 ${uuid}` } }));
+            res.end(JSON.stringify({ error: { message: `未找到账号 ${uuid}`, usageResults } }));
         }
     } catch (error) {
         logErrorInDev(error, {
             handler: 'getAccountUsage',
             method: req.method,
             url: req.url,
-            providerType,
             uuid
         });
 
         res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: { message: error.message } }));
+        res.end(JSON.stringify({ error: { message: error.message, usageResults } }));
     }
 }
 
@@ -236,16 +174,8 @@ async function getProviderTypeUsage(providerType, currentConfig, accountPoolMana
 
     // 获取账号列表（支持 SQLite 和 JSON 两种模式）
     let providers = [];
-
-    if (isSQLiteMode() && accountPoolManager && typeof accountPoolManager.getProviderPools === 'function') {
-        // SQLite 模式
-        providers = accountPoolManager.getProviderPools(providerType);
-    } else {
-        // JSON 模式：从 account pool 获取
-        const { readAccountsFromStorage } = await import('../../../ui-manager.js');
-        const { accountPool } = readAccountsFromStorage(currentConfig, accountPoolManager);
-        providers = accountPool.accounts || [];
-    }
+    const accounts = accountPoolManager.listAccounts();
+    providers = accounts || [];
 
     result.totalCount = providers.length;
 
@@ -399,7 +329,8 @@ async function getProviderTypeUsage(providerType, currentConfig, accountPoolMana
             const { ACCOUNT_POOL_FILE } = await import('../../../ui-manager.js');
             const filePath = currentConfig.ACCOUNT_POOL_FILE_PATH || ACCOUNT_POOL_FILE;
             const currentPools = accountPoolManager.providerPools || {};
-            currentPools[providerType] = providers;
+            currentPools['accounts'] = providers;
+            // TODO 不能直接写入，需要将由accountPoolManager管理
             writeFileSync(filePath, JSON.stringify(currentPools, null, 2), 'utf8');
             logger.info('[Usage API] Provider pools updated with cached userId/email');
         } catch (saveError) {

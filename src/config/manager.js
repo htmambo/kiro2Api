@@ -278,31 +278,6 @@ export async function initializeConfig(args = process.argv.slice(2), configFileP
         currentConfig.ACCOUNT_POOL_FILE_PATH = 'configs/account_pool.json';
     }
 
-    const loadOrMigrateAccountPool = async () => {
-        try {
-            const accountData = await pfs.readFile(currentConfig.ACCOUNT_POOL_FILE_PATH, 'utf8');
-            const parsed = JSON.parse(accountData);
-            if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.accounts)) {
-                throw new Error('Invalid account_pool.json format (expected { accounts: [] })');
-            }
-            return parsed;
-        } catch (error) {
-            if (error.code !== 'ENOENT') {
-                logger.error(`[Config Error] Failed to load account pool from ${currentConfig.ACCOUNT_POOL_FILE_PATH}: ${error.message}`);
-                return { accounts: [] };
-            }
-        }
-
-        // 无任何文件：创建空账号池文件（provider 层已移除，账号池为唯一入口）
-        const emptyPool = { accounts: [] };
-        fs.writeFileSync(currentConfig.ACCOUNT_POOL_FILE_PATH, JSON.stringify(emptyPool, null, 2), 'utf8');
-        logger.info(`[Config] Created empty ${currentConfig.ACCOUNT_POOL_FILE_PATH}`);
-        return emptyPool;
-    };
-
-    currentConfig.accountPool = await loadOrMigrateAccountPool();
-    logger.info(`[Config] Loaded account pool (${currentConfig.accountPool.accounts.length} account(s)) from ${currentConfig.ACCOUNT_POOL_FILE_PATH}`);
-
     // Set PROMPT_LOG_FILENAME based on the determined config
     if (currentConfig.PROMPT_LOG_MODE === 'file') {
         const now = new Date();

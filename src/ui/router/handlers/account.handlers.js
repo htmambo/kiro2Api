@@ -1,29 +1,9 @@
 /**
- * 账号 Handler 实现
- * 处理账号管理相关的 API 请求
- * 这些 Handler 将调用 ui-manager.js 中的现有函数
- */
-
-// 注意：这些 handler 实际上是调用 ui-manager.js 中的现有函数
-// 我们通过导入和包装来保持代码的组织性
-
-// 由于 ui-manager.js 中的函数是直接在 handleUIApiRequests 中定义的
-// 我们需要重构或创建包装函数
-// 为了简化迁移，这里提供 handler 框架，实际实现需要从原代码提取
-
-/**
  * 获取所有账号列表
  */
-export async function getAccounts({ res, currentConfig, accountPoolManager }) {
-    // 从 ui-manager.js 的实现中提取
-    // 这部分代码位于 1116-1168 行
-
-    // 临时实现：调用原有逻辑
-    // 实际迁移时需要将 ui-manager.js 中的函数提取为独立函数
-    const { readAccountsFromStorage, parseErrorMessage } = await import('../../../ui-manager.js');
-    const { broadcastEvent } = await import('../../events.js');
-
-    const { accountPool, filePath } = readAccountsFromStorage(currentConfig, accountPoolManager);
+export async function getAccounts({ res, accountPoolManager }) {
+    const { parseErrorMessage } = await import('../../../ui-manager.js');
+    const accounts = accountPoolManager.listAccounts();
 
     let healthyCount = 0;
     let checkingCount = 0;
@@ -31,7 +11,7 @@ export async function getAccounts({ res, currentConfig, accountPoolManager }) {
     let totalUsageCount = 0;
     let totalErrorCount = 0;
 
-    for (const account of accountPool.accounts) {
+    for (const account of accounts) {
         totalUsageCount += account.usageCount || 0;
         totalErrorCount += account.errorCount || 0;
 
@@ -68,9 +48,8 @@ export async function getAccounts({ res, currentConfig, accountPoolManager }) {
 
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
-        accounts: accountPool.accounts,
-        _accountPoolStats: stats,
-        _filePath: filePath
+        accounts: accounts,
+        _accountPoolStats: stats
     }));
 }
 
@@ -320,12 +299,11 @@ export async function healthCheckAll({ res, accountPoolManager }) {
  * 单个账号健康检查
  */
 export async function healthCheckAccount({ res, currentConfig, accountPoolManager, match }) {
-    const { readAccountsFromStorage } = await import('../../../ui-manager.js');
     const uuid = decodeURIComponent(match[1]);
 
     try {
-        const { accountPool } = readAccountsFromStorage(currentConfig, accountPoolManager);
-        const acc = accountPool.accounts.find(a => a.uuid === uuid);
+        const accounts = accountPoolManager.listAccounts();
+        const acc = accounts.find(a => a.uuid === uuid);
 
         if (!acc) {
             res.writeHead(404, { 'Content-Type': 'application/json' });
@@ -362,13 +340,12 @@ export async function healthCheckAccount({ res, currentConfig, accountPoolManage
  * 测试账号
  */
 export async function testAccount({ res, currentConfig, accountPoolManager, match }) {
-    const { readAccountsFromStorage } = await import('../../../ui-manager.js');
     const { getServiceAdapter } = await import('../../../services/manager.js');
     const uuid = decodeURIComponent(match[1]);
 
     try {
-        const { accountPool } = readAccountsFromStorage(currentConfig, accountPoolManager);
-        const acc = accountPool.accounts.find(a => a.uuid === uuid);
+        const accounts = accountPoolManager.listAccounts();
+        const acc = accounts.find(a => a.uuid === uuid);
 
         if (!acc) {
             res.writeHead(404, { 'Content-Type': 'application/json' });
@@ -413,7 +390,6 @@ export async function generateAuthUrl({ res, currentConfig, accountPoolManager }
  */
 export async function cleanupDuplicates({ req, res, currentConfig, accountPoolManager }) {
     const { parseRequestBody } = await import('../../../ui-manager.js');
-    const { readAccountsFromStorage } = await import('../../../ui-manager.js');
     const { findDuplicateUserId } = await import('../../../utils/account-utils.js');
     const { broadcastEvent } = await import('../../events.js');
 
@@ -421,8 +397,7 @@ export async function cleanupDuplicates({ req, res, currentConfig, accountPoolMa
         const body = await parseRequestBody(req);
         const { dryRun = true } = body;
 
-        const { accountPool } = readAccountsFromStorage(currentConfig, accountPoolManager);
-        const accounts = accountPool.accounts;
+        const accounts = accountPoolManager.listAccounts();
 
         const userIdGroups = {};
         const noUserIdAccounts = [];

@@ -5,7 +5,6 @@
  * 生产环境下保持静默，避免泄露敏感信息。
  */
 
-import { ENV } from '../config/env.js';
 import { createLogger } from '../lib/logger.js';
 
 const logger = createLogger('error-logger');
@@ -35,7 +34,6 @@ const logger = createLogger('error-logger');
  */
 export function logErrorInDev(error, context = {}) {
     // 只在非生产环境记录详细信息
-    if (!ENV.isProduction) {
         const errorDetails = {
             message: error.message,
             name: error.name,
@@ -50,7 +48,6 @@ export function logErrorInDev(error, context = {}) {
         }
 
         logger.error('[Dev Error Details]', errorDetails);
-    }
 }
 
 /**
@@ -60,7 +57,5 @@ export function logErrorInDev(error, context = {}) {
  * @param {Object} context - 上下文信息
  */
 export function logWarningInDev(message, context = {}) {
-    if (!ENV.isProduction) {
         logger.warn('[Dev Warning]', { message, ...context });
-    }
 }

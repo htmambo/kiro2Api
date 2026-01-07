@@ -37,10 +37,29 @@ export class AccountPoolManager {
 
         // 轮询索引（按 requestedModel 区分）
         this.roundRobinIndex = {};
+        // 如果账号池为空，尝试从文件中加载
+        if (this.accountPool.accounts.length === 0) {
+            this.loadAccountPool();
+        }
 
         this._initializeAccountDefaults();
     }
 
+    loadAccountPool() {
+        const filePath = this.accountPoolFilePath;
+        if (!filePath) {
+            this.logger.error('No account pool file path specified');
+            return;
+        }
+        try {
+            const data = fs.readFileSync(filePath, 'utf-8');
+            const accountPool = JSON.parse(data);
+            this.accountPool.accounts = accountPool.accounts || [];
+            this.logger.info(`Loaded account pool from ${filePath}`);
+        } catch (error) {
+            this.logger.error(`Failed to load account pool from ${filePath}: ${error.message}`);
+        }
+    }
     _log(level, message) {
         const levels = { verbose: -1, debug: 0, info: 1, warn: 2, error: 3 };
         if (levels[level] >= levels[this.logLevel]) {

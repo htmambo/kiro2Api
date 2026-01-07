@@ -12,7 +12,7 @@ const logger = createLogger('ui:handlers:oauth');
  * OAuth 网页回调 Handler
  * 返回 HTML 页面
  */
-export async function webCallback({ req, res }) {
+export async function webCallback({ req, res, accountPoolManager }) {
     try {
         // 从 ui-manager.js 导入必要的函数和状态
         const { kiroOAuthStates, generateOAuthResultPage, KIRO_OAUTH_CONFIG } = await import('../../../ui-manager.js');
@@ -97,6 +97,7 @@ export async function webCallback({ req, res }) {
             createdBy: 'web-oauth'
         };
 
+        // TODO 不能直接写入，需要由accountPoolManager管理
         fs.default.writeFileSync(tokenFilePath, JSON.stringify(fullTokenData, null, 2));
         logger.info(`[Kiro OAuth Web] Token saved to: ${tokenFilePath}`);
 
@@ -290,7 +291,7 @@ export async function manualImport({ req, res, currentConfig, accountPoolManager
                         checkHealth: true,
                         notSupportedModels: []
                     };
-
+                    // TODO 不能直接写入，需要由accountPoolManager管理
                     providerPools['claude-kiro-oauth'].push(newProvider);
                     writeFileSync(poolsFilePath, JSON.stringify(providerPools, null, 2), 'utf8');
                     logger.info(`[Kiro Manual Import] Added to provider pool with UUID: ${newProvider.uuid}`);

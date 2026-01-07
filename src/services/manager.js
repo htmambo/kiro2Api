@@ -64,7 +64,7 @@ export async function initApiService(config) {
             logger.warn(`Failed to initialize service adapter for ${provider}: ${error.message}`);
         }
     }
-
+    
     return serviceInstances;
 }
 
@@ -97,9 +97,6 @@ export function getAccountPoolManager() {
     return accountPoolManager;
 }
 
-export function isSQLiteMode() {
-    return useSQLiteMode;
-}
 
 
 // 用于存储服务适配器单例的映射

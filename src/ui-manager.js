@@ -5,7 +5,7 @@ import multer from 'multer';
 import crypto from 'crypto';
 import { getRequestBody } from './utils/common.js';
 import { CONFIG } from './config/manager.js';
-import { serviceInstances, getServiceAdapter, initApiService, getAccountPoolManager, isSQLiteMode } from './services/manager.js';
+import { serviceInstances, getServiceAdapter, initApiService, getAccountPoolManager } from './services/manager.js';
 import { serveStaticFiles } from './ui/static.js';
 import { initializeUIManagement, broadcastEvent } from './ui/events.js';
 import { createLogger } from './lib/logger.js';
@@ -27,39 +27,6 @@ const USAGE_CACHE_FILE = './configs/usage-cache.json';
 const ACCOUNT_POOL_FILE = './configs/account_pool.json';
 export const DEFAULT_PROVIDER_TYPE_FOR_ACCOUNTS = 'claude-kiro-oauth';
 const logger = createLogger('ui:manager');
-
-function isAccountMode(config) {
-    // Provider 层已彻底移除，始终使用 account 模式
-    // legacy 模式作为别名保留，实际行为与 account 模式相同
-    return true;
-}
-
-/**
- * 从 AccountPoolManager 读取账号池数据
- * @param {Object} currentConfig - 当前配置
- * @param {Object} poolManager - AccountPoolManager 实例
- * @returns {Object} { accountMode, filePath, accountPool }
- */
-export function readAccountsFromStorage(currentConfig, poolManager = null) {
-    const filePath = currentConfig.ACCOUNT_POOL_FILE_PATH || ACCOUNT_POOL_FILE;
-
-    if (poolManager && typeof poolManager.listAccounts === 'function') {
-        // 使用 AccountPoolManager 作为唯一数据源
-        return {
-            accountMode: true,
-            filePath,
-            accountPool: { accounts: poolManager.listAccounts() }
-        };
-    }
-
-    // 降级处理：如果没有 poolManager，返回空数据
-    logger.warn('[UI API] No poolManager available, returning empty account pool');
-    return {
-        accountMode: true,
-        filePath,
-        accountPool: { accounts: [] }
-    };
-}
 
 /**
  * 生成不缓存的响应头
