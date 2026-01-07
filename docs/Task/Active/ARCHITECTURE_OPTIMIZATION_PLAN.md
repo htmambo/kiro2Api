@@ -32,7 +32,7 @@
 
 ### 阶段 1：解决循环依赖（最高优先级）
 
-#### 子任务 1.1：解耦 `ui-manager` ↔ `api/server` ⏳
+#### 子任务 1.1：解耦 `ui-manager` ↔ `api/server` ✅
 
 **改动内容**：
 - 在 `ui-manager.js` 中新增依赖注入机制：
@@ -46,42 +46,48 @@
 - 在 `api/server.js` 启动时注册 `initAccountService`
 
 **预期效果**：
-- 消除双向依赖
-- `ui-manager` 不再直接导入 `api/server`
+- ✅ 消除双向依赖
+- ✅ `ui-manager` 不再直接导入 `api/server`
 
 **风险评估**：
-- 若未注册就调用 reload 会静默失败 → 需添加日志保护
-- 需确保注册发生在 UI 启动前
+- ✅ 已添加日志保护（未注册时输出警告）
+- ✅ 注册在 UI 启动后立即执行
 
 **测试点**：
-- 通过 UI 触发配置重载，验证账号池更新
-- 检查日志确认回调被正确调用
+- ⏳ 通过 UI 触发配置重载，验证账号池更新
+- ⏳ 检查日志确认回调被正确调用
+
+**完成时间**: 2026-01-07
 
 ---
 
-#### 子任务 1.2：解耦 `utils/common` ↔ `kiro/adapter` ⏳
+#### 子任务 1.2：解耦 `utils/common` ↔ `kiro/adapter` ✅
 
 **改动内容**：
 - 删除 `utils/common.js` 中的 `import { KiroService }`
 - 改用 JSDoc 类型注释：`/** @typedef {import('../kiro/adapter.js').KiroService} KiroService */`
 
 **预期效果**：
-- 消除运行时循环依赖
-- 保留类型提示（用于 IDE 和文档）
+- ✅ 消除运行时循环依赖
+- ✅ 保留类型提示（用于 IDE 和文档）
 
 **风险评估**：
-- 若未来需要引用 `KiroService` 的静态方法会重新形成循环
-- 需限制 `common.js` 只做类型建模
+- ✅ 已限制 `common.js` 只做类型建模
+- ✅ 通过 JSDoc 保留类型提示
 
 **测试点**：
-- 启动服务，确认不再出现 "Cannot access before initialization" 错误
-- 运行现有集成测试
+- ⏳ 启动服务，确认不再出现 "Cannot access before initialization" 错误
+- ⏳ 运行现有集成测试
+
+**完成时间**: 2026-01-07
+
+**Codex Review**: 循环依赖已彻底消除，实现合理，无需额外错误处理
 
 ---
 
 ### 阶段 2：拆分 `ui-manager.js`（中等优先级）
 
-#### 子任务 2.1：创建 `ui/token-store.js` ⏳
+#### 子任务 2.1：创建 `ui/token-store.js` ✅
 
 **改动内容**：
 - 迁移 token 相关逻辑：
@@ -92,11 +98,14 @@
   - `verifyToken()`
 
 **预期效果**：
-- Token 管理逻辑独立，便于测试和维护
+- ✅ Token 管理逻辑独立，便于测试和维护
+- ✅ 新增 `cleanupExpiredTokens()` 功能
+
+**完成时间**: 2026-01-07
 
 ---
 
-#### 子任务 2.2：创建 `ui/oauth-states.js` ⏳
+#### 子任务 2.2：创建 `ui/oauth-states.js` ✅
 
 **改动内容**：
 - 迁移 OAuth 状态管理：
@@ -106,11 +115,14 @@
   - 持久化到 `kiro-oauth-states.json`
 
 **预期效果**：
-- OAuth 状态管理独立
+- ✅ OAuth 状态管理独立
+- ✅ 导出 OAuth 配置常量
+
+**完成时间**: 2026-01-07
 
 ---
 
-#### 子任务 2.3：创建 `ui/usage-cache.js` ⏳
+#### 子任务 2.3：创建 `ui/usage-cache.js` ✅
 
 **改动内容**：
 - 迁移使用量缓存逻辑：
@@ -118,11 +130,13 @@
   - `readProviderUsageCache()`
 
 **预期效果**：
-- 使用量缓存逻辑独立
+- ✅ 使用量缓存逻辑独立
+
+**完成时间**: 2026-01-07
 
 ---
 
-#### 子任务 2.4：创建 `ui/upload.js` ⏳
+#### 子任务 2.4：创建 `ui/upload.js` ✅
 
 **改动内容**：
 - 迁移文件上传逻辑：
@@ -130,22 +144,31 @@
   - `fileFilter`
   - `upload` 中间件
   - `/api/upload-oauth-credentials` 处理流程
+  - 新增 `handleUpload()` 和 `isUploadRequest()` 辅助函数
 
 **预期效果**：
-- 文件上传逻辑独立
+- ✅ 文件上传逻辑独立
+- ✅ 提供清晰的 API 接口
+
+**完成时间**: 2026-01-07
 
 ---
 
-#### 子任务 2.5：创建 `ui/config-reloader.js` ⏳
+#### 子任务 2.5：创建 `ui/config-reloader.js` ✅
 
 **改动内容**：
 - 迁移配置重载逻辑：
   - `reloadConfig()` 函数
+  - `registerAccountServiceInitializer()` 函数
+  - `getAccountServiceInitializer()` 函数
   - 使用注册的钩子触发重载
   - 清理 `serviceInstances`
 
 **预期效果**：
-- 配置重载逻辑独立
+- ✅ 配置重载逻辑独立
+- ✅ 提供清晰的 API 接口
+
+**完成时间**: 2026-01-07
 
 ---
 
