@@ -14,9 +14,11 @@ export const KIRO_OAUTH_STATE_FILE = path.join(process.cwd(), 'configs', 'kiro-o
 
 // Kiro OAuth 配置
 export const KIRO_OAUTH_CONFIG = {
+    START_URL: 'https://view.awsapps.com/start/',
+    REGION: 'us-east-1',
     REDIRECT_URI: 'kiro://kiro.kiroAgent/authenticate-success',
     REDIRECT_URI_WEB: null,
-    IDE_VERSION: '0.7.45',
+    IDE_VERSION: '0.8.0',
     TOKEN_ENDPOINT: 'https://prod.us-east-1.auth.desktop.kiro.dev/oauth/token',
     LOGIN_ENDPOINT: 'https://prod.us-east-1.auth.desktop.kiro.dev/login'
 };
