@@ -2,11 +2,13 @@ import { promises as fs } from 'fs';
 import * as path from 'path';
 import * as http from 'http'; // Add http for IncomingMessage and ServerResponse types
 import * as crypto from 'crypto'; // Import crypto for MD5 hashing
-import { KiroService } from '../kiro/adapter.js'; // Import KiroService
+// 使用 JSDoc 类型注释替代运行时导入，避免循环依赖
+/** @typedef {import('../kiro/adapter.js').KiroService} KiroService */
 import { generateContent, generateContentStream } from '../kiro/api-client.js';
 import { KiroStrategy } from '../kiro/strategy.js';
 import os from 'os';
 import { createLogger } from '../lib/logger.js';
+import { getApiService, getAccountPoolManager } from '../api/server.js';
 
 const logger = createLogger('utils:common');
 
@@ -59,20 +61,6 @@ export function getCpuUsagePercent() {
     previousCpuInfo = currentCpuInfo;
 
     return `${cpuPercent.toFixed(1)}%`;
-}
-
-/**
- * Extracts the protocol prefix from a given model provider string.
- * This is used to determine if two providers belong to the same underlying protocol (e.g., claude).
- * @param {string} provider - The model provider string (e.g., 'claude-kiro-oauth').
- * @returns {string} The protocol prefix (e.g., 'claude').
- */
-export function getProtocolPrefix(provider) {
-    const hyphenIndex = provider.indexOf('-');
-    if (hyphenIndex !== -1) {
-        return provider.substring(0, hyphenIndex);
-    }
-    return provider; // Return original if no hyphen is found
 }
 
 export const ENDPOINT_TYPE = {
@@ -213,7 +201,6 @@ export async function handleStreamRequest(res, service, model, requestBody, from
     await handleUnifiedResponse(res, '', true);
 
     // fs.writeFile('request'+Date.now()+'.json', JSON.stringify(requestBody));
-    // The service returns a stream in its native format (toProvider).
     requestBody.model = model;
 
     let nativeStream;
@@ -227,18 +214,17 @@ export async function handleStreamRequest(res, service, model, requestBody, from
         throw initialError; // 抛出让外层重试逻辑处理
     }
 
-    const addEvent = getProtocolPrefix(fromProvider) === 'claude';
-
     try {
         streamStarted = true;
         for await (const nativeChunk of nativeStream) {
             // Extract text for logging purposes
-            const chunkText = extractResponseText(nativeChunk, toProvider);
+            const strategy = new KiroStrategy();
+            const chunkText = strategy.extractResponseText(nativeChunk);
+
             if (chunkText && !Array.isArray(chunkText)) {
                 fullResponseText += chunkText;
             }
 
-            // Convert the complete chunk object to the client's format (fromProvider), if necessary.
             const chunkToSend = nativeChunk;
 
             if (!chunkToSend) {
@@ -249,12 +235,10 @@ export async function handleStreamRequest(res, service, model, requestBody, from
             const chunksToSend = Array.isArray(chunkToSend) ? chunkToSend : [chunkToSend];
 
             for (const chunk of chunksToSend) {
-                if (addEvent) {
-                    // fullOldResponseJson += chunk.type+"\n";
-                    // fullResponseJson += chunk.type+"\n";
-                    res.write(`event: ${chunk.type}\n`);
-                    // console.log(`event: ${chunk.type}\n`);
-                }
+                // fullOldResponseJson += chunk.type+"\n";
+                // fullResponseJson += chunk.type+"\n";
+                res.write(`event: ${chunk.type}\n`);
+                // console.log(`event: ${chunk.type}\n`);
 
                 // fullOldResponseJson += JSON.stringify(chunk)+"\n";
                 // fullResponseJson += JSON.stringify(chunk)+"\n\n";
@@ -284,7 +268,7 @@ export async function handleStreamRequest(res, service, model, requestBody, from
             const mockReq = {
                 method: 'POST',
                 url: '/stream',
-                headers: { 'model-provider': fromProvider }
+                headers: { 'model-provider': 'claude' }
             };
             const { errorMiddleware } = await import('../api/error-middleware.js');
             await errorMiddleware(error, mockReq, res, true);
@@ -309,9 +293,9 @@ export async function handleUnaryRequest(res, service, model, requestBody, fromP
         requestBody.model = model;
         // fs.writeFile('oldRequest'+Date.now()+'.json', JSON.stringify(requestBody));
         const nativeResponse = await generateContent(service, model, requestBody);
-        const responseText = extractResponseText(nativeResponse, toProvider);
+        const strategy = new KiroStrategy();
+        const responseText = strategy.extractResponseText(nativeResponse);
 
-        // Convert the response back to the client's format (fromProvider), if necessary.
         let clientResponse = nativeResponse;
 
         //console.log(`[Response] Sending response to client: ${JSON.stringify(clientResponse)}`);
@@ -333,9 +317,7 @@ export async function handleUnaryRequest(res, service, model, requestBody, fromP
                 logger.warn(`[Pool] Marking ${toProvider} (${pooluuid}) as unhealthy due to unary error`);
                 _markPoolUnhealthy(toProvider, poolManager, pooluuid, error);
             }
-
-            // 使用新方法创建符合 fromProvider 格式的错误响应
-            const errorResponse = createErrorResponse(error, fromProvider);
+            const errorResponse = createErrorResponse(error);
             await handleUnifiedResponse(res, JSON.stringify(errorResponse), false);
         } else {
             // 响应还没写入，可以重试，向上抛出错误
@@ -366,17 +348,13 @@ export async function handleContentGenerationRequest(req, res, service, endpoint
 
     const fromProvider = clientProviderMap[endpointType];
     const toProvider = CONFIG.MODEL_PROVIDER;
-    logger.warn(`[Content Generation] fromProvider: ${fromProvider}, toProvider: ${toProvider}`);
-
-    if (!fromProvider) {
-        throw new Error(`Unsupported endpoint type for content generation: ${endpointType}`);
-    }
 
     // 1. Convert request body from client format to backend format, if necessary.
     let processedRequestBody = originalRequestBody;
+    const strategy = new KiroStrategy();
 
     // 2. Extract model and determine if the request is for streaming.
-    const { model, isStream } = _extractModelAndStreamInfo(req, originalRequestBody, fromProvider);
+    const { model, isStream } = strategy.extractModelAndStreamInfo(req, originalRequestBody);
 
     if (!model) {
         throw new Error("Could not determine the model from the request.");
@@ -386,20 +364,15 @@ export async function handleContentGenerationRequest(req, res, service, endpoint
     // 2.5. 如果使用了提供商池，根据模型重新选择提供商
     // 注意：这里使用 skipUsageCount: true，因为初次选择时已经增加了 usageCount
     if (_canUsePool(CONFIG, providerPoolManager)) {
-        const { getApiService } = await import('../services/manager.js');
         service = await getApiService(CONFIG, model);
         logger.info(`[Content Generation] Re-selected service adapter based on model: ${model}`);
     }
 
     // 3. Apply system prompt from file if configured.
-    processedRequestBody = await _applySystemPromptFromFile(CONFIG, processedRequestBody, toProvider);
+    processedRequestBody = strategy.applySystemPromptFromFile(CONFIG, processedRequestBody);
     await _manageSystemPrompt(processedRequestBody, toProvider);
 
-    // 4. Log the incoming prompt (after potential conversion to the backend's format).
-    const promptText = extractPromptText(processedRequestBody, toProvider);
-    logger.verbose(promptText);
-
-    // 5. 添加重试逻辑：如果使用了提供商池，当请求失败时自动切换到下一个健康的provider
+    // 4. 添加重试逻辑：如果使用了提供商池，当请求失败时自动切换到下一个健康的provider
     // 限制最多重试3次，避免把所有provider都试一遍
     const availableProviders = _countAvailablePoolItems(CONFIG, providerPoolManager);
     const maxRetries = Math.min(3, availableProviders);
@@ -445,7 +418,6 @@ export async function handleContentGenerationRequest(req, res, service, endpoint
             // 如果还有重试机会，选择下一个健康的provider
             if (retryCount < maxRetries && _canUsePool(CONFIG, providerPoolManager)) {
                 logger.info('[Pool Retry] Selecting next healthy account/provider...');
-                const { getApiService } = await import('../services/manager.js');
                 const newConfig = { ...CONFIG };
                 service = await getApiService(newConfig, model);
                 pooluuid = newConfig.uuid;
@@ -460,23 +432,6 @@ export async function handleContentGenerationRequest(req, res, service, endpoint
     // 所有重试都失败，抛出最后一个错误
     logger.error(`[Pool Retry] All ${maxRetries} attempts failed. Last error:`, lastError?.message);
     throw lastError || new Error('All accounts/providers failed');
-}
-
-/**
- * Helper function to extract model and stream information from the request.
- * @param {http.IncomingMessage} req The HTTP request object.
- * @param {Object} requestBody The parsed request body.
- * @param {string} fromProvider The type of endpoint being called.
- * @returns {{model: string, isStream: boolean}} An object containing the model name and stream status.
- */
-function _extractModelAndStreamInfo(req, requestBody, fromProvider) {
-    const strategy = new KiroStrategy();
-    return strategy.extractModelAndStreamInfo(req, requestBody);
-}
-
-async function _applySystemPromptFromFile(config, requestBody, toProvider) {
-    const strategy = new KiroStrategy();
-    return strategy.applySystemPromptFromFile(config, requestBody);
 }
 
 async function _manageSystemPrompt(requestBody, provider) {
@@ -501,17 +456,6 @@ async function _manageSystemPrompt(requestBody, provider) {
     } catch (error) {
         logger.error(`[System Prompt Manager] Failed to manage system prompt file: ${error.message}`);
     }
-}
-
-// Helper functions for content extraction and conversion
-export function extractResponseText(response, provider) {
-    const strategy = new KiroStrategy();
-    return strategy.extractResponseText(response);
-}
-
-export function extractPromptText(requestBody, provider) {
-    const strategy = new KiroStrategy();
-    return strategy.extractPromptText(requestBody);
 }
 
 export function handleError(res, error) {
@@ -628,13 +572,11 @@ export function getMD5Hash(obj) {
 
 
 /**
- * 创建符合 fromProvider 格式的错误响应（非流式）
+ * 创建错误响应
  * @param {Error} error - 错误对象
- * @param {string} fromProvider - 客户端期望的提供商格式
  * @returns {Object} 格式化的错误响应对象
  */
-export function createErrorResponse(error, fromProvider) {
-    const protocolPrefix = getProtocolPrefix(fromProvider);
+export function createErrorResponse(error) {
     const statusCode = error.status || error.code || 500;
     const errorMessage = error.message || "An error occurred during processing.";
     
@@ -647,70 +589,12 @@ export function createErrorResponse(error, fromProvider) {
         return 'invalid_request_error';
     };
     
-    switch (protocolPrefix) {
-        case 'claude':
-            // Claude 非流式错误格式（外层有 type 标记）
-            return {
-                type: "error",  // 核心区分标记
-                error: {
-                    type: getErrorType(statusCode),  // Claude 使用 error.type 作为核心判断
-                    message: errorMessage
-                }
-            };
-            
-        default:
-            // 默认
-            return {
-                error: {
-                    message: errorMessage,
-                    type: getErrorType(statusCode),
-                    code: getErrorType(statusCode)
-                }
-            };
-    }
-}
-
-/**
- * 创建符合 fromProvider 格式的流式错误响应
- * @param {Error} error - 错误对象
- * @param {string} fromProvider - 客户端期望的提供商格式
- * @returns {string} 格式化的流式错误响应字符串
- */
-function createStreamErrorResponse(error, fromProvider) {
-    const protocolPrefix = getProtocolPrefix(fromProvider);
-    const statusCode = error.status || error.code || 500;
-    const errorMessage = error.message || "An error occurred during streaming.";
-    
-    // 根据 HTTP 状态码映射错误类型
-    const getErrorType = (code) => {
-        if (code === 401) return 'authentication_error';
-        if (code === 403) return 'permission_error';
-        if (code === 429) return 'rate_limit_error';
-        if (code >= 500) return 'server_error';
-        return 'invalid_request_error';
+    // Claude 非流式错误格式（外层有 type 标记）
+    return {
+        type: "error",  // 核心区分标记
+        error: {
+            type: getErrorType(statusCode),  // Claude 使用 error.type 作为核心判断
+            message: errorMessage
+        }
     };
-    
-    switch (protocolPrefix) {
-        case 'claude':
-            // Claude 流式错误格式（SSE event + data）
-            const claudeError = {
-                type: "error",
-                error: {
-                    type: getErrorType(statusCode),
-                    message: errorMessage
-                }
-            };
-            return `event: error\ndata: ${JSON.stringify(claudeError)}\n\n`;
-            
-        default:
-            // 默认
-            const defaultError = {
-                error: {
-                    message: errorMessage,
-                    type: getErrorType(statusCode),
-                    code: null
-                }
-            };
-            return `data: ${JSON.stringify(defaultError)}\n\n`;
-    }
 }

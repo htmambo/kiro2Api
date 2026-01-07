@@ -15,6 +15,7 @@
  */
 
 import { createLogger } from '../lib/logger.js';
+import { serviceInstances, getServiceAdapter } from './adapter.js';
 
 const logger = createLogger('kiro:account-manager');
 
@@ -212,13 +213,6 @@ export class AccountManager {
                 return;
             }
 
-            // 如果没有提供健康检查函数，记录警告并跳过
-            if (!healthCheckFn) {
-                logger.warn('Health check function not provided, skipping health checks. ' +
-                    'Please provide a healthCheckFn parameter to enable health checks.');
-                return;
-            }
-
             logger.debug(`Starting health checks for ${accounts.length} accounts (isInit: ${isInit})`);
 
             const now = Date.now();
@@ -256,51 +250,6 @@ export class AccountManager {
             );
         } catch (error) {
             logger.error('Failed to perform health checks:', error);
-        }
-    }
-
-    /**
-     * 检查单个账号的健康状态
-     *
-     * @private
-     * @param {Object} accountConfig - 账号配置对象
-     * @param {Function} healthCheckFn - 健康检查函数
-     * @returns {Promise<string>} 'passed' | 'failed' | 'skipped'
-     */
-    async _performSingleHealthCheck(accountConfig, healthCheckFn) {
-        const { uuid } = accountConfig;
-
-        try {
-            // 调用健康检查函数
-            const result = await healthCheckFn(accountConfig);
-
-            // 更新健康状态
-            if (result.success) {
-                this.store.updateAccount(uuid, {
-                    isHealthy: true,
-                    errorCount: 0,
-                    lastHealthCheckTime: new Date().toISOString(),
-                    lastHealthCheckModel: result.modelName
-                });
-                logger.debug(`Health check passed: ${uuid}`);
-                return 'passed';
-            } else {
-                this.store.updateAccount(uuid, {
-                    isHealthy: false,
-                    lastErrorTime: new Date().toISOString(),
-                    lastErrorMessage: result.errorMessage
-                });
-                logger.warn(`Health check failed: ${uuid} - ${result.errorMessage}`);
-                return 'failed';
-            }
-        } catch (error) {
-            logger.error(`Health check error for ${uuid}:`, error);
-            this.store.updateAccount(uuid, {
-                isHealthy: false,
-                lastErrorTime: new Date().toISOString(),
-                lastErrorMessage: error.message
-            });
-            return 'failed';
         }
     }
 
@@ -385,6 +334,30 @@ export class AccountManager {
         }
     }
 
+    /**
+     * 切换账号启用/禁用状态
+     * @param {string} uuid - 账号 UUID
+     * @returns {boolean} 切换后的 isDisabled 状态，如果账号不存在返回 null
+     */
+    toggleAccount(uuid) {
+        try {
+            const account = this.store.getAccount(uuid);
+            if (!account) {
+                logger.warn(`Account not found: ${uuid}`);
+                return null;
+            }
+
+            const newStatus = !account.isDisabled;
+            this.store.updateAccount(uuid, { isDisabled: newStatus });
+
+            logger.info(`Toggled account ${uuid} to ${newStatus ? 'disabled' : 'enabled'}`);
+
+            return newStatus;
+        } catch (error) {
+            logger.error(`Failed to toggle account (${uuid}):`, error);
+            return null;
+        }
+    }
     // ==================== 辅助方法 ====================
 
     /**
@@ -398,6 +371,9 @@ export class AccountManager {
      */
     getStore() {
         return this.store;
+    }
+    listAccounts() {
+        return this.store.listAccounts();
     }
 
     /**
@@ -480,6 +456,80 @@ export class AccountManager {
         } catch (error) {
             logger.error('Failed to get pool details:', error);
             return { accounts: [] };
+        }
+    }
+
+    _buildHealthCheckRequests(modelName) {
+        const baseMessage = { role: 'user', content: 'Hi' };
+        return [
+            {
+                messages: [baseMessage],
+                model: modelName,
+                max_tokens: 1
+            },
+            {
+                contents: [{
+                    role: 'user',
+                    parts: [{ text: baseMessage.content }]
+                }],
+                max_tokens: 1
+            }
+        ];
+    }
+
+    async _checkAccountHealth(accountConfig, forceCheck = false) {
+        const modelName = accountConfig.checkModelName || 'claude-3-opus';
+        if (!accountConfig.checkHealth && !forceCheck) {
+            return null;
+        }
+
+        const tempConfig = {
+            ...this.globalConfig,
+            ...accountConfig,
+            MODEL_PROVIDER: this.modelProvider
+        };
+
+        const adapter = getServiceAdapter(tempConfig);
+
+        const requests = this._buildHealthCheckRequests(modelName);
+        let lastError = null;
+        const { generateContent } = await import('./api-client.js');
+
+        for (const req of requests) {
+            try {
+                if (typeof adapter?.initialize !== 'function') {
+                    continue;
+                }
+                await generateContent(adapter, modelName, req);
+                return { success: true, modelName, errorMessage: null };
+            } catch (error) {
+                lastError = error;
+            }
+        }
+
+        return {
+            success: false,
+            modelName,
+            errorMessage: lastError?.message || 'Health check failed'
+        };
+    }
+
+    async _performSingleHealthCheck(accountConfig) {
+        const healthResult = await this._checkAccountHealth(accountConfig);
+        if (healthResult.success) {
+            this.markAccountHealthy(accountConfig.uuid, {
+                resetUsageCount: true,
+                healthCheckModel: healthResult.modelName,
+                userInfo: healthResult.userInfo
+            });
+            logger.debug(`Health check ok for ${accountConfig.uuid}`);
+        } else {
+            logger.warn(`Health check failed for ${accountConfig.uuid}: ${healthResult.errorMessage || 'unknown error'}`);
+            accountConfig.lastHealthCheckTime = new Date().toISOString();
+            if (healthResult.modelName) {
+                accountConfig.lastHealthCheckModel = healthResult.modelName;
+            }
+            this.markAccountUnhealthy(accountConfig.uuid, healthResult.errorMessage);
         }
     }
 }

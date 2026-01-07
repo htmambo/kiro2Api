@@ -89,18 +89,16 @@ function getFriendlyErrorMessage(statusCode, originalMessage) {
 /**
  * 构建错误响应负载
  * @param {Error} error - 错误对象
- * @param {string} fromProvider - 客户端期望的提供商格式
  * @returns {Object} 格式化的错误响应对象
  */
-function buildErrorPayload(error, fromProvider) {
+function buildErrorPayload(error) {
     const statusCode = error.status || error.response?.status || 500;
     const originalMessage = error.message || 'An error occurred during processing.';
     const friendlyMessage = getFriendlyErrorMessage(statusCode, originalMessage);
 
     // 使用现有的 createErrorResponse 函数创建基础响应
     const baseResponse = createErrorResponse(
-        { ...error, message: friendlyMessage },
-        fromProvider
+        { ...error, message: friendlyMessage }
     );
 
     // 增强错误响应
@@ -271,10 +269,9 @@ export async function errorMiddleware(error, req, res, isStreaming = false) {
 
     // 获取客户端期望的提供商格式
     const providerHeader = req?.headers?.['model-provider'] || req?.headers?.['Model-Provider'];
-    const fromProvider = typeof providerHeader === 'string' ? providerHeader : 'claude';
 
     // 构建错误响应负载
-    const payload = buildErrorPayload(error, fromProvider);
+    const payload = buildErrorPayload(error);
 
     // 记录错误日志
     logError(error, req, statusCode);

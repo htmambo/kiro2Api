@@ -34,28 +34,21 @@ export async function checkAuth(req) {
  * @returns {Promise<Object|null>} Token 信息
  */
 async function verifyToken(token) {
-    // 从 ui-manager.js 导入的实现
-    // 这里需要确保从正确的位置导入
-    try {
-        const { readTokenStore } = await import('../../../ui-manager.js');
-        const tokenStore = await readTokenStore();
-        const tokenInfo = tokenStore.tokens[token];
+    const { readTokenStore } = await import('../../../ui-manager.js');
+    const tokenStore = await readTokenStore();
+    const tokenInfo = tokenStore.tokens[token];
 
-        if (!tokenInfo) {
-            return null;
-        }
-
-        // 检查是否过期
-        if (Date.now() > tokenInfo.expiryTime) {
-            await deleteToken(token);
-            return null;
-        }
-
-        return tokenInfo;
-    } catch (error) {
-        logger.error('[Auth Middleware] Token verification error:', error);
+    if (!tokenInfo) {
         return null;
     }
+
+    // 检查是否过期
+    if (Date.now() > tokenInfo.expiryTime) {
+        await deleteToken(token);
+        return null;
+    }
+
+    return tokenInfo;
 }
 
 /**
@@ -63,16 +56,12 @@ async function verifyToken(token) {
  * @param {string} token - Token 字符串
  */
 async function deleteToken(token) {
-    try {
-        const { readTokenStore, writeTokenStore } = await import('../../../ui-manager.js');
-        const tokenStore = await readTokenStore();
+    const { readTokenStore, writeTokenStore } = await import('../../../ui-manager.js');
+    const tokenStore = await readTokenStore();
 
-        if (tokenStore.tokens[token]) {
-            delete tokenStore.tokens[token];
-            await writeTokenStore(tokenStore);
-        }
-    } catch (error) {
-        logger.error('[Auth Middleware] Delete token error:', error);
+    if (tokenStore.tokens[token]) {
+        delete tokenStore.tokens[token];
+        await writeTokenStore(tokenStore);
     }
 }
 

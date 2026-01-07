@@ -5,10 +5,21 @@ import multer from 'multer';
 import crypto from 'crypto';
 import { CONFIG } from './config/manager.js';
 import { serviceInstances, getServiceAdapter } from './kiro/adapter.js';
-import { initAccountService } from './api/server.js';
 import { serveStaticFiles } from './ui/static.js';
 import { initializeUIManagement, broadcastEvent } from './ui/events.js';
 import { createLogger } from './lib/logger.js';
+
+// 依赖注入：账号服务初始化器
+let accountServiceInitializer = null;
+
+/**
+ * 注册账号服务初始化器（由 api/server 调用）
+ * @param {Function} fn - 初始化函数
+ */
+export function registerAccountServiceInitializer(fn) {
+    accountServiceInitializer = fn;
+    logger.info('[UI Manager] Account service initializer registered');
+}
 
 // 路由器相关导入
 import { createRouter } from './ui/router/index.js';
@@ -91,7 +102,6 @@ export function parseErrorMessage(errorMessage) {
 export const kiroOAuthStates = new Map(); // state -> {code_verifier, machineid, timestamp, accountNumber}
 export const kiroOAuthCompletedStates = new Map(); // state -> {accountNumber, completedAt} 已完成的授权，保留5分钟供前端查询
 const KIRO_OAUTH_STATE_FILE = './configs/kiro-oauth-states.json'; // 持久化文件
-export const PROVIDER_POOLS_FILE = './configs/provider_pools.json'
 
 // 加载持久化的OAuth状态
 async function loadOAuthStates() {
@@ -432,81 +442,6 @@ export function parseRequestBody(req) {
     });
 }
 
-/**
- * 检查token验证
- */
-async function checkAuth(req) {
-    const authHeader = req.headers.authorization;
-    
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        return false;
-    }
-
-    const token = authHeader.substring(7);
-    const tokenInfo = await verifyToken(token);
-    
-    return tokenInfo !== null;
-}
-
-/**
- * 处理登录请求
- */
-async function handleLoginRequest(req, res) {
-    if (req.method !== 'POST') {
-        res.writeHead(405, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ success: false, message: '仅支持POST请求' }));
-        return true;
-    }
-
-    try {
-        const requestData = await parseRequestBody(req);
-        const { password } = requestData;
-        
-        if (!password) {
-            res.writeHead(400, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ success: false, message: '密码不能为空' }));
-            return true;
-        }
-
-        const isValid = await validateCredentials(password);
-        
-        if (isValid) {
-            // 生成简单token
-            const token = generateToken();
-            const expiryTime = getExpiryTime();
-            
-            // 存储token信息到本地文件
-            await saveToken(token, {
-                username: 'admin',
-                loginTime: Date.now(),
-                expiryTime
-            });
-
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                success: true,
-                message: '登录成功',
-                token,
-                expiresIn: '1小时'
-            }));
-        } else {
-            res.writeHead(401, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                success: false,
-                message: '密码错误，请重试'
-            }));
-        }
-    } catch (error) {
-        logger.error('登录处理错误', error);
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-            success: false,
-            message: error.message || '服务器错误'
-        }));
-    }
-    return true;
-}
-
 // 定时清理过期token
 setInterval(cleanupExpiredTokens, 5 * 60 * 1000); // 每5分钟清理一次
 
@@ -555,16 +490,6 @@ const upload = multer({
  */
 
 /**
- * Handle UI management API requests
- * @param {string} method - The HTTP method
- * @param {string} path - The request path
- * @param {http.IncomingMessage} req - The HTTP request object
- * @param {http.ServerResponse} res - The HTTP response object
- * @param {Object} currentConfig - The current configuration object
- * @param {Object} providerPoolManager - The provider pool manager instance
- * @returns {Promise<boolean>} - True if the request was handled by UI API
- */
-/**
  * 重载配置文件
  * 动态导入config-manager并重新初始化配置
  * @returns {Promise<Object>} 返回重载后的配置对象
@@ -581,8 +506,16 @@ export async function reloadConfig() {
         Object.assign(CONFIG, newConfig);
         logger.info('[UI API] Configuration reloaded:');
 
+        // 清理旧的服务实例
         Object.keys(serviceInstances).forEach(key => delete serviceInstances[key]);
-        initAccountService(CONFIG);
+
+        // 使用注册的初始化器重新初始化账号服务
+        if (accountServiceInitializer) {
+            await accountServiceInitializer(CONFIG);
+            logger.info('[UI API] Account service reinitialized via registered initializer');
+        } else {
+            logger.warn('[UI API] No account service initializer registered, skipping account service reinitialization');
+        }
 
         logger.info('[UI API] Configuration reloaded successfully');
 
@@ -593,7 +526,17 @@ export async function reloadConfig() {
     }
 }
 
-export async function handleUIApiRequests(method, pathParam, req, res, currentConfig, providerPoolManager) {
+/**
+ * Handle UI management API requests
+ * @param {string} method - The HTTP method
+ * @param {string} path - The request path
+ * @param {http.IncomingMessage} req - The HTTP request object
+ * @param {http.ServerResponse} res - The HTTP response object
+ * @param {Object} currentConfig - The current configuration object
+ * @param {Object} accountPoolManager - The account pool manager instance
+ * @returns {Promise<boolean>} - True if the request was handled by UI API
+ */
+export async function handleUIApiRequests(method, pathParam, req, res, currentConfig, accountPoolManager) {
     // ========== 文件上传特殊处理（需要在路由器之前） ==========
     if (method === 'POST' && pathParam === '/api/upload-oauth-credentials') {
         // 使用 multer 中间件处理文件上传
@@ -672,7 +615,7 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
                 req,
                 res,
                 currentConfig,
-                providerPoolManager,
+                accountPoolManager,
                 match
             });
 

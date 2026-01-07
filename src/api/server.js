@@ -1,6 +1,6 @@
 import * as http from 'http';
 import { initializeConfig, CONFIG } from '../config/manager.js';
-import { initializeUIManagement } from '../ui-manager.js';
+import { initializeUIManagement, registerAccountServiceInitializer } from '../ui-manager.js';
 import { initializeAPIManagement } from './manager.js';
 import { createRequestHandler } from './request-handler.js';
 import { initLogger, createLogger } from '../lib/logger.js';
@@ -24,10 +24,13 @@ async function startServer() {
     
     // Initialize Account services
     const services = await initAccountService(CONFIG);
-    
+
     // Initialize UI management features
     initializeUIManagement(CONFIG);
-    
+
+    // Register account service initializer for config reload
+    registerAccountServiceInitializer(initAccountService);
+
     // Initialize API management and get heartbeat function
     const heartbeatAndRefreshToken = initializeAPIManagement(services);
     
@@ -97,6 +100,7 @@ async function startServer() {
     return server; // Return the server instance for testing purposes
 }
 let useSQLiteMode = false;
+let accountManager = null;
 
 /**
  * Initialize API services and account manager
@@ -150,8 +154,6 @@ startServer().catch(err => {
     logger.error('[Server] Failed to start server', err);
     process.exit(1);
 });
-
-let accountManager = null;
 
 /**
  * Get API service adapter, selecting an account when available

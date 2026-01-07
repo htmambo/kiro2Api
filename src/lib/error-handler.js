@@ -181,83 +181,18 @@ export function handleError(res, error, options = {}) {
 /**
  * 创建符合 provider 格式的错误响应（非流式）
  * @param {Error} error - 错误对象
- * @param {string} fromProvider - 客户端期望的提供商格式
  * @returns {Object} 格式化的错误响应对象
  */
-export function createErrorResponse(error, fromProvider) {
+export function createErrorResponse(error) {
     const statusCode = error.status || error.code || 500;
     const errorType = getErrorType(statusCode);
     const errorMessage = error.message || "An error occurred during processing.";
 
-    // 根据协议前缀返回不同格式
-    const protocolPrefix = getProtocolPrefix(fromProvider);
-
-    switch (protocolPrefix) {
-        case 'claude':
-            return {
-                type: "error",
-                error: {
-                    type: errorType,
-                    message: errorMessage
-                }
-            };
-
-        default:
-            return {
-                error: {
-                    message: errorMessage,
-                    type: errorType,
-                    code: errorType
-                }
-            };
-    }
-}
-
-/**
- * 创建符合 provider 格式的流式错误响应
- * @param {Error} error - 错误对象
- * @param {string} fromProvider - 客户端期望的提供商格式
- * @returns {string} 格式化的流式错误响应字符串
- */
-export function createStreamErrorResponse(error, fromProvider) {
-    const statusCode = error.status || error.code || 500;
-    const errorType = getErrorType(statusCode);
-    const errorMessage = error.message || "An error occurred during streaming.";
-
-    const protocolPrefix = getProtocolPrefix(fromProvider);
-
-    switch (protocolPrefix) {
-        case 'claude':
-            const claudeError = {
-                type: "error",
-                error: {
-                    type: errorType,
-                    message: errorMessage
-                }
-            };
-            return `event: error\ndata: ${JSON.stringify(claudeError)}\n\n`;
-
-        default:
-            const defaultError = {
-                error: {
-                    message: errorMessage,
-                    type: errorType,
-                    code: null
-                }
-            };
-            return `data: ${JSON.stringify(defaultError)}\n\n`;
-    }
-}
-
-/**
- * 从提供商字符串中提取协议前缀
- * @param {string} provider - 提供商字符串
- * @returns {string} 协议前缀
- */
-function getProtocolPrefix(provider) {
-    const hyphenIndex = provider.indexOf('-');
-    if (hyphenIndex !== -1) {
-        return provider.substring(0, hyphenIndex);
-    }
-    return provider;
+    return {
+        type: "error",
+        error: {
+            type: errorType,
+            message: errorMessage
+        }
+    };
 }
