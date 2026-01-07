@@ -706,7 +706,7 @@ function getFileUsageInfo(relativePath, fileName, usedPaths, currentConfig) {
             }
             
             if (providerUsages.length > 0) {
-                usageInfo.usageType = 'provider_pool';
+                usageInfo.usageType = 'account_pool';
                 usageInfo.usageDetails.push(...providerUsages);
             }
         }

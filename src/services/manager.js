@@ -25,7 +25,7 @@ export async function initApiService(config) {
             globalConfig: config,
             modelProvider: config.MODEL_PROVIDER,
             maxErrorCount: config.MAX_ERROR_COUNT ?? 3,
-            dbPath: config.SQLITE_DB_PATH || 'data/provider_pool.db',
+            dbPath: config.SQLITE_DB_PATH || 'data/kiro2api.db',
             healthCheckConcurrency: config.HEALTH_CHECK_CONCURRENCY ?? 5,
             usageQueryConcurrency: config.USAGE_QUERY_CONCURRENCY ?? 10
         });

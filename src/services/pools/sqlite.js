@@ -24,7 +24,7 @@ export class SQLiteAccountPoolManager {
         this.roundRobinIndex = {};
 
         // 初始化数据库（T07 会确保 schema 已迁移到 accounts）
-        const dbPath = options.dbPath || this.globalConfig.SQLITE_DB_PATH || 'data/provider_pool.db';
+        const dbPath = options.dbPath || this.globalConfig.SQLITE_DB_PATH || 'data/kiro2api.db';
         sqliteDB.init(dbPath);
 
         this._log('info', `SQLiteAccountPoolManager initialized (maxErrorCount: ${this.maxErrorCount})`);

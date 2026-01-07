@@ -223,15 +223,14 @@ export async function manualImport({ req, res, currentConfig, accountPoolManager
             await (await import('fs')).writeFile(tokenFilePath, JSON.stringify(credentialsData, null, 2));
             logger.info(`[Kiro Manual Import] Token saved to: ${tokenFilePath}`);
 
-            // Check for duplicates and add to provider_pools.json
-            const { PROVIDER_POOLS_FILE } = await import('../../../ui-manager.js');
+            const { ACCOUNT_POOL_FILE } = await import('../../../ui-manager.js');
             const { findDuplicateUserId } = await import('../../../utils/account-utils.js');
 
             let isDuplicate = false;
             let duplicateProvider = null;
 
             try {
-                const poolsFilePath = currentConfig.PROVIDER_POOLS_FILE_PATH || PROVIDER_POOLS_FILE;
+                const poolsFilePath = currentConfig.ACCOUNT_POOL_FILE_PATH || ACCOUNT_POOL_FILE;
                 let providerPools = {};
 
                 if (existsSync(poolsFilePath)) {
@@ -457,10 +456,9 @@ export async function awsSsoStart({ req, res, currentConfig, accountPoolManager 
             await fs.promises.writeFile(tokenFilePath, JSON.stringify(credentialsData, null, 2));
             logger.info(`[AWS SSO] Token saved to: ${tokenFilePath}`);
 
-            // 自动添加到 provider_pools.json
             try {
                 const result = accountPoolManager.addTokenFile(tokenFilePath);
-                logger.info(`[AWS SSO] Token added to provider_pools.json: ${result}`);
+                logger.info(`[AWS SSO] Token added to acount_pool.json: ${result}`);
 
                 if(result === 1) {
                     // 广播提供商更新事件
@@ -472,7 +470,7 @@ export async function awsSsoStart({ req, res, currentConfig, accountPoolManager 
                     });
                 }
             } catch (error) {
-                logger.error(`[AWS SSO] Failed to add token to provider_pools.json: ${error.message}`);
+                logger.error(`[AWS SSO] Failed to add token to account_pool.json: ${error.message}`);
             }
 
             // 广播OAuth成功事件

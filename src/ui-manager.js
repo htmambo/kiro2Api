@@ -124,7 +124,6 @@ export function parseErrorMessage(errorMessage) {
 export const kiroOAuthStates = new Map(); // state -> {code_verifier, machineid, timestamp, accountNumber}
 export const kiroOAuthCompletedStates = new Map(); // state -> {accountNumber, completedAt} 已完成的授权，保留5分钟供前端查询
 const KIRO_OAUTH_STATE_FILE = './configs/kiro-oauth-states.json'; // 持久化文件
-export const PROVIDER_POOLS_FILE = './configs/provider_pools.json'
 
 // 加载持久化的OAuth状态
 async function loadOAuthStates() {

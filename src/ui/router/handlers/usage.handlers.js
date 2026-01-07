@@ -357,12 +357,12 @@ async function getProviderTypeUsage(providerType, currentConfig, accountPoolMana
         result.instances.push(instanceResult);
     }
 
-    // 如果有 userId 缓存更新，保存到 provider_pools.json
+    // 如果有 userId 缓存更新，保存到 acount_pool.json
     const hasUpdates = result.instances.some(inst => inst.usage?.user?.userId);
     if (hasUpdates && accountPoolManager) {
         try {
-            const { PROVIDER_POOLS_FILE } = await import('../../../ui-manager.js');
-            const filePath = currentConfig.PROVIDER_POOLS_FILE_PATH || PROVIDER_POOLS_FILE;
+            const { ACCOUNT_POOL_FILE } = await import('../../../ui-manager.js');
+            const filePath = currentConfig.ACCOUNT_POOL_FILE_PATH || ACCOUNT_POOL_FILE;
             const currentPools = accountPoolManager.providerPools || {};
             currentPools[providerType] = providers;
             writeFileSync(filePath, JSON.stringify(currentPools, null, 2), 'utf8');

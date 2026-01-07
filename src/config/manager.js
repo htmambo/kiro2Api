@@ -105,12 +105,11 @@ export async function initializeConfig(args = process.argv.slice(2), configFileP
                     KIRO_STREAM_TIMEOUT_MS: 180000,
                     CRON_NEAR_MINUTES: 15,
                     CRON_REFRESH_TOKEN: true,
-                    PROVIDER_POOLS_FILE_PATH: "./configs/provider_pools.json",
                     MAX_ERROR_COUNT: 5,
                     ENABLE_THINKING_BY_DEFAULT: true,
                     // SQLite 模式配置
                     USE_SQLITE_POOL: false,
-                    SQLITE_DB_PATH: "data/provider_pool.db",
+                    SQLITE_DB_PATH: "data/kiro2api.db",
                     HEALTH_CHECK_CONCURRENCY: 5,
                     USAGE_QUERY_CONCURRENCY: 10
                 };
@@ -144,12 +143,11 @@ export async function initializeConfig(args = process.argv.slice(2), configFileP
                 KIRO_STREAM_TIMEOUT_MS: 180000,
                 CRON_NEAR_MINUTES: 15,
                 CRON_REFRESH_TOKEN: true,
-                PROVIDER_POOLS_FILE_PATH: "./configs/provider_pools.json",
                 MAX_ERROR_COUNT: 5,
                 ENABLE_THINKING_BY_DEFAULT: true,
                 // SQLite 模式配置
                 USE_SQLITE_POOL: false,
-                SQLITE_DB_PATH: "data/provider_pool.db",
+                SQLITE_DB_PATH: "data/kiro2api.db",
                 HEALTH_CHECK_CONCURRENCY: 5,
                 USAGE_QUERY_CONCURRENCY: 10
             };
@@ -257,13 +255,6 @@ export async function initializeConfig(args = process.argv.slice(2), configFileP
             } else {
                 logger.warn(`[Config Warning] --cron-refresh-token flag requires a value.`);
             }
-        } else if (args[i] === '--provider-pools-file') {
-            if (i + 1 < args.length) {
-                currentConfig.PROVIDER_POOLS_FILE_PATH = args[i + 1];
-                i++;
-            } else {
-                logger.warn(`[Config Warning] --provider-pools-file flag requires a value.`);
-            }
         } else if (args[i] === '--max-error-count') {
             if (i + 1 < args.length) {
                 currentConfig.MAX_ERROR_COUNT = parseInt(args[i + 1], 10);
@@ -283,10 +274,6 @@ export async function initializeConfig(args = process.argv.slice(2), configFileP
     }
     currentConfig.SYSTEM_PROMPT_CONTENT = await getSystemPromptFileContent(currentConfig.SYSTEM_PROMPT_FILE_PATH);
 
-    // --- 账号池/号池配置加载（支持自动迁移） ---
-    if (!currentConfig.PROVIDER_POOLS_FILE_PATH) {
-        currentConfig.PROVIDER_POOLS_FILE_PATH = 'configs/provider_pools.json';
-    }
     if (!currentConfig.ACCOUNT_POOL_FILE_PATH) {
         currentConfig.ACCOUNT_POOL_FILE_PATH = 'configs/account_pool.json';
     }
@@ -302,43 +289,6 @@ export async function initializeConfig(args = process.argv.slice(2), configFileP
         } catch (error) {
             if (error.code !== 'ENOENT') {
                 logger.error(`[Config Error] Failed to load account pool from ${currentConfig.ACCOUNT_POOL_FILE_PATH}: ${error.message}`);
-                return { accounts: [] };
-            }
-        }
-
-        // account_pool.json 不存在：尝试从 provider_pools.json 迁移
-        if (fs.existsSync(currentConfig.PROVIDER_POOLS_FILE_PATH)) {
-            try {
-                const legacyData = JSON.parse(fs.readFileSync(currentConfig.PROVIDER_POOLS_FILE_PATH, 'utf8'));
-                const legacyAccounts = Array.isArray(legacyData?.['claude-kiro-oauth'])
-                    ? legacyData['claude-kiro-oauth']
-                    : [];
-
-                // 基础校验：uuid 唯一 & 必填
-                const seen = new Set();
-                const accounts = [];
-                for (const acc of legacyAccounts) {
-                    if (!acc || typeof acc !== 'object') continue;
-                    if (!acc.uuid || typeof acc.uuid !== 'string') {
-                        logger.warn('[Config] Skipping legacy account without uuid');
-                        continue;
-                    }
-                    if (seen.has(acc.uuid)) {
-                        logger.warn(`[Config] Duplicate uuid in legacy pools, skipping: ${acc.uuid}`);
-                        continue;
-                    }
-                    seen.add(acc.uuid);
-                    accounts.push(acc);
-                }
-
-                const migrated = { accounts };
-                const backupPath = `${currentConfig.PROVIDER_POOLS_FILE_PATH}.bak-${Date.now()}`;
-                fs.copyFileSync(currentConfig.PROVIDER_POOLS_FILE_PATH, backupPath);
-                fs.writeFileSync(currentConfig.ACCOUNT_POOL_FILE_PATH, JSON.stringify(migrated, null, 2), 'utf8');
-                logger.info(`[Config] Migrated provider_pools.json -> account_pool.json (backup: ${backupPath})`);
-                return migrated;
-            } catch (migrateError) {
-                logger.error(`[Config Error] Failed to migrate provider pools to account pool: ${migrateError.message}`);
                 return { accounts: [] };
             }
         }

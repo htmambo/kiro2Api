@@ -24,7 +24,6 @@
   "CRON_NEAR_MINUTES": 15,
   "CRON_REFRESH_TOKEN": true,
   "ACCOUNT_POOL_FILE_PATH": "./configs/account_pool.json",
-  "PROVIDER_POOLS_FILE_PATH": "./sconfig/provider_pools.json",
   "MAX_ERROR_COUNT": 5,
   "ENABLE_THINKING_BY_DEFAULT": true,
   "REDIS_ENABLED": false,

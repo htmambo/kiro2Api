@@ -22,7 +22,7 @@ class SQLiteDB {
      * 初始化数据库
      * @param {string} dbPath - 数据库文件路径
      */
-    init(dbPath = 'data/provider_pool.db') {
+    init(dbPath = 'data/kiro2api.db') {
         if (this.db) {
             if (this.dbPath !== dbPath) {
                 logger.warn(
