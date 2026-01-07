@@ -4,6 +4,7 @@
 import path from 'path';
 import { writeFileSync } from 'fs';
 import { createLogger } from '../../../lib/logger.js';
+import { logErrorInDev } from '../../../utils/error-logger.js';
 
 import { KIRO_MODELS } from '../../../kiro/constants.js';
 import { getUsageLimits } from '../../../kiro/api-client.js';
@@ -38,6 +39,13 @@ export async function getAllUsage({ req, res, currentConfig, accountPoolManager 
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(usageResults));
     } catch (error) {
+        logErrorInDev(error, {
+            handler: 'getAllUsage',
+            method: req.method,
+            url: req.url,
+            refresh: new URL(req.url, `http://${req.headers.host}`).searchParams.get('refresh')
+        });
+
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: { message: error.message } }));
     }
@@ -88,6 +96,14 @@ export async function getUsageBySegment({ req, res, currentConfig, accountPoolMa
             }
         }
     } catch (error) {
+        logErrorInDev(error, {
+            handler: 'getUsageBySegment',
+            method: req.method,
+            url: req.url,
+            segment,
+            isProviderType
+        });
+
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: { message: error.message } }));
     }
@@ -116,6 +132,14 @@ export async function getAccountUsage({ req, res, currentConfig, accountPoolMana
             res.end(JSON.stringify({ error: { message: `未找到账号 ${uuid}` } }));
         }
     } catch (error) {
+        logErrorInDev(error, {
+            handler: 'getAccountUsage',
+            method: req.method,
+            url: req.url,
+            providerType,
+            uuid
+        });
+
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: { message: error.message } }));
     }
@@ -261,6 +285,12 @@ async function getProviderTypeUsage(providerType, currentConfig, accountPoolMana
                 };
                 adapter = getServiceAdapter(serviceConfig);
             } catch (initError) {
+                logErrorInDev(initError, {
+                    context: 'getProviderTypeUsage - adapter initialization',
+                    providerType,
+                    uuid: provider.uuid
+                });
+
                 logger.error(`[Usage API] Failed to initialize adapter for ${providerType}: ${provider.uuid}:`, initError);
                 instanceResult.error = `服务实例初始化失败: ${initError.message}`;
                 result.errorCount++;
@@ -349,6 +379,13 @@ async function getProviderTypeUsage(providerType, currentConfig, accountPoolMana
                     }
                 }
             } catch (error) {
+                logErrorInDev(error, {
+                    context: 'getProviderTypeUsage - get adapter usage',
+                    providerType,
+                    uuid: provider.uuid,
+                    email: provider.cachedEmail
+                });
+
                 instanceResult.error = error.message;
                 result.errorCount++;
             }
@@ -368,6 +405,12 @@ async function getProviderTypeUsage(providerType, currentConfig, accountPoolMana
             writeFileSync(filePath, JSON.stringify(currentPools, null, 2), 'utf8');
             logger.info('[Usage API] Provider pools updated with cached userId/email');
         } catch (saveError) {
+            logErrorInDev(saveError, {
+                context: 'getProviderTypeUsage - save provider pools',
+                providerType,
+                filePath: currentConfig.ACCOUNT_POOL_FILE_PATH
+            });
+
             logger.error('[Usage API] Failed to save provider pools:', saveError);
         }
     }
