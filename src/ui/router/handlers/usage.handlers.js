@@ -8,7 +8,7 @@ import { logErrorInDev } from '../../../utils/error-logger.js';
 
 import { KIRO_MODELS } from '../../../kiro/constants.js';
 import { getUsageLimits } from '../../../kiro/api-client.js';
-import { serviceInstances, getServiceAdapter } from '../../../services/manager.js';
+import { serviceInstances, getServiceAdapter, isSQLiteMode } from '../../../services/manager.js';
 
 const logger = createLogger('ui:handlers:usage');
 
@@ -237,8 +237,6 @@ async function getProviderTypeUsage(providerType, currentConfig, accountPoolMana
     // 获取账号列表（支持 SQLite 和 JSON 两种模式）
     let providers = [];
 
-    const { isSQLiteMode } = await import('../../../services/manager.js');
-
     if (isSQLiteMode() && accountPoolManager && typeof accountPoolManager.getProviderPools === 'function') {
         // SQLite 模式
         providers = accountPoolManager.getProviderPools(providerType);
@@ -300,7 +298,7 @@ async function getProviderTypeUsage(providerType, currentConfig, accountPoolMana
         // 如果适配器存在（包括刚初始化的），且没有错误，尝试获取用量
         if (adapter && !instanceResult.error) {
             try {
-                const usage = await getAdapterUsage(adapter, providerType);
+                const usage = await getAdapterUsage(adapter);
                 instanceResult.success = true;
 
                 // 提取用量数据到扁平结构
@@ -421,10 +419,9 @@ async function getProviderTypeUsage(providerType, currentConfig, accountPoolMana
 /**
  * 从适配器获取用量信息
  * @param {Object} adapter - 服务适配器
- * @param {string} providerType - 提供商类型
  * @returns {Promise<Object>} 用量信息
  */
-async function getAdapterUsage(adapter, providerType) {
+async function getAdapterUsage(adapter) {
     const rawUsage = await getUsageLimits(adapter);
     return formatKiroUsage(rawUsage);
 }
