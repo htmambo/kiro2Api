@@ -59,3 +59,8 @@ export async function saveOAuthStates() {
         logger.error('[Kiro OAuth] Failed to save OAuth states', error);
     }
 }
+
+// 启动时加载 OAuth 状态
+loadOAuthStates().catch(err => {
+    logger.warn('[Kiro OAuth] Error during initial state loading', err);
+});

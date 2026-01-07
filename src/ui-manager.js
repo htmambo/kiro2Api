@@ -1,25 +1,45 @@
-import { existsSync, readFileSync, writeFileSync, statSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { promises as fs } from 'fs';
 import path from 'path';
-import multer from 'multer';
-import crypto from 'crypto';
 import { CONFIG } from './config/manager.js';
-import { serviceInstances, getServiceAdapter } from './kiro/adapter.js';
 import { serveStaticFiles } from './ui/static.js';
 import { initializeUIManagement, broadcastEvent } from './ui/events.js';
 import { createLogger } from './lib/logger.js';
+import { cleanupExpiredTokens } from './ui/token-store.js';
+import { isUploadRequest, handleUpload } from './ui/upload.js';
 
-// 依赖注入：账号服务初始化器
-let accountServiceInitializer = null;
-
-/**
- * 注册账号服务初始化器（由 api/server 调用）
- * @param {Function} fn - 初始化函数
- */
-export function registerAccountServiceInitializer(fn) {
-    accountServiceInitializer = fn;
-    logger.info('[UI Manager] Account service initializer registered');
-}
+// 导入新的子模块并重导出
+export {
+    registerAccountServiceInitializer,
+    reloadConfig
+} from './ui/config-reloader.js';
+export {
+    kiroOAuthStates,
+    kiroOAuthCompletedStates,
+    KIRO_OAUTH_CONFIG,
+    loadOAuthStates,
+    saveOAuthStates
+} from './ui/oauth-states.js';
+export {
+    readUsageCache,
+    writeUsageCache,
+    readProviderUsageCache
+} from './ui/usage-cache.js';
+export {
+    readTokenStore,
+    writeTokenStore,
+    generateToken,
+    getExpiryTime,
+    verifyToken,
+    saveToken,
+    deleteToken,
+    cleanupExpiredTokens as exportCleanupExpiredTokens
+} from './ui/token-store.js';
+export {
+    upload,
+    handleUpload as exportHandleUpload,
+    isUploadRequest as exportIsUploadRequest
+} from './ui/upload.js';
 
 // 路由器相关导入
 import { createRouter } from './ui/router/index.js';
@@ -30,11 +50,6 @@ export const ROUTER_CONFIG = {
     ENABLE_ROUTER_LOGGING: true // 启用路由日志
 };
 
-// Token存储到本地文件中
-const TOKEN_STORE_FILE = './configs/token-store.json';
-
-// 用量缓存文件路径
-const USAGE_CACHE_FILE = './configs/usage-cache.json';
 const ACCOUNT_POOL_FILE = './configs/account_pool.json';
 export const DEFAULT_PROVIDER_TYPE_FOR_ACCOUNTS = 'claude-kiro-oauth';
 const logger = createLogger('ui:manager');
@@ -98,60 +113,50 @@ export function parseErrorMessage(errorMessage) {
     return { status: '异常', message: errorMessage, statusType: 'unknown' };
 }
 
-// Kiro OAuth 状态存储（内存 + 文件持久化）
-export const kiroOAuthStates = new Map(); // state -> {code_verifier, machineid, timestamp, accountNumber}
-export const kiroOAuthCompletedStates = new Map(); // state -> {accountNumber, completedAt} 已完成的授权，保留5分钟供前端查询
-const KIRO_OAUTH_STATE_FILE = './configs/kiro-oauth-states.json'; // 持久化文件
-
-// 加载持久化的OAuth状态
-async function loadOAuthStates() {
+/**
+ * 读取密码
+ */
+async function readPasswordFile() {
+    // 兼容旧的 pwd 文件方式
     try {
-        if (existsSync(KIRO_OAUTH_STATE_FILE)) {
-            const content = await fs.readFile(KIRO_OAUTH_STATE_FILE, 'utf8');
-            const data = JSON.parse(content);
+        const password = await fs.readFile('./pwd', 'utf8');
+        return password.trim();
+    } catch (error) {
+        logger.error('读取密码文件失败', error);
+        return null;
+    }
+}
 
-            // 清理过期的state（超过30分钟）
-            const now = Date.now();
-            const validStates = Object.entries(data).filter(([state, stateData]) => {
-                const age = now - stateData.timestamp;
-                return age < 30 * 60 * 1000; // 30分钟
-            });
+/**
+ * 验证登录凭据
+ */
+export async function validateCredentials(password) {
+    const storedPassword = await readPasswordFile();
+    return storedPassword && password === storedPassword;
+}
 
-            // 加载到内存
-            for (const [state, stateData] of validStates) {
-                kiroOAuthStates.set(state, stateData);
+/**
+ * 解析请求体JSON
+ */
+export function parseRequestBody(req) {
+    return new Promise((resolve, reject) => {
+        let body = '';
+        req.on('data', chunk => {
+            body += chunk.toString();
+        });
+        req.on('end', () => {
+            try {
+                if (!body.trim()) {
+                    resolve({});
+                } else {
+                    resolve(JSON.parse(body));
+                }
+            } catch (error) {
+                reject(error);
             }
-
-            logger.info(`[Kiro OAuth] Loaded ${validStates.length} valid states from file`);
-        }
-    } catch (error) {
-        logger.warn('[Kiro OAuth] Failed to load OAuth states from file', error);
-    }
+        });
+    });
 }
-
-// 保存OAuth状态到文件
-async function saveOAuthStates() {
-    try {
-        const statesObject = Object.fromEntries(kiroOAuthStates.entries());
-        await fs.writeFile(KIRO_OAUTH_STATE_FILE, JSON.stringify(statesObject, null, 2));
-    } catch (error) {
-        logger.error('[Kiro OAuth] Failed to save OAuth states to file', error);
-    }
-}
-
-// 启动时加载OAuth状态
-loadOAuthStates().catch(err => {
-    logger.warn('[Kiro OAuth] Error during initial state loading', err);
-});
-
-// Kiro OAuth 配置
-export const KIRO_OAUTH_CONFIG = {
-    REDIRECT_URI: 'kiro://kiro.kiroAgent/authenticate-success',
-    REDIRECT_URI_WEB: null,  // 动态生成，基于实际监听端口
-    IDE_VERSION: '0.7.45',  // 更新到最新版本
-    TOKEN_ENDPOINT: 'https://prod.us-east-1.auth.desktop.kiro.dev/oauth/token',
-    LOGIN_ENDPOINT: 'https://prod.us-east-1.auth.desktop.kiro.dev/login'
-};
 
 /**
  * 生成 OAuth 结果页面 HTML
@@ -244,184 +249,8 @@ export function generateOAuthResultPage(success, message, details = null) {
 </html>`;
 }
 
-/**
- * 读取用量缓存文件
- * @returns {Promise<Object|null>} 缓存的用量数据，如果不��在或读取失败则返回 null
- */
-export async function readUsageCache() {
-    try {
-        if (existsSync(USAGE_CACHE_FILE)) {
-            const content = await fs.readFile(USAGE_CACHE_FILE, 'utf8');
-            return JSON.parse(content);
-        }
-        return null;
-    } catch (error) {
-        logger.warn('[Usage Cache] Failed to read usage cache', error);
-        return null;
-    }
-}
 
 /**
- * 写入用量缓存文件
- * @param {Object} usageData - 用量数据
- */
-export async function writeUsageCache(usageData) {
-    try {
-        await fs.writeFile(USAGE_CACHE_FILE, JSON.stringify(usageData, null, 2), 'utf8');
-        logger.info(`[Usage Cache] Usage data cached to ${USAGE_CACHE_FILE}`);
-    } catch (error) {
-        logger.error('[Usage Cache] Failed to write usage cache', error);
-    }
-}
-
-/**
- * 读取特定提供商类型的用量缓存
- * @param {string} providerType - 提供商类型
- * @returns {Promise<Object|null>} 缓存的用量数据
- */
-export async function readProviderUsageCache(providerType) {
-    const cache = await readUsageCache();
-    if (cache && cache.providers && cache.providers[providerType]) {
-        return {
-            ...cache.providers[providerType],
-            cachedAt: cache.timestamp,
-            fromCache: true
-        };
-    }
-    return null;
-}
-
-/**
- * 读取token存储文件
- */
-export async function readTokenStore() {
-    try {
-        if (existsSync(TOKEN_STORE_FILE)) {
-            const content = await fs.readFile(TOKEN_STORE_FILE, 'utf8');
-            return JSON.parse(content);
-        } else {
-            // 如果文件不存在，创建一个默认的token store
-            await writeTokenStore({ tokens: {} });
-            return { tokens: {} };
-        }
-    } catch (error) {
-        logger.error('读取token存储文件失败', error);
-        return { tokens: {} };
-    }
-}
-
-/**
- * 写入token存储文件
- */
-export async function writeTokenStore(tokenStore) {
-    try {
-        await fs.writeFile(TOKEN_STORE_FILE, JSON.stringify(tokenStore, null, 2), 'utf8');
-    } catch (error) {
-        logger.error('写入token存储文件失败', error);
-    }
-}
-
-/**
- * 生成简单的token
- */
-export function generateToken() {
-    return crypto.randomBytes(32).toString('hex');
-}
-
-/**
- * 生成token过期时间
- */
-export function getExpiryTime() {
-    const now = Date.now();
-    const expiry = 60 * 60 * 1000; // 1小时
-    return now + expiry;
-}
-
-/**
- * 验证简单token
- */
-async function verifyToken(token) {
-    const tokenStore = await readTokenStore();
-    const tokenInfo = tokenStore.tokens[token];
-    if (!tokenInfo) {
-        return null;
-    }
-    
-    // 检查是否过期
-    if (Date.now() > tokenInfo.expiryTime) {
-        await deleteToken(token);
-        return null;
-    }
-    
-    return tokenInfo;
-}
-
-/**
- * 保存token到本地文件
- */
-export async function saveToken(token, tokenInfo) {
-    const tokenStore = await readTokenStore();
-    tokenStore.tokens[token] = tokenInfo;
-    await writeTokenStore(tokenStore);
-}
-
-/**
- * 删除token
- */
-async function deleteToken(token) {
-    const tokenStore = await readTokenStore();
-    if (tokenStore.tokens[token]) {
-        delete tokenStore.tokens[token];
-        await writeTokenStore(tokenStore);
-    }
-}
-
-/**
- * 清理过期的token
- */
-async function cleanupExpiredTokens() {
-    const tokenStore = await readTokenStore();
-    const now = Date.now();
-    let hasChanges = false;
-    
-    for (const token in tokenStore.tokens) {
-        if (now > tokenStore.tokens[token].expiryTime) {
-            delete tokenStore.tokens[token];
-            hasChanges = true;
-        }
-    }
-    
-    if (hasChanges) {
-        await writeTokenStore(tokenStore);
-    }
-}
-
-/**
- * 读取密码
- */
-async function readPasswordFile() {
-    // 兼容旧的 pwd 文件方式
-    try {
-        const password = await fs.readFile('./pwd', 'utf8');
-        return password.trim();
-    } catch (error) {
-        logger.error('读取密码文件失败', error);
-        return null;
-    }
-}
-
-/**
- * 验证登录凭据
- */
-export async function validateCredentials(password) {
-    const storedPassword = await readPasswordFile();
-    return storedPassword && password === storedPassword;
-}
-
-/**
- * 解析请求体JSON
- */
-export function parseRequestBody(req) {
     return new Promise((resolve, reject) => {
         let body = '';
         req.on('data', chunk => {
@@ -445,87 +274,6 @@ export function parseRequestBody(req) {
 // 定时清理过期token
 setInterval(cleanupExpiredTokens, 5 * 60 * 1000); // 每5分钟清理一次
 
-// 配置multer中间件
-const storage = multer.diskStorage({
-    destination: async (req, file, cb) => {
-        try {
-            // multer在destination回调时req.body还未解析，先使用默认路径
-            // 实际的provider会在文件上传完成后从req.body中获取
-            const uploadPath = path.join(process.cwd(), 'configs', 'temp');
-            await fs.mkdir(uploadPath, { recursive: true });
-            cb(null, uploadPath);
-        } catch (error) {
-            cb(error);
-        }
-    },
-    filename: (req, file, cb) => {
-        const timestamp = Date.now();
-        const sanitizedName = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
-        cb(null, `${timestamp}_${sanitizedName}`);
-    }
-});
-
-const fileFilter = (req, file, cb) => {
-    const allowedTypes = ['.json', '.txt', '.key', '.pem', '.p12', '.pfx'];
-    const ext = path.extname(file.originalname).toLowerCase();
-    if (allowedTypes.includes(ext)) {
-        cb(null, true);
-    } else {
-        cb(new Error('不支持的文件类型'), false);
-    }
-};
-
-const upload = multer({
-    storage,
-    fileFilter,
-    limits: {
-        fileSize: 5 * 1024 * 1024 // 5MB限制
-    }
-});
-
-/**
- * Serve static files for the UI
- * @param {string} path - The request path
- * @param {http.ServerResponse} res - The HTTP response object
- */
-
-/**
- * 重载配置文件
- * 动态导入config-manager并重新初始化配置
- * @returns {Promise<Object>} 返回重载后的配置对象
- */
-export async function reloadConfig() {
-    try {
-        // Import config manager dynamically
-        const { initializeConfig } = await import('./config/manager.js');
-
-        // Reload main config
-        const newConfig = await initializeConfig(process.argv.slice(2), './configs/config.json');
-
-        // Update global CONFIG
-        Object.assign(CONFIG, newConfig);
-        logger.info('[UI API] Configuration reloaded:');
-
-        // 清理旧的服务实例
-        Object.keys(serviceInstances).forEach(key => delete serviceInstances[key]);
-
-        // 使用注册的初始化器重新初始化账号服务
-        if (accountServiceInitializer) {
-            await accountServiceInitializer(CONFIG);
-            logger.info('[UI API] Account service reinitialized via registered initializer');
-        } else {
-            logger.warn('[UI API] No account service initializer registered, skipping account service reinitialization');
-        }
-
-        logger.info('[UI API] Configuration reloaded successfully');
-
-        return newConfig;
-    } catch (error) {
-        logger.error('[UI API] Failed to reload configuration', error);
-        throw error;
-    }
-}
-
 /**
  * Handle UI management API requests
  * @param {string} method - The HTTP method
@@ -538,46 +286,8 @@ export async function reloadConfig() {
  */
 export async function handleUIApiRequests(method, pathParam, req, res, currentConfig, accountPoolManager) {
     // ========== 文件上传特殊处理（需要在路由器之前） ==========
-    if (method === 'POST' && pathParam === '/api/upload-oauth-credentials') {
-        // 使用 multer 中间件处理文件上传
-        const uploadMiddleware = upload.single('file');
-
-        uploadMiddleware(req, res, async (err) => {
-            if (err) {
-                logger.error('文件上传错误', err);
-                res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({
-                    error: {
-                        message: err.message || '文件上传失败'
-                    }
-                }));
-                return;
-            }
-
-            try {
-                if (!req.file) {
-                    res.writeHead(400, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({
-                        error: {
-                            message: '没有文件被上传'
-                        }
-                    }));
-                    return;
-                }
-
-                // 调用handler处理上传后的逻辑
-                const { uploadCredentials } = await import('./ui/router/handlers/upload.handlers.js');
-                await uploadCredentials({ req, res, currentConfig });
-            } catch (error) {
-                logger.error('[Router] Upload handler error', error);
-                if (!res.headersSent) {
-                    res.writeHead(500, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({
-                        error: { message: '文件上传处理失败: ' + error.message }
-                    }));
-                }
-            }
-        });
+    if (isUploadRequest(method, pathParam)) {
+        await handleUpload(req, res, currentConfig);
         return true;
     }
 
