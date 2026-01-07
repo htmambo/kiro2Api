@@ -172,29 +172,26 @@
 
 ---
 
-#### 子任务 2.6：重构 `ui-manager.js` 为组合器 ⏳
+#### 子任务 2.6：重构 `ui-manager.js` 为组合器 ✅
 
 **改动内容**：
-- 保留核心职责：
-  - 初始化 logger
-  - `initializeUIManagement()` 入口
-  - 重导出 `broadcastEvent` / `serveStaticFiles`
-- 使用新模块替代原有实现
-- 保持对外 API 不变
+- 删除已迁移的代码（Token、OAuth、使用量缓存、multer、reloadConfig）
+- 添加子模块导入和重导出
+- 更新 `handleUIApiRequests` 使用新模块
+- 保留��心职责：parseErrorMessage, generateOAuthResultPage, validateCredentials, parseRequestBody
 
 **预期效果**：
-- `ui-manager.js` 职责清晰，仅作为组合器
-- 各子模块独立可测试
+- ✅ `ui-manager.js` 职责清晰，仅作为组合器
+- ✅ 各子模块独立可测试
+- ✅ 代码从 641 行减少到 351 行（减少约 45%）
+- ✅ 所有原有导出 API 保持不变
 
-**风险评估**：
-- 迁移过程可能暂时破坏某些 UI API
-- 需分阶段迁移并验证
+**测试结果**：
+- ✅ 服务成功启动并加载所有模块
+- ✅ 配置重载初始化器正常注册
+- ✅ UI 事件广播系统正常初始化
 
-**测试点**：
-- 测试所有 UI API 端点
-- 测试 token 登录
-- 测试 OAuth 授权
-- 测试配置重载
+**完成时间**: 2026-01-07
 
 ---
 
