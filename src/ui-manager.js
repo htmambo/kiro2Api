@@ -7,11 +7,6 @@ import { getRequestBody } from './utils/common.js';
 import { CONFIG } from './config/manager.js';
 import { serviceInstances, getServiceAdapter } from './kiro/adapter.js';
 import { initApiService, getAccountPoolManager, isSQLiteMode } from './services/manager.js';
-import { sqliteDB } from './services/storage/sqlite-db.js';
-import { handleKiroOAuth } from './services/oauth-handlers.js';
-import {
-    findDuplicateUserId
-} from './utils/account-utils.js';
 import { serveStaticFiles } from './ui/static.js';
 import { initializeUIManagement, broadcastEvent } from './ui/events.js';
 import { createLogger } from './lib/logger.js';
@@ -471,80 +466,6 @@ export function parseRequestBody(req) {
     });
 }
 
-/**
- * 检查token验证
- */
-async function checkAuth(req) {
-    const authHeader = req.headers.authorization;
-    
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        return false;
-    }
-
-    const token = authHeader.substring(7);
-    const tokenInfo = await verifyToken(token);
-    
-    return tokenInfo !== null;
-}
-
-/**
- * 处理登录请求
- */
-async function handleLoginRequest(req, res) {
-    if (req.method !== 'POST') {
-        res.writeHead(405, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ success: false, message: '仅支持POST请求' }));
-        return true;
-    }
-
-    try {
-        const requestData = await parseRequestBody(req);
-        const { password } = requestData;
-        
-        if (!password) {
-            res.writeHead(400, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ success: false, message: '密码不能为空' }));
-            return true;
-        }
-
-        const isValid = await validateCredentials(password);
-        
-        if (isValid) {
-            // 生成简单token
-            const token = generateToken();
-            const expiryTime = getExpiryTime();
-            
-            // 存储token信息到本地文件
-            await saveToken(token, {
-                username: 'admin',
-                loginTime: Date.now(),
-                expiryTime
-            });
-
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                success: true,
-                message: '登录成功',
-                token,
-                expiresIn: '1小时'
-            }));
-        } else {
-            res.writeHead(401, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                success: false,
-                message: '密码错误，请重试'
-            }));
-        }
-    } catch (error) {
-        logger.error('登录处理错误', error);
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-            success: false,
-            message: error.message || '服务器错误'
-        }));
-    }
-    return true;
-}
 
 // 定时清理过期token
 setInterval(cleanupExpiredTokens, 5 * 60 * 1000); // 每5分钟清理一次
@@ -594,16 +515,6 @@ const upload = multer({
  */
 
 /**
- * Handle UI management API requests
- * @param {string} method - The HTTP method
- * @param {string} path - The request path
- * @param {http.IncomingMessage} req - The HTTP request object
- * @param {http.ServerResponse} res - The HTTP response object
- * @param {Object} currentConfig - The current configuration object
- * @param {Object} providerPoolManager - The provider pool manager instance
- * @returns {Promise<boolean>} - True if the request was handled by UI API
- */
-/**
  * 重载配置文件
  * 动态导入config-manager并重新初始化配置
  * @returns {Promise<Object>} 返回重载后的配置对象
@@ -633,7 +544,17 @@ export async function reloadConfig() {
     }
 }
 
-export async function handleUIApiRequests(method, pathParam, req, res, currentConfig, providerPoolManager) {
+/**
+ * Handle UI management API requests
+ * @param {string} method - The HTTP method
+ * @param {string} path - The request path
+ * @param {http.IncomingMessage} req - The HTTP request object
+ * @param {http.ServerResponse} res - The HTTP response object
+ * @param {Object} currentConfig - The current configuration object
+ * @param {Object} accountPoolManager - The account pool manager instance
+ * @returns {Promise<boolean>} - True if the request was handled by UI API
+ */
+export async function handleUIApiRequests(method, pathParam, req, res, currentConfig, accountPoolManager) {
     // ========== 文件上传特殊处理（需要在路由器之前） ==========
     if (method === 'POST' && pathParam === '/api/upload-oauth-credentials') {
         // 使用 multer 中间件处理文件上传
@@ -712,7 +633,7 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
                 req,
                 res,
                 currentConfig,
-                providerPoolManager,
+                accountPoolManager,
                 match
             });
 

@@ -12,7 +12,7 @@ const logger = createLogger('ui:handlers:usage');
 /**
  * 获取所有用量
  */
-export async function getAllUsage({ req, res, currentConfig, providerPoolManager }) {
+export async function getAllUsage({ req, res, currentConfig, accountPoolManager }) {
     try {
         const url = new URL(req.url, `http://${req.headers.host}`);
         const refresh = url.searchParams.get('refresh') === 'true';
@@ -28,7 +28,7 @@ export async function getAllUsage({ req, res, currentConfig, providerPoolManager
         }
 
         if (!usageResults) {
-            usageResults = await getAllProvidersUsage(currentConfig, providerPoolManager);
+            usageResults = await getAllProvidersUsage(currentConfig, accountPoolManager);
             const { writeUsageCache } = await import('../../../ui-manager.js');
             await writeUsageCache(usageResults);
         }
@@ -44,7 +44,7 @@ export async function getAllUsage({ req, res, currentConfig, providerPoolManager
 /**
  * 按段获取用量
  */
-export async function getUsageBySegment({ req, res, currentConfig, providerPoolManager, match }) {
+export async function getUsageBySegment({ req, res, currentConfig, accountPoolManager, match }) {
     const segment = decodeURIComponent(match[1]);
     const { DEFAULT_PROVIDER_TYPE_FOR_ACCOUNTS } = await import('../../../ui-manager.js');
     const isProviderType = segment === DEFAULT_PROVIDER_TYPE_FOR_ACCOUNTS;
@@ -65,7 +65,7 @@ export async function getUsageBySegment({ req, res, currentConfig, providerPoolM
                 }
             }
             if (!usageResults) {
-                usageResults = await getProviderTypeUsage(providerType, currentConfig, providerPoolManager);
+                usageResults = await getProviderTypeUsage(providerType, currentConfig, accountPoolManager);
                 await updateProviderUsageCache(providerType, usageResults);
             }
             res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -73,7 +73,7 @@ export async function getUsageBySegment({ req, res, currentConfig, providerPoolM
         } else {
             const uuid = segment;
             const providerType = DEFAULT_PROVIDER_TYPE_FOR_ACCOUNTS;
-            const providerUsage = await getProviderTypeUsage(providerType, currentConfig, providerPoolManager);
+            const providerUsage = await getProviderTypeUsage(providerType, currentConfig, accountPoolManager);
             const accountUsage = providerUsage?.instances?.find(i => i.uuid === uuid);
 
             if (accountUsage) {
@@ -94,7 +94,7 @@ export async function getUsageBySegment({ req, res, currentConfig, providerPoolM
 /**
  * 获取账号用量
  */
-export async function getAccountUsage({ req, res, currentConfig, providerPoolManager, match }) {
+export async function getAccountUsage({ req, res, currentConfig, accountPoolManager, match }) {
     const providerType = decodeURIComponent(match[1]);
     const uuid = decodeURIComponent(match[2]);
 
@@ -102,7 +102,7 @@ export async function getAccountUsage({ req, res, currentConfig, providerPoolMan
         const url = new URL(req.url, `http://${req.headers.host}`);
         const refresh = url.searchParams.get('refresh') === 'true';
 
-        let usageResults = await getProviderTypeUsage(providerType, currentConfig, providerPoolManager);
+        let usageResults = await getProviderTypeUsage(providerType, currentConfig, accountPoolManager);
         const accountUsage = usageResults?.instances?.find(i => i.uuid === uuid);
 
         if (accountUsage) {
@@ -130,10 +130,10 @@ export async function getFullModels({ res }) {
 /**
  * 获取所有支持用量查询的提供商的用量信息
  * @param {Object} currentConfig - 当前配置
- * @param {Object} providerPoolManager - 提供商池管理器
+ * @param {Object} accountPoolManager - 账号池管理器
  * @returns {Promise<Object>} 所有提供商的用量信息
  */
-async function getAllProvidersUsage(currentConfig, providerPoolManager) {
+async function getAllProvidersUsage(currentConfig, accountPoolManager) {
     const results = {
         timestamp: new Date().toISOString(),
         providers: {}
@@ -145,7 +145,7 @@ async function getAllProvidersUsage(currentConfig, providerPoolManager) {
     // 并发获取所有提供商的用量数据
     const usagePromises = supportedProviders.map(async (providerType) => {
         try {
-            const providerUsage = await getProviderTypeUsage(providerType, currentConfig, providerPoolManager);
+            const providerUsage = await getProviderTypeUsage(providerType, currentConfig, accountPoolManager);
             return { providerType, data: providerUsage, success: true };
         } catch (error) {
             return {
@@ -196,10 +196,10 @@ function getProviderDisplayName(provider, providerType) {
  * 获取指定提供商类型的用量信息
  * @param {string} providerType - 提供商类型
  * @param {Object} currentConfig - 当前配置
- * @param {Object} providerPoolManager - 提供商池管理器
+ * @param {Object} accountPoolManager - 账号池管理器
  * @returns {Promise<Object>} 提供商用量信息
  */
-async function getProviderTypeUsage(providerType, currentConfig, providerPoolManager) {
+async function getProviderTypeUsage(providerType, currentConfig, accountPoolManager) {
     const result = {
         providerType,
         instances: [],
@@ -213,13 +213,13 @@ async function getProviderTypeUsage(providerType, currentConfig, providerPoolMan
 
     const { isSQLiteMode } = await import('../../../services/manager.js');
 
-    if (isSQLiteMode() && providerPoolManager && typeof providerPoolManager.getProviderPools === 'function') {
+    if (isSQLiteMode() && accountPoolManager && typeof accountPoolManager.getProviderPools === 'function') {
         // SQLite 模式
-        providers = providerPoolManager.getProviderPools(providerType);
+        providers = accountPoolManager.getProviderPools(providerType);
     } else {
         // JSON 模式：从 account pool 获取
         const { readAccountsFromStorage } = await import('../../../ui-manager.js');
-        const { accountPool } = readAccountsFromStorage(currentConfig, providerPoolManager);
+        const { accountPool } = readAccountsFromStorage(currentConfig, accountPoolManager);
         providers = accountPool.accounts || [];
     }
 
@@ -354,10 +354,10 @@ async function getProviderTypeUsage(providerType, currentConfig, providerPoolMan
 
     // 如果有 userId 缓存更新，保存到 provider_pools.json
     const hasUpdates = result.instances.some(inst => inst.usage?.user?.userId);
-    if (hasUpdates && providerPoolManager) {
+    if (hasUpdates && accountPoolManager) {
         try {
             const filePath = currentConfig.PROVIDER_POOLS_FILE_PATH || PROVIDER_POOLS_FILE;
-            const currentPools = providerPoolManager.providerPools || {};
+            const currentPools = accountPoolManager.providerPools || {};
             currentPools[providerType] = providers;
                     writeFileSync(filePath, JSON.stringify(currentPools, null, 2), 'utf8');
             logger.info('[Usage API] Provider pools updated with cached userId/email');

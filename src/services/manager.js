@@ -19,7 +19,7 @@ export async function initApiService(config) {
 
     if (useSQLiteMode) {
         const { SQLiteAccountPoolManager } = await import('./pools/sqlite.js');
-        const { sqliteDB } = await import('./storage/sqlite-db.js');
+        const { sqliteDB } = await import('../lib/sqlite-db.js');
 
         accountPoolManager = new SQLiteAccountPoolManager({
             globalConfig: config,

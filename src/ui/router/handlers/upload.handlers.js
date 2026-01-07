@@ -12,7 +12,7 @@ const logger = createLogger('ui:handlers:upload');
  * Helper function to attempt quick link for a single file
  * Extracted from ui-manager.js for reusability
  */
-async function attemptQuickLinkFile(filePath, providerPoolManager) {
+async function attemptQuickLinkFile(filePath, accountPoolManager) {
     if (!filePath) {
         return { success: false, message: 'filePath is required' };
     }
@@ -33,7 +33,7 @@ async function attemptQuickLinkFile(filePath, providerPoolManager) {
 
         // Check if already linked
         const targetAbsPath = path.resolve(process.cwd(), filePath);
-        const accounts = providerPoolManager.listAccounts();
+        const accounts = accountPoolManager.listAccounts();
         const isAlreadyLinked = accounts.some(p => {
             const existingPath = p.path || p[credPathKey]; // Support both key formats
             if (!existingPath) return false;
@@ -54,7 +54,7 @@ async function attemptQuickLinkFile(filePath, providerPoolManager) {
         });
 
         // Add account through AccountPoolManager
-        const newProvider = providerPoolManager.addAccount(newProviderConfig);
+        const newProvider = accountPoolManager.addAccount(newProviderConfig);
         logger.info(`[UI API] Quick linked config: ${filePath}`);
 
         // Broadcast update event
@@ -147,9 +147,9 @@ export async function uploadCredentials({ req, res, currentConfig }) {
 /**
  * 获取上传配置文件列表
  */
-export async function getUploadConfigs({ res, currentConfig, providerPoolManager }) {
+export async function getUploadConfigs({ res, currentConfig, accountPoolManager }) {
     try {
-        const configFiles = await scanConfigFiles(currentConfig, providerPoolManager);
+        const configFiles = await scanConfigFiles(currentConfig, accountPoolManager);
 
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(configFiles));
@@ -265,14 +265,14 @@ export async function deleteConfig({ res, match }) {
 /**
  * 快速关联配置文件
  */
-export async function quickLink({ req, res, providerPoolManager }) {
+export async function quickLink({ req, res, accountPoolManager }) {
     const { getRequestBody } = await import('../../../utils/common.js');
 
     try {
         const body = await getRequestBody(req);
         const { filePath } = body;
 
-        const result = await attemptQuickLinkFile(filePath, providerPoolManager);
+        const result = await attemptQuickLinkFile(filePath, accountPoolManager);
 
         if (!result.success) {
             res.writeHead(result.alreadyLinked ? 400 : 500, { 'Content-Type': 'application/json' });
@@ -299,7 +299,7 @@ export async function quickLink({ req, res, providerPoolManager }) {
 /**
  * 批量快速关联
  */
-export async function bulkQuickLink({ req, res, providerPoolManager }) {
+export async function bulkQuickLink({ req, res, accountPoolManager }) {
     const { getRequestBody } = await import('../../../utils/common.js');
 
     try {
@@ -317,7 +317,7 @@ export async function bulkQuickLink({ req, res, providerPoolManager }) {
         logger.info(`[UI API] Bulk quick link started for ${uniquePaths.length} files`);
 
         const results = await Promise.all(uniquePaths.map(async filePath => {
-            const result = await attemptQuickLinkFile(filePath, providerPoolManager);
+            const result = await attemptQuickLinkFile(filePath, accountPoolManager);
             return {
                 filePath,
                 success: result.success,

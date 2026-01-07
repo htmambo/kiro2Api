@@ -10,7 +10,7 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
-import { createLogger } from '../../lib/logger.js';
+import { createLogger } from './logger.js';
 
 const SCHEMA_VERSION = 2;
 const DEFAULT_PROVIDER_TYPE = 'claude-kiro-oauth';

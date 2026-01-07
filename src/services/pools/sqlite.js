@@ -3,7 +3,7 @@
  * 说明：该文件在 T07（SQLite schema 迁移）完成后正式启用。
  */
 
-import { sqliteDB } from '../storage/sqlite-db.js';
+import { sqliteDB } from '../../lib/sqlite-db.js';
 import { getServiceAdapter } from '../kiro/adapter.js';
 import * as fs from 'fs';
 import { generateContent } from '../kiro/api-client.js';

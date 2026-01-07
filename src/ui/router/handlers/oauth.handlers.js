@@ -153,7 +153,7 @@ export async function checkState({ req, res }) {
 /**
  * 手动导入 refreshToken
  */
-export async function manualImport({ req, res, currentConfig, providerPoolManager }) {
+export async function manualImport({ req, res, currentConfig, accountPoolManager }) {
     try {
         const { parseRequestBody } = await import('../../../ui-manager.js');
         const { generateUUID } = await import('../../../utils/account-utils.js');
@@ -296,9 +296,9 @@ export async function manualImport({ req, res, currentConfig, providerPoolManage
                     writeFileSync(poolsFilePath, JSON.stringify(providerPools, null, 2), 'utf8');
                     logger.info(`[Kiro Manual Import] Added to provider pool with UUID: ${newProvider.uuid}`);
 
-                    if (providerPoolManager) {
-                        providerPoolManager.providerPools = providerPools;
-                        providerPoolManager.initializeProviderStatus();
+                    if (accountPoolManager) {
+                        accountPoolManager.providerPools = providerPools;
+                        accountPoolManager.initializeProviderStatus();
                     }
 
                     broadcastEvent('provider_update', {
@@ -346,7 +346,7 @@ export async function manualImport({ req, res, currentConfig, providerPoolManage
 /**
  * AWS SSO 设备授权启动
  */
-export async function awsSsoStart({ req, res, currentConfig, providerPoolManager }) {
+export async function awsSsoStart({ req, res, currentConfig, accountPoolManager }) {
     try {
         const { parseRequestBody } = await import('../../../ui-manager.js');
         const { broadcastEvent } = await import('../../events.js');
@@ -459,7 +459,7 @@ export async function awsSsoStart({ req, res, currentConfig, providerPoolManager
 
             // 自动添加到 provider_pools.json
             try {
-                const result = providerPoolManager.addTokenFile(tokenFilePath);
+                const result = accountPoolManager.addTokenFile(tokenFilePath);
                 logger.info(`[AWS SSO] Token added to provider_pools.json: ${result}`);
 
                 if(result === 1) {
@@ -467,7 +467,7 @@ export async function awsSsoStart({ req, res, currentConfig, providerPoolManager
                     broadcastEvent('provider_update', {
                         action: 'add',
                         providerType: 'claude-kiro-oauth',
-                        providerConfig: providerPoolManager.providerPools['claude-kiro-oauth'].slice(-1)[0],
+                        providerConfig: accountPoolManager.providerPools['claude-kiro-oauth'].slice(-1)[0],
                         timestamp: new Date().toISOString()
                     });
                 }

@@ -14,7 +14,7 @@
 /**
  * 获取所有账号列表
  */
-export async function getAccounts({ res, currentConfig, providerPoolManager }) {
+export async function getAccounts({ res, currentConfig, accountPoolManager }) {
     // 从 ui-manager.js 的实现中提取
     // 这部分代码位于 1116-1168 行
 
@@ -23,7 +23,7 @@ export async function getAccounts({ res, currentConfig, providerPoolManager }) {
     const { readAccountsFromStorage, parseErrorMessage } = await import('../../../ui-manager.js');
     const { broadcastEvent } = await import('../../events.js');
 
-    const { accountPool, filePath } = readAccountsFromStorage(currentConfig, providerPoolManager);
+    const { accountPool, filePath } = readAccountsFromStorage(currentConfig, accountPoolManager);
 
     let healthyCount = 0;
     let checkingCount = 0;
@@ -77,7 +77,7 @@ export async function getAccounts({ res, currentConfig, providerPoolManager }) {
 /**
  * 添加新账号
  */
-export async function addAccount({ req, res, providerPoolManager }) {
+export async function addAccount({ req, res, accountPoolManager }) {
     const { getRequestBody } = await import('../../../utils/common.js');
     const { broadcastEvent } = await import('../../events.js');
 
@@ -91,7 +91,7 @@ export async function addAccount({ req, res, providerPoolManager }) {
             return;
         }
 
-        const newAccount = providerPoolManager.addAccount(accountConfig);
+        const newAccount = accountPoolManager.addAccount(accountConfig);
 
         broadcastEvent('account_update', {
             action: 'add',
@@ -111,13 +111,13 @@ export async function addAccount({ req, res, providerPoolManager }) {
 /**
  * 删除账号
  */
-export async function deleteAccount({ res, providerPoolManager, match }) {
+export async function deleteAccount({ res, accountPoolManager, match }) {
     const { broadcastEvent } = await import('../../events.js');
 
     const uuid = decodeURIComponent(match[1]);
 
     try {
-        const removed = providerPoolManager.removeAccount(uuid);
+        const removed = accountPoolManager.removeAccount(uuid);
 
         if (!removed) {
             res.writeHead(404, { 'Content-Type': 'application/json' });
@@ -142,13 +142,13 @@ export async function deleteAccount({ res, providerPoolManager, match }) {
 /**
  * 切换账号状态
  */
-export async function toggleAccount({ res, providerPoolManager, match }) {
+export async function toggleAccount({ res, accountPoolManager, match }) {
     const { broadcastEvent } = await import('../../events.js');
 
     const uuid = decodeURIComponent(match[1]);
 
     try {
-        const isDisabled = providerPoolManager.toggleAccount(uuid);
+        const isDisabled = accountPoolManager.toggleAccount(uuid);
 
         if (isDisabled === null) {
             res.writeHead(404, { 'Content-Type': 'application/json' });
@@ -174,7 +174,7 @@ export async function toggleAccount({ res, providerPoolManager, match }) {
 /**
  * 批量删除账号
  */
-export async function batchDeleteAccounts({ req, res, providerPoolManager }) {
+export async function batchDeleteAccounts({ req, res, accountPoolManager }) {
     const { getRequestBody } = await import('../../../utils/common.js');
     const { broadcastEvent } = await import('../../events.js');
 
@@ -193,11 +193,11 @@ export async function batchDeleteAccounts({ req, res, providerPoolManager }) {
         let targetUuids = [];
 
         if (deleteByStatus.length > 0) {
-            const result = providerPoolManager.batchDeleteByStatus(deleteByStatus);
+            const result = accountPoolManager.batchDeleteByStatus(deleteByStatus);
             removed = result.removed;
             targetUuids = result.uuids;
         } else if (uuids.length > 0) {
-            removed = providerPoolManager.batchDeleteAccounts(uuids);
+            removed = accountPoolManager.batchDeleteAccounts(uuids);
             targetUuids = uuids;
         }
 
@@ -219,10 +219,10 @@ export async function batchDeleteAccounts({ req, res, providerPoolManager }) {
 /**
  * 重置所有账号健康状态
  */
-export async function resetAllHealth({ res, providerPoolManager }) {
+export async function resetAllHealth({ res, accountPoolManager }) {
     try {
-        providerPoolManager.markAllAccountsHealthy();
-        const resetCount = providerPoolManager.accountPool.accounts.length;
+        accountPoolManager.markAllAccountsHealthy();
+        const resetCount = accountPoolManager.accountPool.accounts.length;
 
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ success: true, resetCount }));
@@ -235,13 +235,13 @@ export async function resetAllHealth({ res, providerPoolManager }) {
 /**
  * 重置单个账号健康状态
  */
-export async function resetAccountHealth({ res, providerPoolManager, match }) {
+export async function resetAccountHealth({ res, accountPoolManager, match }) {
     const { broadcastEvent } = await import('../../events.js');
 
     const accountUuid = match[1];
 
     try {
-        const result = providerPoolManager.markAccountHealthy(accountUuid);
+        const result = accountPoolManager.markAccountHealthy(accountUuid);
         const resetCount = result ? 1 : 0;
 
         if(result) {
@@ -266,33 +266,33 @@ export async function resetAccountHealth({ res, providerPoolManager, match }) {
 /**
  * 批量健康检查
  */
-export async function healthCheckAll({ res, providerPoolManager }) {
+export async function healthCheckAll({ res, accountPoolManager }) {
     try {
-        const accounts = providerPoolManager.listAccounts();
+        const accounts = accountPoolManager.listAccounts();
         const results = [];
 
         for (const acc of accounts) {
             if (acc.isDisabled) continue;
             try {
-                if (typeof providerPoolManager?._checkAccountHealth === 'function' && typeof providerPoolManager.markAccountHealthy === 'function') {
-                    const healthResult = await providerPoolManager._checkAccountHealth(acc, true);
+                if (typeof accountPoolManager?._checkAccountHealth === 'function' && typeof accountPoolManager.markAccountHealthy === 'function') {
+                    const healthResult = await accountPoolManager._checkAccountHealth(acc, true);
                     if (healthResult && healthResult.success) {
-                        providerPoolManager.markAccountHealthy(acc.uuid, {
+                        accountPoolManager.markAccountHealthy(acc.uuid, {
                             resetUsageCount: true,
                             healthCheckModel: healthResult.modelName,
                             userInfo: healthResult.userInfo
                         });
                         results.push({ uuid: acc.uuid, success: true, modelName: healthResult.modelName });
                     } else {
-                        providerPoolManager.markAccountUnhealthy(acc.uuid, healthResult?.errorMessage || '检测失败');
+                        accountPoolManager.markAccountUnhealthy(acc.uuid, healthResult?.errorMessage || '检测失败');
                         results.push({ uuid: acc.uuid, success: false, modelName: healthResult?.modelName, message: healthResult?.errorMessage || '检测失败' });
                     }
                 } else {
                     results.push({ uuid: acc.uuid, success: null, message: 'No pool manager available' });
                 }
             } catch (error) {
-                if (typeof providerPoolManager?.markAccountUnhealthy === 'function') {
-                    providerPoolManager.markAccountUnhealthy(acc.uuid, error.message);
+                if (typeof accountPoolManager?.markAccountUnhealthy === 'function') {
+                    accountPoolManager.markAccountUnhealthy(acc.uuid, error.message);
                 }
                 results.push({ uuid: acc.uuid, success: false, message: error.message });
             }
@@ -319,12 +319,12 @@ export async function healthCheckAll({ res, providerPoolManager }) {
 /**
  * 单个账号健康检查
  */
-export async function healthCheckAccount({ res, currentConfig, providerPoolManager, match }) {
+export async function healthCheckAccount({ res, currentConfig, accountPoolManager, match }) {
     const { readAccountsFromStorage } = await import('../../../ui-manager.js');
     const uuid = decodeURIComponent(match[1]);
 
     try {
-        const { accountPool } = readAccountsFromStorage(currentConfig, providerPoolManager);
+        const { accountPool } = readAccountsFromStorage(currentConfig, accountPoolManager);
         const acc = accountPool.accounts.find(a => a.uuid === uuid);
 
         if (!acc) {
@@ -335,12 +335,12 @@ export async function healthCheckAccount({ res, currentConfig, providerPoolManag
 
         let healthResult = null;
 
-        if (typeof providerPoolManager?._checkAccountHealth === 'function' && typeof providerPoolManager.markAccountHealthy === 'function') {
-            healthResult = await providerPoolManager._checkAccountHealth(acc, true);
+        if (typeof accountPoolManager?._checkAccountHealth === 'function' && typeof accountPoolManager.markAccountHealthy === 'function') {
+            healthResult = await accountPoolManager._checkAccountHealth(acc, true);
             if (healthResult && healthResult.success) {
-                providerPoolManager.markAccountHealthy(acc.uuid, { resetUsageCount: true, healthCheckModel: healthResult.modelName, userInfo: healthResult.userInfo });
+                accountPoolManager.markAccountHealthy(acc.uuid, { resetUsageCount: true, healthCheckModel: healthResult.modelName, userInfo: healthResult.userInfo });
             } else {
-                providerPoolManager.markAccountUnhealthy(acc.uuid, healthResult?.errorMessage || '检测失败');
+                accountPoolManager.markAccountUnhealthy(acc.uuid, healthResult?.errorMessage || '检测失败');
             }
         }
 
@@ -361,13 +361,13 @@ export async function healthCheckAccount({ res, currentConfig, providerPoolManag
 /**
  * 测试账号
  */
-export async function testAccount({ res, currentConfig, providerPoolManager, match }) {
+export async function testAccount({ res, currentConfig, accountPoolManager, match }) {
     const { readAccountsFromStorage } = await import('../../../ui-manager.js');
     const { getServiceAdapter } = await import('../../../kiro/adapter.js');
     const uuid = decodeURIComponent(match[1]);
 
     try {
-        const { accountPool } = readAccountsFromStorage(currentConfig, providerPoolManager);
+        const { accountPool } = readAccountsFromStorage(currentConfig, accountPoolManager);
         const acc = accountPool.accounts.find(a => a.uuid === uuid);
 
         if (!acc) {
@@ -395,11 +395,11 @@ export async function testAccount({ res, currentConfig, providerPoolManager, mat
 /**
  * 生成 OAuth 授权 URL
  */
-export async function generateAuthUrl({ res, currentConfig, providerPoolManager }) {
+export async function generateAuthUrl({ res, currentConfig, accountPoolManager }) {
     const { handleKiroOAuth } = await import('../../../services/oauth-handlers.js');
 
     try {
-        const result = await handleKiroOAuth(currentConfig, providerPoolManager);
+        const result = await handleKiroOAuth(currentConfig, accountPoolManager);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ success: true, authUrl: result.authUrl, authInfo: result.authInfo }));
     } catch (error) {
@@ -411,7 +411,7 @@ export async function generateAuthUrl({ res, currentConfig, providerPoolManager 
 /**
  * 清理重复账号
  */
-export async function cleanupDuplicates({ req, res, currentConfig, providerPoolManager }) {
+export async function cleanupDuplicates({ req, res, currentConfig, accountPoolManager }) {
     const { parseRequestBody } = await import('../../../ui-manager.js');
     const { readAccountsFromStorage } = await import('../../../ui-manager.js');
     const { findDuplicateUserId } = await import('../../../utils/account-utils.js');
@@ -421,7 +421,7 @@ export async function cleanupDuplicates({ req, res, currentConfig, providerPoolM
         const body = await parseRequestBody(req);
         const { dryRun = true } = body;
 
-        const { accountPool, providerPools } = readAccountsFromStorage(currentConfig, providerPoolManager);
+        const { accountPool } = readAccountsFromStorage(currentConfig, accountPoolManager);
         const accounts = accountPool.accounts;
 
         const userIdGroups = {};
@@ -463,7 +463,7 @@ export async function cleanupDuplicates({ req, res, currentConfig, providerPoolM
         let removedCount = 0;
         if (!dryRun && toRemove.length > 0) {
             const removeUuids = toRemove.map(a => a.uuid);
-            removedCount = providerPoolManager.batchDeleteAccounts(removeUuids);
+            removedCount = accountPoolManager.batchDeleteAccounts(removeUuids);
             broadcastEvent('account_update', { action: 'cleanup_duplicates', removedCount, timestamp: new Date().toISOString() });
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ success: true, dryRun: false, removedCount, duplicates }));
