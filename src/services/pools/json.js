@@ -1,18 +1,12 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { getServiceAdapter } from '../../kiro/adapter.js';
+import { getServiceAdapter } from '../../services/manager.js';
 import { generateContent } from '../../kiro/api-client.js';
 import { createLogger } from '../../lib/logger.js';
 import { v4 as uuidv4 } from 'uuid';
 
 /**
  * Account Pool Manager - 单一账号池管理器（移除 providerType 概念）
- *
- * 兼容字段（与旧 providerPools 中单个 providerConfig 保持一致）：
- * - uuid
- * - isHealthy / isDisabled
- * - usageCount / errorCount / lastUsed
- * - notSupportedModels（数组）等
  */
 export class AccountPoolManager {
     // 默认健康检查模型配置（目前主要用于 Kiro OAuth）

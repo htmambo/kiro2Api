@@ -682,6 +682,8 @@ function getFileUsageInfo(relativePath, fileName, usedPaths, currentConfig) {
 
     // 检查提供商池中的使用情况
     if (currentConfig.providerPools) {
+        logger.warn(`[OAuth Analyzer] Checking provider pools for file ${relativePath}`);
+        logger.warn(`[OAuth Analyzer] Provider pools: ${JSON.stringify(currentConfig.providerPools)}`);
         // 使用 flatMap 将双重循环优化为单层循环 O(n)
         const allProviders = Object.entries(currentConfig.providerPools).flatMap(
             ([providerType, providers]) =>

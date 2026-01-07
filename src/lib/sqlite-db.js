@@ -1,10 +1,6 @@
 /**
  * SQLite 数据库管理器
  * v2（账号池）：移除 provider_type，providers 表迁移为 accounts
- *
- * 兼容说明：
- * - 仍保留部分旧方法名（upsertProvider/getProviders/getHealthyProviders 等），内部会映射到 accounts。
- * - 旧 SQLiteProviderPoolManager 在迁移后不再保证可用（T08 会清理）。
  */
 
 import Database from 'better-sqlite3';

@@ -1,6 +1,6 @@
 import deepmerge from 'deepmerge';
-import { getServiceAdapter, serviceInstances } from '../kiro/adapter.js';
 import { createLogger } from '../lib/logger.js';
+import { KiroService } from '../kiro/adapter.js';
 
 const logger = createLogger('services:manager');
 
@@ -61,7 +61,7 @@ export async function initApiService(config) {
         try {
             getServiceAdapter({ ...config, MODEL_PROVIDER: provider });
         } catch (error) {
-            logger.warn(`[Initialization Warning] Failed to initialize service adapter for ${provider}: ${error.message}`);
+            logger.warn(`Failed to initialize service adapter for ${provider}: ${error.message}`);
         }
     }
 
@@ -84,9 +84,9 @@ export async function getApiService(config, requestedModel = null) {
             delete serviceConfig.accountPool;
             delete serviceConfig.providerPools;
             config.uuid = serviceConfig.uuid;
-            logger.info(`[API Service] Using pooled account configuration: ${serviceConfig.uuid}${requestedModel ? ` (model: ${requestedModel})` : ''}`);
+            logger.info(`Using pooled account configuration: ${serviceConfig.uuid}${requestedModel ? ` (model: ${requestedModel})` : ''}`);
         } else {
-            logger.warn(`[API Service] No healthy account found${requestedModel ? ` supporting model: ${requestedModel}` : ''}. Falling back to main config.`);
+            logger.warn(`No healthy account found${requestedModel ? ` supporting model: ${requestedModel}` : ''}. Falling back to main config.`);
         }
     }
 
@@ -99,4 +99,22 @@ export function getAccountPoolManager() {
 
 export function isSQLiteMode() {
     return useSQLiteMode;
+}
+
+
+// 用于存储服务适配器单例的映射
+export const serviceInstances = {};
+
+// 服务适配器工厂 - 简化为仅支持 Kiro OAuth
+export function getServiceAdapter(config) {
+    logger.info(`getServiceAdapter, provider: ${config.MODEL_PROVIDER}, uuid: ${config.uuid}`);
+    const provider = config.MODEL_PROVIDER;
+    const providerKey = config.uuid ? provider + config.uuid : provider;
+
+    if (!serviceInstances[providerKey] || !(serviceInstances[providerKey] instanceof KiroService)) {
+        serviceInstances[providerKey] = new KiroService(config);
+    } else {
+        serviceInstances[providerKey].config = config;
+    }
+    return serviceInstances[providerKey];
 }

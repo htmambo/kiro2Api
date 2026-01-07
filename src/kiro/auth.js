@@ -2,7 +2,7 @@ import { promises as fs } from 'fs';
 import * as path from 'path';
 import { createLogger } from '../lib/logger.js';
 
-const logger = createLogger('kiro:auth');
+const logger = createLogger('Kiro Auth');
 
 export const KIRO_CONSTANTS = {
     REFRESH_URL: 'https://prod.{{region}}.auth.desktop.kiro.dev/refreshToken',
@@ -43,11 +43,11 @@ export async function loadCredentialsFromFile(filePath) {
         return JSON.parse(fileContent);
     } catch (error) {
         if (error.code === 'ENOENT') {
-            logger.debug(`[Kiro Auth] Credential file not found: ${filePath}`);
+            logger.debug(`Credential file not found: ${filePath}`);
         } else if (error instanceof SyntaxError) {
-            logger.warn(`[Kiro Auth] Failed to parse JSON from ${filePath}: ${error.message}`);
+            logger.warn(`Failed to parse JSON from ${filePath}: ${error.message}`);
         } else {
-            logger.warn(`[Kiro Auth] Failed to read credential file ${filePath}: ${error.message}`);
+            logger.warn(`Failed to read credential file ${filePath}: ${error.message}`);
         }
         return null;
     }
@@ -61,22 +61,22 @@ export async function saveCredentialsToFile(filePath, newData) {
             existingData = JSON.parse(fileContent);
         } catch (readError) {
             if (readError.code === 'ENOENT') {
-                logger.debug(`[Kiro Auth] Token file not found, creating new one: ${filePath}`);
+                logger.debug(`Token file not found, creating new one: ${filePath}`);
             } else {
-                logger.warn(`[Kiro Auth] Could not read existing token file ${filePath}: ${readError.message}`);
+                logger.warn(`Could not read existing token file ${filePath}: ${readError.message}`);
             }
         }
         const mergedData = { ...existingData, ...newData };
         await fs.writeFile(filePath, JSON.stringify(mergedData, null, 2), 'utf8');
-        logger.info(`[Kiro Auth] Updated token file: ${filePath}`);
+        logger.info(`Updated token file: ${filePath}`);
     } catch (error) {
-        logger.error(`[Kiro Auth] Failed to write token to file ${filePath}: ${error.message}`);
+        logger.error(`Failed to write token to file ${filePath}: ${error.message}`);
     }
 }
 
 export async function initializeAuth(service, forceRefresh = false) {
     if (service.accessToken && !forceRefresh) {
-        logger.debug('[Kiro Auth] Access token already available and not forced refresh.');
+        logger.debug('Access token already available and not forced refresh.');
         return;
     }
 
@@ -85,17 +85,17 @@ export async function initializeAuth(service, forceRefresh = false) {
 
         if (service.base64Creds) {
             Object.assign(mergedCredentials, service.base64Creds);
-            logger.info('[Kiro Auth] Successfully loaded credentials from Base64 (constructor).');
+            logger.info('Successfully loaded credentials from Base64 (constructor).');
             service.base64Creds = null;
         }
 
         const targetFilePath = service.credsFilePath || path.join(service.credPath, KIRO_AUTH_TOKEN_FILE);
-        logger.debug(`[Kiro Auth] Attempting to load credentials from directory: ${path.dirname(targetFilePath)}`);
+        logger.debug(`Attempting to load credentials from directory: ${path.dirname(targetFilePath)}`);
 
         const targetCredentials = await loadCredentialsFromFile(targetFilePath);
         if (targetCredentials) {
             Object.assign(mergedCredentials, targetCredentials);
-            logger.info(`[Kiro Auth] Successfully loaded OAuth credentials from ${targetFilePath}`);
+            logger.info(`Successfully loaded OAuth credentials from ${targetFilePath}`);
         }
 
         service.accessToken = service.accessToken || mergedCredentials.accessToken;
@@ -108,7 +108,7 @@ export async function initializeAuth(service, forceRefresh = false) {
         service.region = service.region || mergedCredentials.region;
 
         if (!service.region) {
-            logger.warn('[Kiro Auth] Region not found in credentials. Using default region us-east-1 for URLs.');
+            logger.warn('Region not found in credentials. Using default region us-east-1 for URLs.');
             service.region = 'us-east-1';
         }
 
@@ -117,7 +117,7 @@ export async function initializeAuth(service, forceRefresh = false) {
         service.baseUrl = KIRO_CONSTANTS.BASE_URL.replace('{{region}}', service.region);
         service.amazonQUrl = KIRO_CONSTANTS.AMAZON_Q_URL.replace('{{region}}', service.region);
     } catch (error) {
-        logger.warn(`[Kiro Auth] Error during credential loading: ${error.message}`);
+        logger.warn(`Error during credential loading: ${error.message}`);
     }
 
     if (forceRefresh || (!service.accessToken && service.refreshToken)) {
@@ -141,7 +141,7 @@ export async function refreshAccessTokenIfNeeded(service) {
     }
 
     if (debounceState.promise) {
-        logger.info('[Kiro Auth] Token refresh already in progress for this account, waiting...');
+        logger.info('Token refresh already in progress for this account, waiting...');
         return await debounceState.promise;
     }
 
@@ -156,7 +156,7 @@ export async function refreshAccessTokenIfNeeded(service) {
     const timeSinceLastRefresh = currentTime - debounceState.lastAttemptTime.getTime();
     if (timeSinceLastRefresh < KIRO_CONSTANTS.REFRESH_DEBOUNCE_MS) {
         logger.info(
-            `[Kiro Auth] Refresh attempted ${Math.floor(timeSinceLastRefresh / 1000)}s ago for this account, skipping (debounce)`
+            `Refresh attempted ${Math.floor(timeSinceLastRefresh / 1000)}s ago for this account, skipping (debounce)`
         );
         if (timeUntilExpiry <= 0) {
             throw new Error('Token is expired. Please refresh SSO session.');
@@ -189,15 +189,15 @@ export async function doRefreshToken(service) {
             requestBody.grantType = 'refresh_token';
         }
 
-        logger.info('[Kiro Auth] Refreshing access token...');
-        logger.debug('[Kiro Auth] Refresh URL:', { refreshUrl });
-        logger.debug('[Kiro Auth] Auth method:', { authMethod: service.authMethod });
-        logger.debug('[Kiro Auth] Request body keys:', { keys: Object.keys(requestBody) });
+        logger.info('Refreshing access token...');
+        logger.debug('Refresh URL:', { refreshUrl });
+        logger.debug('Auth method:', { authMethod: service.authMethod });
+        logger.debug('Request body keys:', { keys: Object.keys(requestBody) });
 
         const response = await service.axiosInstance.post(refreshUrl, requestBody);
-        logger.debug('[Kiro Auth] Token refresh response status:', { status: response.status });
-        logger.debug('[Kiro Auth] Token refresh response data keys:', { keys: Object.keys(response.data || {}) });
-        logger.debug('[Kiro Auth] Token refresh response data:', { data: JSON.stringify(response.data, null, 2) });
+        logger.debug('Token refresh response status:', { status: response.status });
+        logger.debug('Token refresh response data keys:', { keys: Object.keys(response.data || {}) });
+        logger.debug('Token refresh response data:', { data: JSON.stringify(response.data, null, 2) });
 
         if (response.data && response.data.accessToken) {
             service.accessToken = response.data.accessToken;
@@ -211,12 +211,12 @@ export async function doRefreshToken(service) {
             } else if (response.data.expiresAt) {
                 expiresAt = response.data.expiresAt;
             } else {
-                logger.warn('[Kiro Auth] No expiresIn or expiresAt in response, using default 1 hour');
+                logger.warn('No expiresIn or expiresAt in response, using default 1 hour');
                 expiresAt = new Date(Date.now() + 3600 * 1000).toISOString();
             }
             service.expiresAt = expiresAt;
-            logger.info('[Kiro Auth] Access token refreshed successfully');
-            logger.info('[Kiro Auth] New expiresAt:', { expiresAt });
+            logger.info('Access token refreshed successfully');
+            logger.info('New expiresAt:', { expiresAt });
 
             const tokenFilePath = service.credsFilePath || path.join(service.credPath, KIRO_AUTH_TOKEN_FILE);
             const updatedTokenData = {
@@ -232,7 +232,7 @@ export async function doRefreshToken(service) {
             throw new Error('Invalid refresh response: Missing accessToken');
         }
     } catch (error) {
-        logger.error('[Kiro Auth] Token refresh failed:', { error: error.message });
+        logger.error('Token refresh failed:', { error: error.message });
         throw new Error(`Token refresh failed: ${error.message}`);
     }
 }
@@ -395,5 +395,3 @@ export async function initiateDeviceAuthorization(service, startUrl) {
 
     return deviceAuthInfo;
 }
-
-export { KIRO_AUTH_TOKEN_FILE };

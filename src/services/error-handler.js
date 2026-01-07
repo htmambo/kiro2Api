@@ -3,7 +3,7 @@
  * 提供统一的错误类型定义和错误处理逻辑
  */
 
-import { createLogger } from './logger.js';
+import { createLogger } from '../lib/logger.js';
 
 const logger = createLogger('lib:error-handler');
 

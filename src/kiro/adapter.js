@@ -109,9 +109,6 @@ export const MODEL_MAPPING = Object.fromEntries(
     Object.entries(FULL_MODEL_MAPPING).filter(([key]) => KIRO_MODELS.includes(key))
 );
 
-
-const KIRO_AUTH_TOKEN_FILE = "kiro-auth-token.json";
-
 export class KiroService {
     constructor(config = {}) {
         this.isInitialized = false;
@@ -1932,22 +1929,4 @@ ${conversationData}`;
         }
     }
 
-}
-
-
-// 用于存储服务适配器单例的映射
-export const serviceInstances = {};
-
-// 服务适配器工厂 - 简化为仅支持 Kiro OAuth
-export function getServiceAdapter(config) {
-    logger.info(`[Adapter] getServiceAdapter, provider: ${config.MODEL_PROVIDER}, uuid: ${config.uuid}`);
-    const provider = config.MODEL_PROVIDER;
-    const providerKey = config.uuid ? provider + config.uuid : provider;
-
-    if (!serviceInstances[providerKey] || !(serviceInstances[providerKey] instanceof KiroService)) {
-        serviceInstances[providerKey] = new KiroService(config);
-    } else {
-        serviceInstances[providerKey].config = config;
-    }
-    return serviceInstances[providerKey];
 }

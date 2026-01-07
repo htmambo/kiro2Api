@@ -3,8 +3,7 @@
  * 用于处理各个提供商的授权文件用量查询
  */
 
-import { getAccountPoolManager } from './manager.js';
-import { serviceInstances } from '../kiro/adapter.js';
+import { serviceInstances, getAccountPoolManager } from './manager.js';
 import { getUsageLimits } from '../kiro/api-client.js';
 import { MODEL_PROVIDER } from '../utils/common.js';
 
