@@ -250,14 +250,14 @@ export async function startDeviceAuthorization(service, startUrl) {
         startUrl
     };
 
-    logger.info('[Kiro Device Auth] Starting device authorization...');
-    logger.debug('[Kiro Device Auth] Device auth URL:', { deviceAuthUrl });
-    logger.debug('[Kiro Device Auth] Start URL:', { startUrl });
+    logger.info('Starting device authorization...');
+    logger.debug('Device auth URL:', { deviceAuthUrl });
+    logger.debug('Start URL:', { startUrl });
 
     try {
         const response = await service.axiosInstance.post(deviceAuthUrl, requestBody);
-        logger.info('[Kiro Device Auth] Device authorization started successfully');
-        logger.debug('[Kiro Device Auth] Response:', { data: JSON.stringify(response.data, null, 2) });
+        logger.info('Device authorization started successfully');
+        logger.debug('Response:', { data: JSON.stringify(response.data, null, 2) });
 
         const {
             deviceCode,
@@ -281,7 +281,7 @@ export async function startDeviceAuthorization(service, startUrl) {
             interval: interval || 5
         };
     } catch (error) {
-        logger.error('[Kiro Device Auth] Failed to start device authorization:', { error: error.message });
+        logger.error('Failed to start device authorization:', { error: error.message });
         throw new Error(`Device authorization failed: ${error.message}`);
     }
 }
@@ -295,7 +295,7 @@ export async function pollDeviceToken(service, deviceCode, interval = 5, expires
     const maxAttempts = Math.floor(expiresIn / interval);
     let attempts = 0;
 
-    logger.info(`[Kiro Device Auth] Starting token polling, interval ${interval}s, max attempts ${maxAttempts}`);
+    logger.info(`Starting token polling, interval ${interval}s, max attempts ${maxAttempts}`);
 
     const poll = async () => {
         if (attempts >= maxAttempts) {
@@ -315,7 +315,7 @@ export async function pollDeviceToken(service, deviceCode, interval = 5, expires
             const response = await service.axiosInstance.post(tokenUrl, requestBody);
 
             if (response.data && response.data.accessToken) {
-                logger.info('[Kiro Device Auth] Successfully obtained token');
+                logger.info('Successfully obtained token');
 
                 const {
                     accessToken,
@@ -343,7 +343,7 @@ export async function pollDeviceToken(service, deviceCode, interval = 5, expires
                     region: service.region
                 };
                 await saveCredentialsToFile(tokenFilePath, tokenData);
-                logger.info('[Kiro Device Auth] Token saved to file');
+                logger.info('Token saved to file');
 
                 return {
                     accessToken,
@@ -359,12 +359,12 @@ export async function pollDeviceToken(service, deviceCode, interval = 5, expires
 
                 if (errorType === 'authorization_pending') {
                     logger.debug(
-                        `[Kiro Device Auth] Waiting for user authorization... (attempt ${attempts}/${maxAttempts})`
+                        `Waiting for user authorization... (attempt ${attempts}/${maxAttempts})`
                     );
                     await new Promise(resolve => setTimeout(resolve, interval * 1000));
                     return poll();
                 } else if (errorType === 'slow_down') {
-                    logger.info('[Kiro Device Auth] Slowing down polling frequency');
+                    logger.info('Slowing down polling frequency');
                     await new Promise(resolve => setTimeout(resolve, (interval + 5) * 1000));
                     return poll();
                 } else if (errorType === 'expired_token') {
@@ -375,7 +375,7 @@ export async function pollDeviceToken(service, deviceCode, interval = 5, expires
             }
 
             logger.warn(
-                `[Kiro Device Auth] Polling error (attempt ${attempts}/${maxAttempts}):`,
+                `Polling error (attempt ${attempts}/${maxAttempts}):`,
                 { error: error.message }
             );
             await new Promise(resolve => setTimeout(resolve, interval * 1000));
@@ -391,7 +391,7 @@ export async function initiateDeviceAuthorization(service, startUrl) {
 
     pollDeviceToken(service, deviceAuthInfo.deviceCode, deviceAuthInfo.interval, deviceAuthInfo.expiresIn)
         .catch(error => {
-            logger.error('[Kiro Device Auth] Background polling failed:', { error: error.message });
+            logger.error('Background polling failed:', { error: error.message });
         });
 
     return deviceAuthInfo;

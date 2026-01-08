@@ -2,7 +2,7 @@ import { createLogger } from '../../lib/logger.js';
 import { oauthStateStore } from './state-store.js';
 import { tokenStore } from './token-store.js';
 
-const logger = createLogger('domain:oauth:facade');
+const logger = createLogger('OAuthFacade');
 
 export const OAUTH_DOMAIN_EVENTS = Object.freeze({
     OAUTH_STARTED: 'oauth_started',
@@ -127,7 +127,7 @@ export class OAuthFacade {
             events.push({ type: OAUTH_DOMAIN_EVENTS.OAUTH_COMPLETED, timestamp: new Date().toISOString(), payload: { state, accountNumber } });
             return ok({ accountNumber, tokenFileName: saveInfo.tokenFileName, tokenFilePath: saveInfo.tokenFilePath }, events);
         } catch (error) {
-            logger.warn('[OAuthFacade] handleWebCallback failed', error);
+            logger.warn('handleWebCallback failed', error);
             events.push({ type: OAUTH_DOMAIN_EVENTS.OAUTH_FAILED, timestamp: new Date().toISOString(), payload: { state, message: error.message } });
             return fail(error, events);
         }

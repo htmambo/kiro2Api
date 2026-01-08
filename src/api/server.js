@@ -54,25 +54,25 @@ async function startServer() {
                 setTimeout(() => {
                     open(`http://${CONFIG.HOST}:${CONFIG.SERVER_PORT}/login.html`)
                         .then(() => {
-                            logger.info('[UI] Opened login page in default browser');
+                            logger.info('Opened login page in default browser');
                         })
                         .catch(err => {
-                            logger.info(`[UI] Please open manually: http://${CONFIG.HOST}:${CONFIG.SERVER_PORT}/login.html`);
+                            logger.info(`Please open manually: http://${CONFIG.HOST}:${CONFIG.SERVER_PORT}/login.html`);
                         });
                 }, 1000);
             } catch (err) {
-                logger.info(`[UI] Login page available at: http://${CONFIG.HOST}:${CONFIG.SERVER_PORT}/login.html`);
+                logger.info(`Login page available at: http://${CONFIG.HOST}:${CONFIG.SERVER_PORT}/login.html`);
             }
         } else {
-            logger.info(`[UI] Login page available at: http://${CONFIG.HOST}:${CONFIG.SERVER_PORT}/login.html`);
+            logger.info(`Login page available at: http://${CONFIG.HOST}:${CONFIG.SERVER_PORT}/login.html`);
         }
 
         // Suppress unhandled error events from open module
         process.on('uncaughtException', (err) => {
             if (err.code === 'ENOENT' && err.syscall === 'spawn xdg-open') {
-                logger.info('[UI] Could not auto-open browser. Please visit http://' + CONFIG.HOST + ':' + CONFIG.SERVER_PORT + '/login.html manually');
+                logger.info('Could not auto-open browser. Please visit http://' + CONFIG.HOST + ':' + CONFIG.SERVER_PORT + '/login.html manually');
             } else {
-                logger.error('[Server] Uncaught Exception', err);
+                logger.error('Uncaught Exception', err);
                 process.exit(1);
             }
         });
@@ -86,7 +86,7 @@ async function startServer() {
         // 服务器完全启动后,执行初始健康检查
         const accountPoolManager = getAccountPoolManager();
         if (accountPoolManager) {
-            logger.info('[Initialization] Performing initial health checks for account pool...');
+            logger.info('Performing initial health checks for account pool...');
             if (typeof accountPoolManager.performHealthChecks === 'function') {
                 accountPoolManager.performHealthChecks(true);
             }
@@ -96,6 +96,6 @@ async function startServer() {
 }
 
 startServer().catch(err => {
-    logger.error('[Server] Failed to start server', err);
+    logger.error('Failed to start server', err);
     process.exit(1);
 });

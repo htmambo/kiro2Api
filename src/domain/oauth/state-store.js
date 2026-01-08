@@ -4,7 +4,7 @@ import crypto from 'node:crypto';
 import path from 'node:path';
 import { createLogger } from '../../lib/logger.js';
 
-const logger = createLogger('domain:oauth:state-store');
+const logger = createLogger('OAuthStateStore');
 
 const DEFAULT_STATE_FILE = path.join('configs', 'kiro-oauth-states.json');
 const DEFAULT_STATE_TTL_MS = 30 * 60 * 1000; // 30 minutes
@@ -58,9 +58,9 @@ export class OAuthStateStore {
                 kiroOAuthStates.set(state, stateData);
             }
 
-            logger.info(`[OAuthStateStore] Loaded ${kiroOAuthStates.size} valid state(s) from ${this.stateFilePath}`);
+            logger.info(`Loaded ${kiroOAuthStates.size} valid state(s) from ${this.stateFilePath}`);
         } catch (error) {
-            logger.warn('[OAuthStateStore] Failed to load state file', error);
+            logger.warn('Failed to load state file', error);
         }
     }
 
@@ -78,7 +78,7 @@ export class OAuthStateStore {
             const statesObject = Object.fromEntries(kiroOAuthStates.entries());
             await fs.writeFile(this.stateFilePath, JSON.stringify(statesObject, null, 2), 'utf8');
         } catch (error) {
-            logger.warn('[OAuthStateStore] Failed to save state file', error);
+            logger.warn('Failed to save state file', error);
         }
     }
 

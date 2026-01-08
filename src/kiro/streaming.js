@@ -393,9 +393,9 @@ export async function* streamApiReal(service, method, model, body, isRetry = fal
         );
 
         if (isSocketError && retryCount < maxRetries) {
-            logger.warn(`[Kiro Stream] Socket error detected: ${error.code || error.message}`);
+            logger.warn(`Socket error detected: ${error.code || error.message}`);
             logger.warn(
-                `[Kiro Stream] Resetting connection pool and retrying... (attempt ${retryCount + 1}/${maxRetries})`
+                `Resetting connection pool and retrying... (attempt ${retryCount + 1}/${maxRetries})`
             );
 
             // 重置连接池
@@ -407,7 +407,7 @@ export async function* streamApiReal(service, method, model, body, isRetry = fal
             yield* streamApiReal(service, method, model, body, isRetry, retryCount + 1);
             return;
         } else if (isSocketError) {
-            logger.error('[Kiro Stream] Socket error after max retries:', { error: error.code || error.message });
+            logger.error('Socket error after max retries:', { error: error.code || error.message });
             throw new Error(`Stream connection failed: ${error.message}. Please check your network or try restarting the service.`);
         }
 
@@ -430,7 +430,7 @@ export async function* streamApiReal(service, method, model, body, isRetry = fal
 
         // ⚠️ 400 错误：详细日志用于调试
         if (error.response?.status === 400) {
-            logger.error('[Kiro Stream] ❌ 400 Bad Request Error in streaming');
+            logger.error('❌ 400 Bad Request Error in streaming');
 
             // 安全获取响应数据（可能是流对象）
             let errorData = 'Unable to read response data';
@@ -447,7 +447,7 @@ export async function* streamApiReal(service, method, model, body, isRetry = fal
                 errorData = `[Error reading data: ${e.message}]`;
             }
 
-            logger.error('[Kiro Stream] Error details:', {
+            logger.error('Error details:', {
                 status: error.response.status,
                 statusText: error.response.statusText,
                 data: errorData,
@@ -457,7 +457,7 @@ export async function* streamApiReal(service, method, model, body, isRetry = fal
             // 打印请求体的关键信息
             try {
                 const reqState = requestData?.conversationState;
-                logger.error('[Kiro Stream] Request debug info:', {
+                logger.error('Request debug info:', {
                     historyLength: reqState?.history?.length || 0,
                     hasCurrentMessage: !!reqState?.currentMessage,
                     currentMsgType: reqState?.currentMessage?.userInputMessage ? 'userInputMessage' : 'unknown',
@@ -473,17 +473,17 @@ export async function* streamApiReal(service, method, model, body, isRetry = fal
                     for (let idx = 0; idx < reqState.history.length; idx++) {
                         const h = reqState.history[idx];
                         if (h.userInputMessage) {
-                            logger.error(`[Kiro Stream] History[${idx}] user.content len: ${h.userInputMessage.content?.length || 0}`);
+                            logger.error(`History[${idx}] user.content len: ${h.userInputMessage.content?.length || 0}`);
                         }
                         if (h.assistantResponseMessage) {
                             logger.error(
-                                `[Kiro Stream] History[${idx}] assistant.content len: ${h.assistantResponseMessage.content?.length || 0}, hasToolUses: ${!!h.assistantResponseMessage.toolUses}`
+                                `History[${idx}] assistant.content len: ${h.assistantResponseMessage.content?.length || 0}, hasToolUses: ${!!h.assistantResponseMessage.toolUses}`
                             );
                         }
                     }
                 }
             } catch (debugError) {
-                logger.error('[Kiro Stream] Error printing debug info:', { error: debugError.message });
+                logger.error('Error printing debug info:', { error: debugError.message });
             }
         }
 

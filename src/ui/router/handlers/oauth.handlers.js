@@ -101,9 +101,7 @@ export async function checkState({ req, res }) {
 export async function manualImport({ req, res, currentConfig, accountPoolManager }) {
     try {
         const { parseRequestBody } = await import('../../../ui-manager.js');
-        const { generateUUID } = await import('../../../utils/account-utils.js');
         const { broadcastEvent } = await import('../../events.js');
-        const { existsSync, readFileSync, writeFileSync } = await import('fs');
         const path = await import('path');
         const axios = (await import('axios')).default;
 
@@ -151,11 +149,6 @@ export async function manualImport({ req, res, currentConfig, accountPoolManager
             logger.info('[Kiro Manual Import] RefreshToken validated and refreshed successfully');
             logger.info(`[Kiro Manual Import] ProfileArn: ${finalProfileArn}`);
 
-            // Save token to configs/kiro directory
-            const kiroConfigDir = path.join(process.cwd(), 'configs', 'kiro');
-            await (await import('fs')).mkdir(kiroConfigDir, { recursive: true });
-
-            const tokenFilePath = path.join(kiroConfigDir, `kiro-auth-token-${accountNumber}.json`);
             const credentialsData = {
                 accessToken: newAccessToken,
                 refreshToken: refreshToken,
@@ -165,46 +158,39 @@ export async function manualImport({ req, res, currentConfig, accountPoolManager
                 provider: 'Manual'
             };
 
-            await (await import('fs')).writeFile(tokenFilePath, JSON.stringify(credentialsData, null, 2));
-            logger.info(`[Kiro Manual Import] Token saved to: ${tokenFilePath}`);
+            // 使用 TokenStore 统一写入 token 文件
+            const saveInfo = await tokenStore.saveToken(accountNumber, credentialsData, {
+                fileName: `kiro-auth-token-${accountNumber}.json`
+            });
+            logger.info(`[Kiro Manual Import] Token saved to: ${saveInfo.tokenFilePath}`);
 
-            const { ACCOUNT_POOL_FILE } = await import('../../../ui-manager.js');
             const { findDuplicateUserId } = await import('../../../utils/account-utils.js');
 
             let isDuplicate = false;
             let duplicateProvider = null;
 
             try {
-                const poolsFilePath = currentConfig.ACCOUNT_POOL_FILE_PATH || ACCOUNT_POOL_FILE;
-                let providerPools = {};
-
-                if (existsSync(poolsFilePath)) {
-                    const fileContent = readFileSync(poolsFilePath, 'utf8');
-                    providerPools = JSON.parse(fileContent);
-                }
-
-                if (!providerPools['claude-kiro-oauth']) {
-                    providerPools['claude-kiro-oauth'] = [];
-                }
+                const accounts = accountPoolManager && typeof accountPoolManager.listAccounts === 'function'
+                    ? accountPoolManager.listAccounts()
+                    : [];
 
                 // Check duplicate path
-                const relativePath = path.relative(process.cwd(), tokenFilePath);
-                const normalizedPath = relativePath.replace(/\\/g, '/');
-                const pathExists = providerPools['claude-kiro-oauth'].some(p => {
+                const normalizedPath = saveInfo.relativePath;
+                const pathExists = accounts.some(p => {
                     const existingPath = (p.KIRO_OAUTH_CREDS_FILE_PATH || '').replace(/\\/g, '/');
                     return existingPath === normalizedPath || existingPath === './' + normalizedPath;
                 });
 
                 // Check duplicate userId
-                const userIdResult = await findDuplicateUserId(newAccessToken, finalProfileArn, providerPools['claude-kiro-oauth'], currentConfig);
+                const userIdResult = await findDuplicateUserId(newAccessToken, finalProfileArn, accounts, currentConfig);
                 if (userIdResult) {
                     isDuplicate = true;
                     duplicateProvider = userIdResult.existingProvider;
                     logger.info(`[Kiro Manual Import] Duplicate account detected: ${userIdResult.userId}`);
 
                     // Delete the token file
-                    await (await import('fs')).unlink(tokenFilePath);
-                    logger.info(`[Kiro Manual Import] Deleted duplicate token file: ${tokenFilePath}`);
+                    await tokenStore.deleteToken({ filePath: saveInfo.tokenFilePath });
+                    logger.info(`[Kiro Manual Import] Deleted duplicate token file: ${saveInfo.tokenFilePath}`);
 
                     res.writeHead(200, { 'Content-Type': 'application/json' });
                     res.end(JSON.stringify({
@@ -219,8 +205,7 @@ export async function manualImport({ req, res, currentConfig, accountPoolManager
                 }
 
                 if (!pathExists) {
-                    const newProvider = {
-                        uuid: generateUUID(),
+                    const newAccount = {
                         KIRO_OAUTH_CREDS_FILE_PATH: normalizedPath,
                         isHealthy: true,
                         usageCount: 0,
@@ -235,20 +220,15 @@ export async function manualImport({ req, res, currentConfig, accountPoolManager
                         checkHealth: true,
                         notSupportedModels: []
                     };
-                    // TODO 不能直接写入，需要由accountPoolManager管理
-                    providerPools['claude-kiro-oauth'].push(newProvider);
-                    writeFileSync(poolsFilePath, JSON.stringify(providerPools, null, 2), 'utf8');
-                    logger.info(`[Kiro Manual Import] Added to provider pool with UUID: ${newProvider.uuid}`);
 
-                    if (accountPoolManager) {
-                        accountPoolManager.providerPools = providerPools;
-                        accountPoolManager.initializeProviderStatus();
-                    }
+                    // 使用 accountPoolManager 统一入池（消除 TODO）
+                    accountPoolManager.addAccount(newAccount);
+                    logger.info(`[Kiro Manual Import] Added to account pool: ${normalizedPath}`);
 
                     broadcastEvent('provider_update', {
                         action: 'add',
                         providerType: 'claude-kiro-oauth',
-                        providerConfig: newProvider,
+                        providerConfig: newAccount,
                         timestamp: new Date().toISOString()
                     });
                 }
@@ -258,7 +238,7 @@ export async function manualImport({ req, res, currentConfig, accountPoolManager
 
             broadcastEvent('oauth_success', {
                 provider: 'claude-kiro-oauth-manual',
-                credPath: path.relative(process.cwd(), tokenFilePath),
+                credPath: saveInfo.relativePath,
                 timestamp: new Date().toISOString()
             });
 
@@ -266,7 +246,7 @@ export async function manualImport({ req, res, currentConfig, accountPoolManager
             res.end(JSON.stringify({
                 success: true,
                 message: 'RefreshToken 导入成功',
-                tokenFile: tokenFilePath,
+                tokenFile: saveInfo.tokenFilePath,
                 profileArn: finalProfileArn
             }));
         } catch (refreshError) {
@@ -380,13 +360,7 @@ export async function awsSsoStart({ req, res, currentConfig, accountPoolManager 
             deviceAuthInfo.interval,
             deviceAuthInfo.expiresIn
         ).then(async tokenResult => {
-            // 轮询成功，保存token到configs/kiro目录
-            const kiroConfigDir = path.join(process.cwd(), 'configs', 'kiro');
-
-            // 确保目录存在
-            await fs.promises.mkdir(kiroConfigDir, { recursive: true });
-
-            const tokenFilePath = path.join(kiroConfigDir, `kiro-auth-token-${accountNumber}.json`);
+            // 轮询成功，使用 TokenStore 统一保存 token
             const credentialsData = {
                 accessToken: tokenResult.accessToken,
                 refreshToken: tokenResult.refreshToken,
@@ -398,11 +372,13 @@ export async function awsSsoStart({ req, res, currentConfig, accountPoolManager 
                 region: 'us-east-1'
             };
 
-            await fs.promises.writeFile(tokenFilePath, JSON.stringify(credentialsData, null, 2));
-            logger.info(`[AWS SSO] Token saved to: ${tokenFilePath}`);
+            const saveInfo = await tokenStore.saveToken(accountNumber, credentialsData, {
+                fileName: `kiro-auth-token-${accountNumber}.json`
+            });
+            logger.info(`[AWS SSO] Token saved to: ${saveInfo.tokenFilePath}`);
 
             try {
-                const result = accountPoolManager.addTokenFile(tokenFilePath);
+                const result = accountPoolManager.addTokenFile(saveInfo.tokenFilePath);
                 logger.info(`[AWS SSO] Token added to acount_pool.json: ${result}`);
 
                 if(result === 1) {
@@ -421,7 +397,7 @@ export async function awsSsoStart({ req, res, currentConfig, accountPoolManager 
             // 广播OAuth成功事件
             broadcastEvent('oauth_success', {
                 provider: 'claude-kiro-oauth-builderid',
-                credPath: path.relative(process.cwd(), tokenFilePath),
+                credPath: saveInfo.relativePath,
                 timestamp: new Date().toISOString()
             });
 
