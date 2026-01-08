@@ -11,6 +11,25 @@ import { createLogger } from '../lib/logger.js';
 const logger = createLogger('kiro:streaming');
 
 /**
+ * 最大待处理缓冲区大小（默认10MB）
+ * 防止恶意或异常响应导致内存耗尽
+ * 可通过环境变量 KIRO_MAX_BUFFER_SIZE 配置（单位：字节）
+ */
+const MAX_BUFFER_SIZE = (() => {
+    const envValue = parseInt(process.env.KIRO_MAX_BUFFER_SIZE || '10485760', 10);
+    const defaultValue = 10 * 1024 * 1024; // 10MB
+
+    if (!Number.isFinite(envValue) || envValue <= 0) {
+        if (process.env.KIRO_MAX_BUFFER_SIZE) {
+            logger.warn(`Invalid KIRO_MAX_BUFFER_SIZE value: ${process.env.KIRO_MAX_BUFFER_SIZE}. Using default: ${defaultValue} bytes`);
+        }
+        return defaultValue;
+    }
+
+    return envValue;
+})();
+
+/**
  * 解析单个 AWS Event Stream 消息
  * AWS Event Stream 格式：
  * - Prelude (12 bytes): totalLength(4) + headersLength(4) + preludeCrc(4)
@@ -309,6 +328,17 @@ export async function* streamApiReal(service, method, model, body, isRetry = fal
 
         for await (const chunk of stream) {
             totalBytesReceived += chunk.length;
+
+            // 检查缓冲区大小限制，防止内存耗尽
+            const nextBufferSize = pendingBuffer.length + chunk.length;
+            if (nextBufferSize > MAX_BUFFER_SIZE) {
+                throw new Error(
+                    `[Kiro Stream] Pending buffer exceeded MAX_BUFFER_SIZE (${MAX_BUFFER_SIZE} bytes). ` +
+                    `This may indicate a malformed response or protocol mismatch. ` +
+                    `Current: pending=${pendingBuffer.length}, chunk=${chunk.length}, total=${nextBufferSize}. ` +
+                    `You can increase the limit via KIRO_MAX_BUFFER_SIZE environment variable.`
+                );
+            }
 
             // 高效合并：只合并 pending + 新 chunk，而不是所有历史 chunk
             pendingBuffer = pendingBuffer.length > 0
