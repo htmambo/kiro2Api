@@ -4,6 +4,7 @@
  */
 import { startDeviceAuthorization, pollDeviceToken } from '../../../kiro/auth.js';
 import { createLogger } from '../../../lib/logger.js';
+import crypto from 'node:crypto';
 import { oauthStateStore } from '../../../domain/oauth/state-store.js';
 import { tokenStore } from '../../../domain/oauth/token-store.js';
 import { generateOAuthResultPage } from '../../views/oauth-result.js';
@@ -110,13 +111,32 @@ export async function manualImport({ req, res, currentConfig, accountPoolManager
         const axios = (await import('axios')).default;
 
         const body = await parseRequestBody(req);
-        const { refreshToken, profileArn, accountNumber = 1 } = body;
+        const { refreshToken, profileArn, accountNumber: rawAccountNumber = 1 } = body;
+
+        // accountNumber 兼容 numeric string（与 awsSsoStart 对齐）
+        let accountNumber = rawAccountNumber;
+        if (typeof accountNumber === 'string') {
+            const trimmed = accountNumber.trim();
+            if (/^[0-9]+$/.test(trimmed)) {
+                accountNumber = Number(trimmed);
+            }
+        }
 
         if (!refreshToken) {
             res.writeHead(400, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
                 success: false,
                 message: '请提供 refreshToken'
+            }));
+            return;
+        }
+
+        // 类型校验：refreshToken 必须是字符串
+        if (typeof refreshToken !== 'string') {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+                success: false,
+                message: 'refreshToken 必须是字符串类型'
             }));
             return;
         }
@@ -131,22 +151,22 @@ export async function manualImport({ req, res, currentConfig, accountPoolManager
         }
 
         // 验证 accountNumber 的类型和范围
-        if (typeof accountNumber !== 'number' || !Number.isFinite(accountNumber) || accountNumber < 1 || accountNumber > 999999) {
+        if (typeof accountNumber !== 'number' || !Number.isInteger(accountNumber) || accountNumber < 1) {
             res.writeHead(400, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
                 success: false,
-                message: 'accountNumber 必须是 number 类型，且范围为 1-999999'
+                message: 'accountNumber 必须是正整数'
             }));
             return;
         }
 
-        // 使用互斥锁防止并发导入同一账号
-        const lockKey = `manualImport:${accountNumber}`;
-        await withLock(lockKey, async () => {
-            logger.info(`[Kiro Manual Import] Importing refreshToken for account ${accountNumber}`);
-
-        // Test refresh by calling Kiro token refresh API
+        // ========================================
+        // Step 1: 验证 refreshToken（锁外执行，减少锁持有时间）
+        // ========================================
         const REFRESH_URL = 'https://prod.us-east-1.auth.desktop.kiro.dev/oauth/token';
+        let newAccessToken;
+        let expiresAt;
+        let finalProfileArn;
 
         try {
             const refreshResponse = await axios.post(REFRESH_URL, {
@@ -160,11 +180,50 @@ export async function manualImport({ req, res, currentConfig, accountPoolManager
                 timeout: 30000
             });
 
-            const { accessToken: newAccessToken, expiresAt, profileArn: fetchedProfileArn } = refreshResponse.data;
-            const finalProfileArn = profileArn || fetchedProfileArn;
+            const { accessToken: refreshedAccessToken, expiresAt: refreshedExpiresAt, profileArn: fetchedProfileArn } = refreshResponse.data;
+            newAccessToken = refreshedAccessToken;
+            expiresAt = refreshedExpiresAt;
+            finalProfileArn = profileArn || fetchedProfileArn;
 
             logger.info('[Kiro Manual Import] RefreshToken validated and refreshed successfully');
             logger.info(`[Kiro Manual Import] ProfileArn: ${finalProfileArn}`);
+        } catch (refreshError) {
+            logger.error(`[Kiro Manual Import] RefreshToken validation failed: ${refreshError.message}`);
+
+            // 广播错误事件，让前端能够感知 refreshToken 验证失败
+            try {
+                broadcastEvent('oauth_error', {
+                    provider: 'claude-kiro-oauth-manual',
+                    error: refreshError && refreshError.message ? refreshError.message : String(refreshError),
+                    errorName: refreshError && refreshError.name ? refreshError.name : 'Error',
+                    errorCode: refreshError && refreshError.code ? refreshError.code : null,
+                    timestamp: new Date().toISOString(),
+                    accountNumber,
+                    stage: 'validateRefreshToken'
+                });
+            } catch (broadcastError) {
+                logger.error(`[Kiro Manual Import] Failed to broadcast oauth_error: ${broadcastError.message}`);
+            }
+
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+                success: false,
+                message: `RefreshToken 无效或已过期: ${refreshError.message}`
+            }));
+            return;
+        }
+
+        // ========================================
+        // Step 2: 双锁策略（先 token 锁，后 account 锁）
+        // ========================================
+        // ⚠️ 禁止记录明文 refreshToken，只使用其 sha256 hash 作为锁 key
+        const refreshTokenHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
+        const tokenLockKey = `manualImport:token:${refreshTokenHash}`;
+        const accountLockKey = `manualImport:account:${accountNumber}`;
+
+        await withLock(tokenLockKey, async () => {
+            await withLock(accountLockKey, async () => {
+                logger.info(`[Kiro Manual Import] Importing refreshToken for account ${accountNumber} (tokenHash=${refreshTokenHash.substring(0, 8)}...)`);
 
             // ⚠️ 事务一致性优化：在保存 token 之前先进行完整的重复检测
             const { findDuplicateUserId } = await import('../../../utils/account-utils.js');
@@ -263,6 +322,36 @@ export async function manualImport({ req, res, currentConfig, accountPoolManager
                     });
                 } catch (error) {
                     logger.error(`[Kiro Manual Import] Failed to add to provider pool: ${error.message}`);
+
+                    // 统一入池失败语义：失败回滚 token 文件
+                    try {
+                        await tokenStore.deleteToken({ filePath: saveInfo.tokenFilePath });
+                        logger.info(`[Kiro Manual Import] Rolled back token file: ${saveInfo.tokenFilePath}`);
+                    } catch (rollbackError) {
+                        logger.error(`[Kiro Manual Import] Failed to rollback token file: ${rollbackError.message}`);
+                    }
+
+                    // 广播错误事件，让前端能够感知入池失败
+                    try {
+                        broadcastEvent('oauth_error', {
+                            provider: 'claude-kiro-oauth-manual',
+                            error: error.message,
+                            errorName: error.name || 'Error',
+                            errorCode: error.code || null,
+                            timestamp: new Date().toISOString(),
+                            accountNumber,
+                            stage: 'addAccount'
+                        });
+                    } catch (broadcastError) {
+                        logger.error(`[Kiro Manual Import] Failed to broadcast oauth_error: ${broadcastError.message}`);
+                    }
+
+                    res.writeHead(500, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({
+                        success: false,
+                        message: `入池失败: ${error.message}`
+                    }));
+                    return;
                 }
             }
 
@@ -279,22 +368,21 @@ export async function manualImport({ req, res, currentConfig, accountPoolManager
                 tokenFile: saveInfo.tokenFilePath,
                 profileArn: finalProfileArn
             }));
-        } catch (refreshError) {
-            logger.error(`[Kiro Manual Import] RefreshToken validation failed: ${refreshError.message}`);
-            res.writeHead(400, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                success: false,
-                message: `RefreshToken 无效或已过期: ${refreshError.message}`
-            }));
-        }
-        }); // 结束 withLock
+            }); // 结束 accountLockKey withLock
+        }); // 结束 tokenLockKey withLock
     } catch (error) {
         logger.error('[Kiro Manual Import] Error:', error);
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-            success: false,
-            message: error.message
-        }));
+
+        // 防止二次写响应（如果已经发送过响应，则跳过）
+        if (!res.headersSent && !res.writableEnded) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+                success: false,
+                message: error.message
+            }));
+        } else {
+            logger.warn('[Kiro Manual Import] Response already sent, skipping error response');
+        }
     }
 }
 
