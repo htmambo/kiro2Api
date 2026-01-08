@@ -8,6 +8,7 @@ import { oauthStateStore } from '../../../domain/oauth/state-store.js';
 import { tokenStore } from '../../../domain/oauth/token-store.js';
 import { generateOAuthResultPage } from '../../views/oauth-result.js';
 import { OAuthFacade } from '../../../domain/oauth/index.js';
+import { withLock } from '../../../utils/mutex.js';
 
 const logger = createLogger('ui:handlers:oauth');
 
@@ -46,14 +47,14 @@ export async function webCallback({ req, res, accountPoolManager }) {
             return;
         }
 
-        const { accountNumber, tokenFileName } = result.data;
-        const stateData = await oauthStateStore.getState(state);
+        // ⚠️ 修复：使用返回的 provider 信息，避免读取已消费的 state
+        const { accountNumber, tokenFileName, provider } = result.data;
 
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
         res.end(generateOAuthResultPage(true, `账号 #${accountNumber} 授权成功！`, {
             accountNumber,
             tokenFile: tokenFileName,
-            provider: stateData?.provider || 'Kiro'
+            provider: provider || 'Kiro'
         }));
     } catch (error) {
         logger.error('[Kiro OAuth Web] Callback handling error:', error);
@@ -103,7 +104,6 @@ export async function manualImport({ req, res, currentConfig, accountPoolManager
     try {
         const { parseRequestBody } = await import('../../../ui-manager.js');
         const { broadcastEvent } = await import('../../events.js');
-        const path = await import('path');
         const axios = (await import('axios')).default;
 
         const body = await parseRequestBody(req);
@@ -127,7 +127,20 @@ export async function manualImport({ req, res, currentConfig, accountPoolManager
             return;
         }
 
-        logger.info(`[Kiro Manual Import] Importing refreshToken for account ${accountNumber}`);
+        // 验证 accountNumber 的类型和范围
+        if (typeof accountNumber !== 'number' || !Number.isFinite(accountNumber) || accountNumber < 1 || accountNumber > 999999) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+                success: false,
+                message: 'accountNumber 必须是 number 类型，且范围为 1-999999'
+            }));
+            return;
+        }
+
+        // 使用互斥锁防止并发导入同一账号
+        const lockKey = `manualImport:${accountNumber}`;
+        await withLock(lockKey, async () => {
+            logger.info(`[Kiro Manual Import] Importing refreshToken for account ${accountNumber}`);
 
         // Test refresh by calling Kiro token refresh API
         const REFRESH_URL = 'https://prod.us-east-1.auth.desktop.kiro.dev/oauth/token';
@@ -150,6 +163,58 @@ export async function manualImport({ req, res, currentConfig, accountPoolManager
             logger.info('[Kiro Manual Import] RefreshToken validated and refreshed successfully');
             logger.info(`[Kiro Manual Import] ProfileArn: ${finalProfileArn}`);
 
+            // ⚠️ 事务一致性优化：在保存 token 之前先进行完整的重复检测
+            const { findDuplicateUserId } = await import('../../../utils/account-utils.js');
+
+            let accounts = [];
+            try {
+                accounts = accountPoolManager && typeof accountPoolManager.listAccounts === 'function'
+                    ? accountPoolManager.listAccounts()
+                    : [];
+            } catch (error) {
+                logger.error(`[Kiro Manual Import] Failed to list accounts: ${error.message}`);
+                // 获取账号列表失败不应阻止导入流程，继续执行（但重复检测会被跳过）
+            }
+
+            // 1. 检测重复的 userId
+            if (accounts.length > 0) {
+                try {
+                    const userIdResult = await findDuplicateUserId(newAccessToken, finalProfileArn, accounts, currentConfig);
+                    if (userIdResult) {
+                        const duplicateProvider = userIdResult.existingProvider;
+                        logger.info(`[Kiro Manual Import] Duplicate account detected: ${userIdResult.userId}`);
+
+                        res.writeHead(200, { 'Content-Type': 'application/json' });
+                        res.end(JSON.stringify({
+                            success: false,
+                            message: `检测到重复账号 (${userIdResult.email || userIdResult.userId})，已存在 token: ${duplicateProvider.KIRO_OAUTH_CREDS_FILE_PATH}`,
+                            duplicate: true,
+                            userId: userIdResult.userId,
+                            email: userIdResult.email,
+                            existingToken: duplicateProvider.KIRO_OAUTH_CREDS_FILE_PATH
+                        }));
+                        return;
+                    }
+                } catch (error) {
+                    logger.error(`[Kiro Manual Import] Duplicate userId check failed: ${error.message}`);
+                    // 重复检测失败不应阻止导入流程，继续执行
+                }
+            }
+
+            // 2. 检测重复的路径（预计算将要保存的路径）
+            const normalizedBaseDir = String(tokenStore.baseDir || 'configs/kiro').replace(/\\/g, '/');
+            const expectedRelativePath = `${normalizedBaseDir}/kiro-auth-token-${accountNumber}.json`;
+            const pathExists = accounts.some(p => {
+                const existingPath = (p.KIRO_OAUTH_CREDS_FILE_PATH || '').replace(/\\/g, '/');
+                return existingPath === expectedRelativePath || existingPath === './' + expectedRelativePath;
+            });
+
+            if (pathExists) {
+                logger.info(`[Kiro Manual Import] Path already exists in account pool: ${expectedRelativePath}`);
+                // 路径已存在，但不是错误，只是跳过添加到池中
+            }
+
+            // 重复检测通过后，保存 token 文件
             const credentialsData = {
                 accessToken: newAccessToken,
                 refreshToken: refreshToken,
@@ -159,55 +224,16 @@ export async function manualImport({ req, res, currentConfig, accountPoolManager
                 provider: 'Manual'
             };
 
-            // 使用 TokenStore 统一写入 token 文件
             const saveInfo = await tokenStore.saveToken(accountNumber, credentialsData, {
                 fileName: `kiro-auth-token-${accountNumber}.json`
             });
             logger.info(`[Kiro Manual Import] Token saved to: ${saveInfo.tokenFilePath}`);
 
-            const { findDuplicateUserId } = await import('../../../utils/account-utils.js');
-
-            let isDuplicate = false;
-            let duplicateProvider = null;
-
-            try {
-                const accounts = accountPoolManager && typeof accountPoolManager.listAccounts === 'function'
-                    ? accountPoolManager.listAccounts()
-                    : [];
-
-                // Check duplicate path
-                const normalizedPath = saveInfo.relativePath;
-                const pathExists = accounts.some(p => {
-                    const existingPath = (p.KIRO_OAUTH_CREDS_FILE_PATH || '').replace(/\\/g, '/');
-                    return existingPath === normalizedPath || existingPath === './' + normalizedPath;
-                });
-
-                // Check duplicate userId
-                const userIdResult = await findDuplicateUserId(newAccessToken, finalProfileArn, accounts, currentConfig);
-                if (userIdResult) {
-                    isDuplicate = true;
-                    duplicateProvider = userIdResult.existingProvider;
-                    logger.info(`[Kiro Manual Import] Duplicate account detected: ${userIdResult.userId}`);
-
-                    // Delete the token file
-                    await tokenStore.deleteToken({ filePath: saveInfo.tokenFilePath });
-                    logger.info(`[Kiro Manual Import] Deleted duplicate token file: ${saveInfo.tokenFilePath}`);
-
-                    res.writeHead(200, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({
-                        success: false,
-                        message: `检测到重复账号 (${userIdResult.email || userIdResult.userId})，已存在 token: ${duplicateProvider.KIRO_OAUTH_CREDS_FILE_PATH}`,
-                        duplicate: true,
-                        userId: userIdResult.userId,
-                        email: userIdResult.email,
-                        existingToken: duplicateProvider.KIRO_OAUTH_CREDS_FILE_PATH
-                    }));
-                    return;
-                }
-
-                if (!pathExists) {
+            // 如果路径不存在于账号池，则添加
+            if (!pathExists) {
+                try {
                     const newAccount = {
-                        KIRO_OAUTH_CREDS_FILE_PATH: normalizedPath,
+                        KIRO_OAUTH_CREDS_FILE_PATH: saveInfo.relativePath,
                         isHealthy: true,
                         usageCount: 0,
                         errorCount: 0,
@@ -222,9 +248,9 @@ export async function manualImport({ req, res, currentConfig, accountPoolManager
                         notSupportedModels: []
                     };
 
-                    // 使用 accountPoolManager 统一入池（消除 TODO）
+                    // 使用 accountPoolManager 统一入池
                     accountPoolManager.addAccount(newAccount);
-                    logger.info(`[Kiro Manual Import] Added to account pool: ${normalizedPath}`);
+                    logger.info(`[Kiro Manual Import] Added to account pool: ${saveInfo.relativePath}`);
 
                     broadcastEvent('provider_update', {
                         action: 'add',
@@ -232,9 +258,9 @@ export async function manualImport({ req, res, currentConfig, accountPoolManager
                         providerConfig: newAccount,
                         timestamp: new Date().toISOString()
                     });
+                } catch (error) {
+                    logger.error(`[Kiro Manual Import] Failed to add to provider pool: ${error.message}`);
                 }
-            } catch (error) {
-                logger.error(`[Kiro Manual Import] Failed to add to provider pool: ${error.message}`);
             }
 
             broadcastEvent('oauth_success', {
@@ -258,6 +284,7 @@ export async function manualImport({ req, res, currentConfig, accountPoolManager
                 message: `RefreshToken 无效或已过期: ${refreshError.message}`
             }));
         }
+        }); // 结束 withLock
     } catch (error) {
         logger.error('[Kiro Manual Import] Error:', error);
         res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -275,7 +302,6 @@ export async function awsSsoStart({ req, res, currentConfig, accountPoolManager 
     try {
         const { parseRequestBody } = await import('../../../ui-manager.js');
         const { broadcastEvent } = await import('../../events.js');
-        const path = await import('path');
         const axios = (await import('axios')).default;
 
         const body = await parseRequestBody(req);
@@ -353,8 +379,6 @@ export async function awsSsoStart({ req, res, currentConfig, accountPoolManager 
         logger.info(`[AWS SSO] Verification URI: ${deviceAuthInfo.verificationUriComplete}`);
 
         // 启动后台轮询（不等待完成）
-        const fs = await import('fs');
-
         pollDeviceToken(
             kiroService,
             deviceAuthInfo.deviceCode,
@@ -405,6 +429,21 @@ export async function awsSsoStart({ req, res, currentConfig, accountPoolManager 
             logger.info(`[AWS SSO] Device authorization completed successfully for account ${accountNumber}`);
         }).catch(error => {
             logger.error(`[AWS SSO] Device authorization polling failed: ${error.message}`);
+
+            // 广播错误事件，让前端能够感知后台轮询失败
+            try {
+                broadcastEvent('oauth_error', {
+                    provider: 'claude-kiro-oauth-builderid',
+                    error: error && error.message ? error.message : String(error),
+                    errorName: error && error.name ? error.name : 'Error',
+                    errorCode: error && error.code ? error.code : null,
+                    timestamp: new Date().toISOString(),
+                    accountNumber,
+                    stage: 'pollDeviceToken'
+                });
+            } catch (broadcastError) {
+                logger.error(`[AWS SSO] Failed to broadcast oauth_error: ${broadcastError.message}`);
+            }
         });
 
         // 立即返回设备授权信息给前端
