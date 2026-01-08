@@ -373,10 +373,48 @@ export async function testAccount({ res, currentConfig, accountPoolManager, matc
  * 生成 OAuth 授权 URL
  */
 export async function generateAuthUrl({ res, currentConfig, accountPoolManager }) {
-    const { handleKiroOAuth } = await import('../../../services/oauth-handlers.js');
+    const { broadcastEvent } = await import('../../events.js');
+    const { AwsSsoDeviceFlow } = await import('../../../domain/oauth/flows/aws-sso-device.js');
+    const { OAUTH_DOMAIN_EVENTS } = await import('../../../domain/oauth/index.js');
+    const { AccountPoolFacade, ACCOUNT_POOL_DOMAIN_EVENTS } = await import('../../../domain/account-pool/index.js');
 
     try {
-        const result = await handleKiroOAuth(currentConfig, accountPoolManager);
+        // UI 层负责把 domain 事件映射为 UI 广播事件（替代 services 层直接调用 broadcastEvent）
+        const useSQLiteMode = currentConfig.USE_SQLITE_POOL === true;
+        const accountPool = new AccountPoolFacade({
+            mode: useSQLiteMode ? 'sqlite' : 'json',
+            manager: accountPoolManager,
+            config: currentConfig
+        });
+
+        // ⚠️ 使用 once 而非 on，避免重复触发和内存泄漏
+        accountPool.once(ACCOUNT_POOL_DOMAIN_EVENTS.ACCOUNT_ADDED, (evt) => {
+            broadcastEvent('account_update', {
+                action: 'add',
+                uuid: evt.accountId,
+                accountConfig: evt.account,
+                timestamp: evt.timestamp || new Date().toISOString()
+            });
+        });
+
+        const flow = new AwsSsoDeviceFlow({ accountPool });
+
+        flow.once(OAUTH_DOMAIN_EVENTS.OAUTH_COMPLETED, (evt) => {
+            broadcastEvent('oauth_success', {
+                provider: evt?.provider || 'claude-kiro-oauth',
+                timestamp: evt?.timestamp || new Date().toISOString()
+            });
+        });
+
+        flow.once(OAUTH_DOMAIN_EVENTS.OAUTH_FAILED, (evt) => {
+            broadcastEvent('oauth_error', {
+                provider: evt?.provider || 'claude-kiro-oauth',
+                error: evt?.message || 'Unknown error',
+                timestamp: evt?.timestamp || new Date().toISOString()
+            });
+        });
+
+        const result = await flow.start(currentConfig);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ success: true, authUrl: result.authUrl, authInfo: result.authInfo }));
     } catch (error) {
