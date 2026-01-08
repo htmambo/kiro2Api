@@ -143,27 +143,30 @@
 5. ✅ 删除 218 行废弃代码
 
 ### 发现的待改进点（后续任务）
-1. **awsSsoStart 路由仍用旧逻辑**（高风险）
+
+**⚠️ 注意：以下 6 个问题已在后续的 [Codex 审核改进任务](CODEX_REVIEW_IMPROVEMENTS_PLAN.md) 中全部解决。**
+
+1. **awsSsoStart 路由仍用旧逻辑**（高风险）✅ 已修复 (commit: c692274)
    - 无锁、默认 accountNumber=1、可能互相踩踏
    - 建议：迁移到 domain layer 或禁用
 
-2. **OAuth callback 缺少幂等性保护**
+2. **OAuth callback 缺少幂等性保护** ✅ 已修复 (commit: e9ec9d3)
    - 可能重复写 token/重复入池
    - 建议：添加 state 级别的锁
 
-3. **manualImport 锁粒度不足**
+3. **manualImport 锁粒度不足** ✅ 已修复 (commit: 7e5f1d1)
    - 当前锁 accountNumber，应该锁 refreshToken
    - 建议：改为 `withLock('manualImport:' + hash(refreshToken))`
 
-4. **入池失败处理不一致**
+4. **入池失败处理不一致** ✅ 已修复
    - manualImport 入池失败不回滚 token 文件
    - 建议：统一回滚策略
 
-5. **协议字段缺少健壮性校验**
+5. **协议字段缺少健壮性校验** ✅ 已修复 (commit: 5eee89f)
    - parseAwsEventStreamMessage 未验证 totalLength/headersLength
    - 建议：添加边界检查
 
-6. **accountNumber 类型校验过严**
+6. **accountNumber 类型校验过严** ✅ 已修复 (commit: 7e5f1d1)
    - 不接受 numeric string（如 "1"）
    - 建议：接受并转换
 
