@@ -7,9 +7,9 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
 import { createLogger } from './logger.js';
+import { DEFAULT_PROVIDER_TYPE } from '../kiro/constants.js';
 
 const SCHEMA_VERSION = 2;
-const DEFAULT_PROVIDER_TYPE = 'claude-kiro-oauth';
 const logger = createLogger('services:storage:sqlite-db');
 
 class SQLiteDB {

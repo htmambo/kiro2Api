@@ -1,6 +1,7 @@
 import { promises as fs } from 'fs';
 import * as path from 'path';
 import { createLogger } from '../lib/logger.js';
+import { KIRO_IDE_VERSION } from './constants.js';
 
 const logger = createLogger('Kiro Auth');
 
@@ -22,7 +23,7 @@ export const KIRO_CONSTANTS = {
     TIMEOUT_STREAM_REQUEST: 300000, // 流式请求超时（300秒）
     TIMEOUT_AUTH_REQUEST: 30000,    // 认证请求超时（30秒）
     USER_AGENT: 'KiroIDE',
-    KIRO_VERSION: '0.7.45',  // 仿制Kiro官方客户端最新版本
+    KIRO_VERSION: KIRO_IDE_VERSION,  // 从 constants.js 导入
     CONTENT_TYPE_JSON: 'application/json',
     ACCEPT_JSON: 'application/json',
     AUTH_METHOD_SOCIAL: 'social',

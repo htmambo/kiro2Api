@@ -9,6 +9,37 @@ export let PROMPT_LOG_FILENAME = ''; // Make PROMPT_LOG_FILENAME exportable
 const ALL_MODEL_PROVIDERS = Object.values(MODEL_PROVIDER);
 const logger = createLogger('config:manager');
 
+// 默认配置常量
+const DEFAULT_CONFIG = {
+    REQUIRED_API_KEY: "123456",
+    SERVER_PORT: 8045,
+    HOST: '0.0.0.0',
+    MODEL_PROVIDER: MODEL_PROVIDER.KIRO_API,
+    ACCOUNT_POOL_FILE_PATH: "./configs/account_pool.json",
+    KIRO_OAUTH_CREDS_BASE64: null,
+    SYSTEM_PROMPT_FILE_PATH: INPUT_SYSTEM_PROMPT_FILE,
+    SYSTEM_PROMPT_MODE: 'overwrite',
+    PROMPT_LOG_BASE_NAME: "prompt_log",
+    PROMPT_LOG_MODE: "none",
+    REQUEST_MAX_RETRIES: 8,
+    REQUEST_BASE_DELAY: 3000,
+    REQUEST_RATE_LIMIT_WINDOW_MS: 60000,
+    REQUEST_RATE_LIMIT_MAX_REQUESTS: 60,
+    REQUEST_RATE_LIMIT_WHITELIST_PATHS: ['/health', '/favicon.ico', '/public/'],
+    REQUEST_RATE_LIMIT_TRUSTED_PROXIES: [],
+    KIRO_REQUEST_TIMEOUT_MS: 120000,
+    KIRO_STREAM_TIMEOUT_MS: 180000,
+    CRON_NEAR_MINUTES: 15,
+    CRON_REFRESH_TOKEN: true,
+    MAX_ERROR_COUNT: 5,
+    ENABLE_THINKING_BY_DEFAULT: true,
+    // SQLite 模式配置
+    USE_SQLITE_POOL: false,
+    SQLITE_DB_PATH: "data/kiro2api.db",
+    HEALTH_CHECK_CONCURRENCY: 5,
+    USAGE_QUERY_CONCURRENCY: 10
+};
+
 function normalizeConfiguredProviders(config) {
     const fallbackProvider = MODEL_PROVIDER.KIRO_API;
     const dedupedProviders = [];
@@ -84,35 +115,7 @@ export async function initializeConfig(args = process.argv.slice(2), configFileP
                 logger.info('[Config] config.json.example not found, creating default config.json...');
 
                 // 使用默认配置
-                currentConfig = {
-                    REQUIRED_API_KEY: "123456",
-                    SERVER_PORT: 8045,
-                    HOST: '0.0.0.0',
-                    MODEL_PROVIDER: MODEL_PROVIDER.KIRO_API,
-                    ACCOUNT_POOL_FILE_PATH: "./configs/account_pool.json",
-                    KIRO_OAUTH_CREDS_BASE64: null,
-                    SYSTEM_PROMPT_FILE_PATH: INPUT_SYSTEM_PROMPT_FILE,
-                    SYSTEM_PROMPT_MODE: 'overwrite',
-                    PROMPT_LOG_BASE_NAME: "prompt_log",
-                    PROMPT_LOG_MODE: "none",
-                    REQUEST_MAX_RETRIES: 8,
-                    REQUEST_BASE_DELAY: 3000,
-                    REQUEST_RATE_LIMIT_WINDOW_MS: 60000,
-                    REQUEST_RATE_LIMIT_MAX_REQUESTS: 60,
-                    REQUEST_RATE_LIMIT_WHITELIST_PATHS: ['/health', '/favicon.ico', '/public/'],
-                    REQUEST_RATE_LIMIT_TRUSTED_PROXIES: [],
-                    KIRO_REQUEST_TIMEOUT_MS: 120000,
-                    KIRO_STREAM_TIMEOUT_MS: 180000,
-                    CRON_NEAR_MINUTES: 15,
-                    CRON_REFRESH_TOKEN: true,
-                    MAX_ERROR_COUNT: 5,
-                    ENABLE_THINKING_BY_DEFAULT: true,
-                    // SQLite 模式配置
-                    USE_SQLITE_POOL: false,
-                    SQLITE_DB_PATH: "data/kiro2api.db",
-                    HEALTH_CHECK_CONCURRENCY: 5,
-                    USAGE_QUERY_CONCURRENCY: 10
-                };
+                currentConfig = { ...DEFAULT_CONFIG };
 
                 // 创建 config.json
                 fs.writeFileSync(configFilePath, JSON.stringify(currentConfig, null, 2), 'utf8');
@@ -122,35 +125,7 @@ export async function initializeConfig(args = process.argv.slice(2), configFileP
         } else {
             logger.error('[Config Error] Failed to load config.json:', error.message);
             // Fallback to default values if config.json is invalid
-            currentConfig = {
-                REQUIRED_API_KEY: "123456",
-                SERVER_PORT: 8045,
-                HOST: '0.0.0.0',
-                MODEL_PROVIDER: MODEL_PROVIDER.KIRO_API,
-                ACCOUNT_POOL_FILE_PATH: "./configs/account_pool.json",
-                KIRO_OAUTH_CREDS_BASE64: null,
-                SYSTEM_PROMPT_FILE_PATH: INPUT_SYSTEM_PROMPT_FILE,
-                SYSTEM_PROMPT_MODE: 'overwrite',
-                PROMPT_LOG_BASE_NAME: "prompt_log",
-                PROMPT_LOG_MODE: "none",
-                REQUEST_MAX_RETRIES: 8,
-                REQUEST_BASE_DELAY: 3000,
-                REQUEST_RATE_LIMIT_WINDOW_MS: 60000,
-                REQUEST_RATE_LIMIT_MAX_REQUESTS: 60,
-                REQUEST_RATE_LIMIT_WHITELIST_PATHS: ['/health', '/favicon.ico', '/public/'],
-                REQUEST_RATE_LIMIT_TRUSTED_PROXIES: [],
-                KIRO_REQUEST_TIMEOUT_MS: 120000,
-                KIRO_STREAM_TIMEOUT_MS: 180000,
-                CRON_NEAR_MINUTES: 15,
-                CRON_REFRESH_TOKEN: true,
-                MAX_ERROR_COUNT: 5,
-                ENABLE_THINKING_BY_DEFAULT: true,
-                // SQLite 模式配置
-                USE_SQLITE_POOL: false,
-                SQLITE_DB_PATH: "data/kiro2api.db",
-                HEALTH_CHECK_CONCURRENCY: 5,
-                USAGE_QUERY_CONCURRENCY: 10
-            };
+            currentConfig = { ...DEFAULT_CONFIG };
             logger.info('[Config] Using default configuration.');
         }
     }

@@ -9,6 +9,7 @@ import { serviceInstances, getServiceAdapter, initApiService, getAccountPoolMana
 import { serveStaticFiles } from './ui/static.js';
 import { initializeUIManagement, broadcastEvent } from './ui/events.js';
 import { createLogger } from './lib/logger.js';
+import { KIRO_IDE_VERSION, DEFAULT_PROVIDER_TYPE } from './kiro/constants.js';
 
 // 路由器相关导入
 import { createRouter } from './ui/router/index.js';
@@ -25,7 +26,7 @@ const TOKEN_STORE_FILE = './configs/token-store.json';
 // 用量缓存文件路径
 const USAGE_CACHE_FILE = './configs/usage-cache.json';
 const ACCOUNT_POOL_FILE = './configs/account_pool.json';
-export const DEFAULT_PROVIDER_TYPE_FOR_ACCOUNTS = 'claude-kiro-oauth';
+export const DEFAULT_PROVIDER_TYPE_FOR_ACCOUNTS = DEFAULT_PROVIDER_TYPE;
 const logger = createLogger('ui:manager');
 
 /**
@@ -137,7 +138,7 @@ loadOAuthStates().catch(err => {
 export const KIRO_OAUTH_CONFIG = {
     REDIRECT_URI: 'kiro://kiro.kiroAgent/authenticate-success',
     REDIRECT_URI_WEB: null,  // 动态生成，基于实际监听端口
-    IDE_VERSION: '0.7.45',  // 更新到最新版本
+    IDE_VERSION: KIRO_IDE_VERSION,  // 从 constants.js 导入
     TOKEN_ENDPOINT: 'https://prod.us-east-1.auth.desktop.kiro.dev/oauth/token',
     LOGIN_ENDPOINT: 'https://prod.us-east-1.auth.desktop.kiro.dev/login'
 };
