@@ -2,7 +2,6 @@
  * 用量 Handler 实现
  */
 import path from 'path';
-import { writeFileSync } from 'fs';
 import { createLogger } from '../../../lib/logger.js';
 import { logErrorInDev } from '../../../utils/error-logger.js';
 
@@ -291,9 +290,21 @@ async function getProviderTypeUsage(providerType, currentConfig, accountPoolMana
                     const needsUpdate = provider.cachedUserId !== usage.user.userId ||
                                        provider.cachedEmail !== usage.user.email;
                     if (needsUpdate) {
-                        provider.cachedUserId = usage.user.userId;
-                        provider.cachedEmail = usage.user.email;
-                        provider.cachedAt = new Date().toISOString();
+                        // 通过 accountPoolManager 更新账号信息
+                        try {
+                            accountPoolManager.updateAccount(provider.uuid, {
+                                cachedUserId: usage.user.userId,
+                                cachedEmail: usage.user.email,
+                                cachedAt: new Date().toISOString()
+                            });
+
+                            // 更新本地引用（用于后续去重检测）
+                            provider.cachedUserId = usage.user.userId;
+                            provider.cachedEmail = usage.user.email;
+                            provider.cachedAt = new Date().toISOString();
+                        } catch (updateError) {
+                            logger.warn(`[Usage API] Failed to update cached user info: ${updateError.message}`);
+                        }
 
                         // 检查是否有重复的 userId
                         const { findDuplicateUserId } = await import('../../../utils/account-utils.js');
@@ -322,27 +333,8 @@ async function getProviderTypeUsage(providerType, currentConfig, accountPoolMana
         result.instances.push(instanceResult);
     }
 
-    // 如果有 userId 缓存更新，保存到 acount_pool.json
-    const hasUpdates = result.instances.some(inst => inst.usage?.user?.userId);
-    if (hasUpdates && accountPoolManager) {
-        try {
-            const { ACCOUNT_POOL_FILE } = await import('../../../ui-manager.js');
-            const filePath = currentConfig.ACCOUNT_POOL_FILE_PATH || ACCOUNT_POOL_FILE;
-            const currentPools = accountPoolManager.providerPools || {};
-            currentPools['accounts'] = providers;
-            // TODO 不能直接写入，需要将由accountPoolManager管理
-            writeFileSync(filePath, JSON.stringify(currentPools, null, 2), 'utf8');
-            logger.info('[Usage API] Provider pools updated with cached userId/email');
-        } catch (saveError) {
-            logErrorInDev(saveError, {
-                context: 'getProviderTypeUsage - save provider pools',
-                providerType,
-                filePath: currentConfig.ACCOUNT_POOL_FILE_PATH
-            });
-
-            logger.error('[Usage API] Failed to save provider pools:', saveError);
-        }
-    }
+    // accountPoolManager 会自动保存更新（通过 debounce 机制）
+    // 无需手动调用 writeFileSync
 
     return result;
 }
