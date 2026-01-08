@@ -4,10 +4,19 @@
 
 ## 活跃任务 (Active)
 
+（无活跃任务）
 
 ## 已完成任务 (Archive)
 
 ### 2026-01
+
+- ✅ [P0 优化任务](Archive/2026-01/P0_OPTIMIZATIONS_PLAN.md) - 完成于 2026-01-08
+  - 修复 mutex.js Promise rejection 风险
+  - 添加 streaming.js 内存保护（MAX_BUFFER_SIZE）
+  - 优化 OAuth 事务一致性和并发控制
+  - 迁移到 domain 层架构
+  - 删除 218 行废弃代码
+  - Codex 审核发现 6 个待改进点
 
 - ✅ [OAuth 结果页面生成拆分](Archive/2026-01/STAGE_2_5_SPLIT_OAUTH_PAGE_GENERATION_PLAN.md) - 完成于 2026-01-08
   - 创建独立的 UI 视图模块 (src/ui/views/oauth-result.js)
