@@ -516,14 +516,15 @@ export class AccountManager {
 
     async _performSingleHealthCheck(accountConfig) {
         const healthResult = await this._checkAccountHealth(accountConfig);
-        if (healthResult.success) {
+        logger.error('healthResult:', JSON.stringify(healthResult));
+        if (healthResult && healthResult.success) {
             this.markAccountHealthy(accountConfig.uuid, {
                 resetUsageCount: true,
                 healthCheckModel: healthResult.modelName,
                 userInfo: healthResult.userInfo
             });
             logger.debug(`Health check ok for ${accountConfig.uuid}`);
-        } else {
+        } else if (healthResult) {
             logger.warn(`Health check failed for ${accountConfig.uuid}: ${healthResult.errorMessage || 'unknown error'}`);
             accountConfig.lastHealthCheckTime = new Date().toISOString();
             if (healthResult.modelName) {
