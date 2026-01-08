@@ -74,7 +74,7 @@ export function createRequestHandler(config, accountPoolManager) {
         // Pool status and cache stats endpoint
         if (method === 'GET' && path === '/stats') {
             try {
-                const { getAccountPoolManager } = await import('../services/pools/json.js');
+                const { getAccountPoolManager } = await import('../domain/account-pool/json-store.js');
 
                 const accountPool = getAccountPoolManager();
 

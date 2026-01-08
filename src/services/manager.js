@@ -18,7 +18,7 @@ export async function initApiService(config) {
     const accountPool = config.accountPool || { accounts: [] };
 
     if (useSQLiteMode) {
-        const { SQLiteAccountPoolManager } = await import('./pools/sqlite.js');
+        const { SQLiteAccountPoolManager } = await import('../domain/account-pool/sqlite-store.js');
         const { sqliteDB } = await import('../lib/sqlite-db.js');
 
         accountPoolManager = new SQLiteAccountPoolManager({
@@ -36,7 +36,7 @@ export async function initApiService(config) {
             }
         }
     } else {
-        const { getAccountPoolManager } = await import('./pools/json.js');
+        const { getAccountPoolManager } = await import('../domain/account-pool/json-store.js');
         accountPoolManager = getAccountPoolManager({
             accountPool,
             globalConfig: config,
