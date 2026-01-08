@@ -11,6 +11,7 @@
  */
 
 import { createErrorResponse } from '../utils/common.js';
+import { logError } from '../utils/error-logger.js';
 import { createLogger } from '../lib/logger.js';
 
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
@@ -126,67 +127,6 @@ function buildErrorPayload(error, fromProvider) {
     }
 
     return baseResponse;
-}
-
-/**
- * 清理 URL 中的敏感信息（如 API key）
- * @param {string} url - 原始 URL
- * @returns {string} 清理后的 URL
- */
-function sanitizeUrl(url) {
-    if (!url) return 'unknown';
-
-    try {
-        const urlObj = new URL(url, 'http://dummy');
-
-        // 检查查询参数中是否包含敏感信息
-        const sensitiveParams = ['key', 'apikey', 'api_key', 'token', 'password', 'secret'];
-
-        for (const param of sensitiveParams) {
-            if (urlObj.searchParams.has(param)) {
-                urlObj.searchParams.set(param, '***REDACTED***');
-            }
-        }
-
-        // 返回清理后的路径和查询字符串
-        return urlObj.pathname + urlObj.search;
-    } catch (e) {
-        // 如果不是完整的 URL，尝试简单处理
-        return url.replace(/([?&])(key|apikey|api_key|token|password|secret)=([^&]*)/gi, '$1$2=***REDACTED***');
-    }
-}
-
-/**
- * 记录错误日志
- * @param {Error} error - 错误对象
- * @param {Object} req - 请求对象
- * @param {number} statusCode - HTTP 状态码
- */
-function logError(error, req, statusCode) {
-    const timestamp = new Date().toISOString();
-    const method = req?.method || 'UNKNOWN';
-    const rawPath = req?.url || req?.originalUrl || 'unknown';
-    const safePath = sanitizeUrl(rawPath);
-    const errorType = error.name || 'Error';
-    const errorMessage = error.message || 'Unknown error';
-
-    // 结构化日志输出
-    logger.error(
-        `[Error] ${timestamp} | ${method} ${safePath} | ` +
-        `Status: ${statusCode} | Type: ${errorType} | ` +
-        `Message: ${errorMessage}`,
-        { timestamp, method, path: safePath, statusCode, errorType, errorMessage }
-    );
-
-    // 开发环境：输出完整堆栈
-    if (!IS_PRODUCTION && error.stack) {
-        logger.error('[Error Stack]', { stack: error.stack });
-    }
-
-    // 如果有响应数据，也记录下来（开发环境）
-    if (!IS_PRODUCTION && error.response?.data) {
-        logger.error('[Error Response Data]', { responseData: error.response.data });
-    }
 }
 
 /**

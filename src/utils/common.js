@@ -514,6 +514,14 @@ export function extractPromptText(requestBody, provider) {
     return strategy.extractPromptText(requestBody);
 }
 
+/**
+ * @deprecated 此函数已废弃，请使用 src/api/error-middleware.js 中的 errorMiddleware
+ *
+ * 旧的错误处理函数（保留用于向后兼容）
+ *
+ * @param {http.ServerResponse} res - HTTP 响应对象
+ * @param {Error} error - 错误对象
+ */
 export function handleError(res, error) {
     const statusCode = error.response?.status || 500;
     let errorMessage = error.message;
