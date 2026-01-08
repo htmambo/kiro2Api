@@ -88,51 +88,8 @@ export function parseErrorMessage(errorMessage) {
     return { status: '异常', message: errorMessage, statusType: 'unknown' };
 }
 
-// Kiro OAuth 状态存储（内存 + 文件持久化）
-export const kiroOAuthStates = new Map(); // state -> {code_verifier, machineid, timestamp, accountNumber}
-export const kiroOAuthCompletedStates = new Map(); // state -> {accountNumber, completedAt} 已完成的授权，保留5分钟供前端查询
-const KIRO_OAUTH_STATE_FILE = './configs/kiro-oauth-states.json'; // 持久化文件
-
-// 加载持久化的OAuth状态
-async function loadOAuthStates() {
-    try {
-        if (existsSync(KIRO_OAUTH_STATE_FILE)) {
-            const content = await fs.readFile(KIRO_OAUTH_STATE_FILE, 'utf8');
-            const data = JSON.parse(content);
-
-            // 清理过期的state（超过30分钟）
-            const now = Date.now();
-            const validStates = Object.entries(data).filter(([state, stateData]) => {
-                const age = now - stateData.timestamp;
-                return age < 30 * 60 * 1000; // 30分钟
-            });
-
-            // 加载到内存
-            for (const [state, stateData] of validStates) {
-                kiroOAuthStates.set(state, stateData);
-            }
-
-            logger.info(`[Kiro OAuth] Loaded ${validStates.length} valid states from file`);
-        }
-    } catch (error) {
-        logger.warn('[Kiro OAuth] Failed to load OAuth states from file', error);
-    }
-}
-
-// 保存OAuth状态到文件
-async function saveOAuthStates() {
-    try {
-        const statesObject = Object.fromEntries(kiroOAuthStates.entries());
-        await fs.writeFile(KIRO_OAUTH_STATE_FILE, JSON.stringify(statesObject, null, 2));
-    } catch (error) {
-        logger.error('[Kiro OAuth] Failed to save OAuth states to file', error);
-    }
-}
-
-// 启动时加载OAuth状态
-loadOAuthStates().catch(err => {
-    logger.warn('[Kiro OAuth] Error during initial state loading', err);
-});
+// OAuth state 已迁移到 domain 层（兼容旧 export）
+export { kiroOAuthStates, kiroOAuthCompletedStates } from './domain/oauth/state-store.js';
 
 // Kiro OAuth 配置
 export const KIRO_OAUTH_CONFIG = {

@@ -4,7 +4,9 @@
  */
 import { startDeviceAuthorization, pollDeviceToken } from '../../../kiro/auth.js';
 import { createLogger } from '../../../lib/logger.js';
-// OAuth 相关的全局状态和函数需要从 ui-manager.js 导入
+import { oauthStateStore } from '../../../domain/oauth/state-store.js';
+import { tokenStore } from '../../../domain/oauth/token-store.js';
+import { OAuthFacade } from '../../../domain/oauth/index.js';
 
 const logger = createLogger('ui:handlers:oauth');
 
@@ -14,8 +16,8 @@ const logger = createLogger('ui:handlers:oauth');
  */
 export async function webCallback({ req, res, accountPoolManager }) {
     try {
-        // 从 ui-manager.js 导入必要的函数和状态
-        const { kiroOAuthStates, generateOAuthResultPage, KIRO_OAUTH_CONFIG } = await import('../../../ui-manager.js');
+        // 从 ui-manager.js 导入必要的函数
+        const { generateOAuthResultPage, KIRO_OAUTH_CONFIG } = await import('../../../ui-manager.js');
 
         const urlObj = new URL(req.url, `http://${req.headers.host}`);
         const code = urlObj.searchParams.get('code');
@@ -29,83 +31,28 @@ export async function webCallback({ req, res, accountPoolManager }) {
             return;
         }
 
-        // 查找对应的 state（需要从 ui-manager.js 导入）
-        const stateData = kiroOAuthStates.get(state);
-        if (!stateData) {
-            res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
-            res.end(generateOAuthResultPage(false, 'State 无效或已过期，请重新生成授权链接'));
-            return;
-        }
-
-        // 检查是否过期（30分钟）
-        if (Date.now() - stateData.timestamp > 30 * 60 * 1000) {
-            kiroOAuthStates.delete(state);
-            res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
-            res.end(generateOAuthResultPage(false, '授权已过期（超过30分钟），请重新生成授权链接'));
-            return;
-        }
-
-        const redirectUri = stateData.redirectUri;
-
-        // 交换 code 获取 token
-        logger.info('[Kiro OAuth Web] Exchanging code for token...');
-        const tokenResponse = await fetch(KIRO_OAUTH_CONFIG.TOKEN_ENDPOINT, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'User-Agent': `Kiro/${KIRO_OAUTH_CONFIG.IDE_VERSION}`,
-                'x-machineid': stateData.machineid
-            },
-            body: new URLSearchParams({
-                grant_type: 'authorization_code',
-                code: code,
-                redirect_uri: redirectUri,
-                code_verifier: stateData.code_verifier
-            }).toString()
+        // 使用 OAuthFacade 处理 callback（domain 层负责 token 写入和入池）
+        const oauthFacade = new OAuthFacade({ accountPool: accountPoolManager });
+        const result = await oauthFacade.handleWebCallback({
+            code,
+            state,
+            oauthConfig: KIRO_OAUTH_CONFIG
         });
 
-        if (!tokenResponse.ok) {
-            const errorText = await tokenResponse.text();
-            logger.error(`[Kiro OAuth Web] Token exchange failed: ${errorText}`);
+        if (!result.ok) {
             res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
-            res.end(generateOAuthResultPage(false, `Token 交换失败: ${tokenResponse.status} - ${errorText}`));
+            res.end(generateOAuthResultPage(false, result.error.message));
             return;
         }
 
-        const tokenData = await tokenResponse.json();
-        logger.info('[Kiro OAuth Web] Token exchange successful!');
-
-        // 保存 token 到文件
-        const accountNumber = stateData.accountNumber || 1;
-        const tokenFileName = `kiro-auth-token-${accountNumber}.json`;
-        const path = await import('path');
-        const fs = await import('fs');
-        const tokenFilePath = path.default.join(process.cwd(), 'configs', 'kiro', tokenFileName);
-
-        const tokenDir = path.default.dirname(tokenFilePath);
-        if (!fs.default.existsSync(tokenDir)) {
-            fs.default.mkdirSync(tokenDir, { recursive: true });
-        }
-
-        const fullTokenData = {
-            accessToken: tokenData.access_token,
-            refreshToken: tokenData.refresh_token,
-            expiresAt: Date.now() + (tokenData.expires_in * 1000),
-            machineid: stateData.machineid,
-            provider: stateData.provider,
-            createdAt: new Date().toISOString(),
-            createdBy: 'web-oauth'
-        };
-
-        // TODO 不能直接写入，需要由accountPoolManager管理
-        fs.default.writeFileSync(tokenFilePath, JSON.stringify(fullTokenData, null, 2));
-        logger.info(`[Kiro OAuth Web] Token saved to: ${tokenFilePath}`);
+        const { accountNumber, tokenFileName } = result.data;
+        const stateData = await oauthStateStore.getState(state);
 
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
         res.end(generateOAuthResultPage(true, `账号 #${accountNumber} 授权成功！`, {
             accountNumber,
             tokenFile: tokenFileName,
-            provider: stateData.provider
+            provider: stateData?.provider || 'Kiro'
         }));
     } catch (error) {
         logger.error('[Kiro OAuth Web] Callback handling error:', error);
@@ -119,9 +66,6 @@ export async function webCallback({ req, res, accountPoolManager }) {
  */
 export async function checkState({ req, res }) {
     try {
-        // 从 ui-manager.js 导入状态
-        const { kiroOAuthStates, kiroOAuthCompletedStates } = await import('../../../ui-manager.js');
-
         const urlObj = new URL(req.url, `http://${req.headers.host}`);
         const state = urlObj.searchParams.get('state');
 
@@ -131,13 +75,13 @@ export async function checkState({ req, res }) {
             return;
         }
 
-        const stateData = kiroOAuthStates.get(state);
+        const stateData = await oauthStateStore.getState(state);
 
         if (stateData) {
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ completed: false }));
         } else {
-            const completedInfo = kiroOAuthCompletedStates?.get(state) || {};
+            const completedInfo = oauthStateStore.getCompletedInfo(state) || {};
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
                 completed: true,
