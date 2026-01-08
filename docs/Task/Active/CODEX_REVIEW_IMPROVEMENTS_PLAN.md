@@ -123,35 +123,35 @@
 - ✅ 确定实施顺序和风险评估
 - ✅ 明确统一语义和约定
 
-### ⏳ 子任务 2: 协议解析健壮性（最简单、最独立）
+### ✅ 子任务 2: 协议解析健壮性（最简单、最独立）
 
 **改动文件**：
 - `src/kiro/streaming.js`
 
 **具体改动点**：
-- [ ] 在 `parseAwsEventStreamMessage(buffer, offset)` 增加 `offset` 合法性校验
-- [ ] 增加 `totalLength` 下界校验（至少 16 字节）
-- [ ] 增加 `totalLength` 上界校验（复用 MAX_BUFFER_SIZE 或 10MB）
-- [ ] 增加 `headersLength` 边界校验：`12 + headersLength <= totalLength - 4`
-- [ ] 在 header 解析循环中，对每一次读取都做"剩余字节数"检查
-- [ ] 校验 `payloadStart/payloadEnd` 范围合法性
-- [ ] 在 `parseAwsEventStreamBuffer` 外层加 try/catch 捕获协议损坏错误
-- [ ] 明确"数据不完整 vs 数据损坏"的返回策略
+- [x] 在 `parseAwsEventStreamMessage(buffer, offset)` 增加 `offset` 合法性校验
+- [x] 增加 `totalLength` 下界校验（至少 16 字节）
+- [x] 增加 `totalLength` 上界校验（复用 MAX_BUFFER_SIZE 或 10MB）
+- [x] 增加 `headersLength` 边界校验：`12 + headersLength <= totalLength - 4`
+- [x] 在 header 解析循环中，对每一次读取都做"剩余字节数"检查
+- [x] 校验 `payloadStart/payloadEnd` 范围合法性
+- [x] 在 `parseAwsEventStreamBuffer` 外层加 try/catch 捕获协议损坏错误
+- [x] 明确"数据不完整 vs 数据损坏"的返回策略
 
 **验收标准**：
-- [ ] 不完整数据：返回 `null`，等待更多数据
-- [ ] 损坏数据（totalLength < 16）：不崩溃，记录 warn
-- [ ] 损坏数据（headersLength 越界）：不崩溃，安全退出
-- [ ] 损坏数据（totalLength > MAX_BUFFER_SIZE）：不崩溃
-- [ ] header 截断：不崩溃
-- [ ] payload 越界：不崩溃
-- [ ] 回归：正常 Kiro streaming 响应仍能解析
+- [x] 不完整数据：返回 `null`，等待更多数据
+- [x] 损坏数据（totalLength < 16）：不崩溃，记录 warn
+- [x] 损坏数据（headersLength 越界）：不崩溃，安全退出
+- [x] 损坏数据（totalLength > MAX_BUFFER_SIZE）：不崩溃
+- [x] header 截断：不崩溃
+- [x] payload 越界：不崩溃
+- [x] 回归：正常 Kiro streaming 响应仍能解析
 
 **实施步骤**：
-1. 让 Codex 提供代码原型（unified diff patch）
-2. 重写代码（企业生产级）
-3. Codex review 代码改动
-4. 提交
+1. ✅ 让 Codex 提供代码原型（unified diff patch）
+2. ✅ 重写代码（企业生产级）
+3. ✅ 自审代码改动（Codex 调用失败）
+4. ✅ 提交（commit: 5eee89f）
 
 ### ⏳ 子任务 3: awsSsoStart 止血
 
