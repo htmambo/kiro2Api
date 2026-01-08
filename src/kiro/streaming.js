@@ -30,6 +30,18 @@ const MAX_BUFFER_SIZE = (() => {
 })();
 
 /**
+ * 协议损坏错误
+ * 用于区分"数据不完整"（需等待）和"协议损坏"（无法修复）
+ */
+class AwsEventStreamCorruptError extends Error {
+    constructor(message, details = {}) {
+        super(message);
+        this.name = 'AwsEventStreamCorruptError';
+        this.details = details;
+    }
+}
+
+/**
  * 解析单个 AWS Event Stream 消息
  * AWS Event Stream 格式：
  * - Prelude (12 bytes): totalLength(4) + headersLength(4) + preludeCrc(4)
@@ -40,10 +52,18 @@ const MAX_BUFFER_SIZE = (() => {
  * @param {Buffer} buffer - 包含事件流数据的缓冲区
  * @param {number} offset - 开始解析的偏移量
  * @returns {Object|null} 解析结果或 null（如果数据不完整）
+ * @throws {AwsEventStreamCorruptError} 协议损坏时抛出
  */
 export function parseAwsEventStreamMessage(buffer, offset = 0) {
-    // 检查是否有足够的数据读取 Prelude (12 bytes)
-    if (buffer.length - offset < 16) {
+    const MIN_MESSAGE_LENGTH = 16; // Prelude(12) + MessageCRC(4)
+
+    // 1. offset 合法性校验
+    if (!Number.isInteger(offset) || offset < 0 || offset > buffer.length) {
+        throw new AwsEventStreamCorruptError('Invalid offset', { offset, bufferLength: buffer.length });
+    }
+
+    // 2. 检查最小消息长度（不完整则等待）
+    if (buffer.length - offset < MIN_MESSAGE_LENGTH) {
         return null; // 数据不完整，等待更多数据
     }
 
@@ -52,9 +72,39 @@ export function parseAwsEventStreamMessage(buffer, offset = 0) {
     const headersLength = buffer.readUInt32BE(offset + 4);
     const preludeCrc = buffer.readUInt32BE(offset + 8);
 
+    // 3. totalLength 下界校验
+    if (!Number.isFinite(totalLength) || totalLength < MIN_MESSAGE_LENGTH) {
+        throw new AwsEventStreamCorruptError('Invalid totalLength (too small)', {
+            totalLength,
+            headersLength,
+            offset
+        });
+    }
+
+    // 4. totalLength 上界校验（防止 DoS）
+    if (totalLength > MAX_BUFFER_SIZE) {
+        throw new AwsEventStreamCorruptError('Invalid totalLength (too large)', {
+            totalLength,
+            maxBufferSize: MAX_BUFFER_SIZE,
+            offset
+        });
+    }
+
     // 检查是否有完整的消息
     if (buffer.length - offset < totalLength) {
         return null; // 消息不完整，等待更多数据
+    }
+
+    const messageEnd = offset + totalLength;
+
+    // 5. headersLength 边界校验
+    // 约束: 12 + headersLength <= totalLength - 4
+    if (!Number.isFinite(headersLength) || (12 + headersLength) > (totalLength - 4)) {
+        throw new AwsEventStreamCorruptError('Invalid headersLength (out of bounds)', {
+            totalLength,
+            headersLength,
+            offset
+        });
     }
 
     // 解析 Headers
@@ -63,34 +113,101 @@ export function parseAwsEventStreamMessage(buffer, offset = 0) {
     const headers = {};
 
     while (headerOffset < headersEnd) {
+        // 6. Header 逐步边界检查
+        const remaining = headersEnd - headerOffset;
+
         // 读取 header name
+        if (remaining < 1) {
+            throw new AwsEventStreamCorruptError('Truncated header: missing name length', { offset, headerOffset });
+        }
         const headerNameLength = buffer.readUInt8(headerOffset);
         headerOffset += 1;
+
+        if (headersEnd - headerOffset < headerNameLength) {
+            throw new AwsEventStreamCorruptError('Truncated header: missing name bytes', {
+                offset,
+                headerOffset,
+                headerNameLength
+            });
+        }
         const headerName = buffer.toString('utf8', headerOffset, headerOffset + headerNameLength);
         headerOffset += headerNameLength;
 
         // 读取 header value type
+        if (headersEnd - headerOffset < 1) {
+            throw new AwsEventStreamCorruptError('Truncated header: missing value type', {
+                offset,
+                headerOffset,
+                headerName
+            });
+        }
         const headerValueType = buffer.readUInt8(headerOffset);
         headerOffset += 1;
 
         // Type 7 = string (其他类型暂时跳过)
         if (headerValueType === 7) {
+            if (headersEnd - headerOffset < 2) {
+                throw new AwsEventStreamCorruptError('Truncated header: missing string value length', {
+                    offset,
+                    headerOffset,
+                    headerName
+                });
+            }
             const headerValueLength = buffer.readUInt16BE(headerOffset);
             headerOffset += 2;
+
+            if (headersEnd - headerOffset < headerValueLength) {
+                throw new AwsEventStreamCorruptError('Truncated header: missing string value bytes', {
+                    offset,
+                    headerOffset,
+                    headerName,
+                    headerValueLength
+                });
+            }
             const headerValue = buffer.toString('utf8', headerOffset, headerOffset + headerValueLength);
             headerOffset += headerValueLength;
             headers[headerName] = headerValue;
         } else {
             // 跳过其他类型的 header value
+            if (headersEnd - headerOffset < 2) {
+                throw new AwsEventStreamCorruptError('Truncated header: missing value length', {
+                    offset,
+                    headerOffset,
+                    headerName,
+                    headerValueType
+                });
+            }
             const headerValueLength = buffer.readUInt16BE(headerOffset);
             headerOffset += 2;
+
+            if (headersEnd - headerOffset < headerValueLength) {
+                throw new AwsEventStreamCorruptError('Truncated header: missing value bytes', {
+                    offset,
+                    headerOffset,
+                    headerName,
+                    headerValueType,
+                    headerValueLength
+                });
+            }
             headerOffset += headerValueLength;
         }
     }
 
-    // 读取 Payload (减去最后 4 bytes 的 message CRC)
+    // 7. 读取 Payload (减去最后 4 bytes 的 message CRC)
     const payloadStart = offset + 12 + headersLength;
     const payloadEnd = offset + totalLength - 4;
+
+    // payload 范围合法性校验
+    if (payloadStart < offset || payloadEnd > messageEnd || payloadStart > payloadEnd) {
+        throw new AwsEventStreamCorruptError('Invalid payload range', {
+            offset,
+            totalLength,
+            headersLength,
+            payloadStart,
+            payloadEnd
+        });
+    }
+
     const payload = buffer.toString('utf8', payloadStart, payloadEnd);
 
     return {
@@ -114,7 +231,27 @@ export function parseAwsEventStreamBuffer(buffer) {
     let offset = 0;
 
     while (offset < buffer.length) {
-        const message = parseAwsEventStreamMessage(buffer, offset);
+        let message;
+
+        // 8. 捕获协议损坏错误，避免进程崩溃
+        try {
+            message = parseAwsEventStreamMessage(buffer, offset);
+        } catch (error) {
+            if (error && error.name === 'AwsEventStreamCorruptError') {
+                // 协议损坏：记录警告并丢弃剩余缓冲区
+                logger.warn('AWS Event Stream message corrupt, dropping remaining buffer', {
+                    offset,
+                    bufferLength: buffer.length,
+                    error: error.message,
+                    details: error.details
+                });
+                // 返回已解析的事件，丢弃剩余数据
+                return { events, remaining: Buffer.alloc(0) };
+            }
+            // 非协议错误：继续抛出
+            throw error;
+        }
+
         if (!message) {
             // 没有完整消息了，返回剩余部分
             return {
