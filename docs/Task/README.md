@@ -10,6 +10,15 @@
 
 ### 2026-01
 
+- ✅ [Codex 审核改进任务](Archive/2026-01/CODEX_REVIEW_IMPROVEMENTS_PLAN.md) - 完成于 2026-01-08
+  - 实施 P0 任务后 Codex 审核发现的 6 个改进点
+  - 协议解析健壮性：防止越界读取崩溃
+  - awsSsoStart 修复：in-flight 并发控制、统一回滚语义
+  - OAuth callback 幂等性：state 级别锁、completedInfo 缓存
+  - manualImport 双锁策略：token 锁 + account 锁、SHA256 hash
+  - 统一三个入口的入池失败语义
+  - 4 个 commit，所有模块测试通过
+
 - ✅ [P0 优化任务](Archive/2026-01/P0_OPTIMIZATIONS_PLAN.md) - 完成于 2026-01-08
   - 修复 mutex.js Promise rejection 风险
   - 添加 streaming.js 内存保护（MAX_BUFFER_SIZE）
