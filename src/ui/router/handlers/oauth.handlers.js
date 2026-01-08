@@ -6,6 +6,7 @@ import { startDeviceAuthorization, pollDeviceToken } from '../../../kiro/auth.js
 import { createLogger } from '../../../lib/logger.js';
 import { oauthStateStore } from '../../../domain/oauth/state-store.js';
 import { tokenStore } from '../../../domain/oauth/token-store.js';
+import { generateOAuthResultPage } from '../../views/oauth-result.js';
 import { OAuthFacade } from '../../../domain/oauth/index.js';
 
 const logger = createLogger('ui:handlers:oauth');
@@ -16,8 +17,8 @@ const logger = createLogger('ui:handlers:oauth');
  */
 export async function webCallback({ req, res, accountPoolManager }) {
     try {
-        // 从 ui-manager.js 导入必要的函数
-        const { generateOAuthResultPage, KIRO_OAUTH_CONFIG } = await import('../../../ui-manager.js');
+        // 保持动态 import KIRO_OAUTH_CONFIG，避免与 ui-manager/router 的循环依赖
+        const { KIRO_OAUTH_CONFIG } = await import('../../../ui-manager.js');
 
         const urlObj = new URL(req.url, `http://${req.headers.host}`);
         const code = urlObj.searchParams.get('code');
