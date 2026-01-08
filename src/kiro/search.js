@@ -42,7 +42,7 @@ export async function executeWebSearch(query, verboseLogging = false) {
         // 否则使用 DuckDuckGo (免费，无需 API Key)
         return await duckDuckGoSearch(query, verboseLogging);
     } catch (error) {
-        logger.error('[Kiro WebSearch] Error:', { error: error.message });
+        logger.error('WebSearch Error:', { error: error.message });
         return {
             success: false,
             results: [],

@@ -213,14 +213,14 @@ export function extractUsefulInformation(messages) {
  * @returns {Promise<string|null>} - 摘要文本，失败返回 null
  */
 export async function generateConversationSummary(messages, kiroApiInstance) {
-    logger.info('[Kiro Summarize] Starting AI summarization...');
-    logger.debug('[Kiro Summarize] Input messages count:', { count: messages.length });
+    logger.info('Starting AI summarization...');
+    logger.debug('Input messages count:', { count: messages.length });
 
     // 使用 Kiro 风格的提取函数
     const extractedInfo = extractUsefulInformation(messages);
     const userQueries = extractUserQueries(messages);
 
-    logger.debug('[Kiro Summarize] Extracted info length:', { length: extractedInfo.length, unit: 'chars' });
+    logger.debug('Extracted info length:', { length: extractedInfo.length, unit: 'chars' });
 
     // 限制总长度避免摘要请求本身超限
     let conversationData = extractedInfo;
@@ -248,16 +248,16 @@ ${userQueries}`;
         if (summaryResponse && summaryResponse.content) {
             // 添加 user queries 到摘要末尾（和 Kiro 一样）
             const fullSummary = summaryResponse.content + (userQueries || '');
-            logger.info('[Kiro Summarize] Summary generated successfully');
-            logger.debug('[Kiro Summarize] Summary length:', { length: fullSummary.length, unit: 'chars' });
+            logger.info('Summary generated successfully');
+            logger.debug('Summary length:', { length: fullSummary.length, unit: 'chars' });
             return fullSummary;
         }
     } catch (error) {
-        logger.error('[Kiro Summarize] Failed to generate summary:', { error: error.message });
+        logger.error('Failed to generate summary:', { error: error.message });
     }
 
     // 降级：如果 AI 摘要失败，返回 null
-    logger.info('[Kiro Summarize] Falling back to simple truncation');
+    logger.info('Falling back to simple truncation');
     return null;
 }
 
