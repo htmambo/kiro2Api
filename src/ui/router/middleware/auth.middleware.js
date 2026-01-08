@@ -53,7 +53,7 @@ async function verifyToken(token) {
 
         return tokenInfo;
     } catch (error) {
-        logger.error('[Auth Middleware] Token verification error:', error);
+        logger.error('Token verification error:', error);
         return null;
     }
 }
@@ -72,7 +72,7 @@ async function deleteToken(token) {
             await writeTokenStore(tokenStore);
         }
     } catch (error) {
-        logger.error('[Auth Middleware] Delete token error:', error);
+        logger.error('Delete token error:', error);
     }
 }
 

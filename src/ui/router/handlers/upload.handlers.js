@@ -495,10 +495,7 @@ async function scanConfigFiles(currentConfig, accountPoolManager) {
 
     const usedPaths = new Set(); // 存储已使用的路径，用于判断关联状态
     // 使用最新的提供商池数据
-    let accounts = currentConfig.accountPool.accounts;
-    if (accountPoolManager && accountPoolManager.accountPools) {
-        accounts = accountPoolManager.accountPools.accounts;
-    }
+    let accounts = accountPoolManager.listAccounts();
 
     // 检查提供商池文件中的所有OAuth凭据路径 - 标准化路径格式
     if (accounts) {
