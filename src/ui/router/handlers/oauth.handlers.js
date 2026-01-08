@@ -12,6 +12,9 @@ import { withLock } from '../../../utils/mutex.js';
 
 const logger = createLogger('ui:handlers:oauth');
 
+// AWS SSO in-flight 标记（跨请求生命周期的并发控制）
+const awsSsoInflight = new Map();
+
 /**
  * OAuth 网页回调 Handler
  * 返回 HTML 页面
@@ -299,13 +302,55 @@ export async function manualImport({ req, res, currentConfig, accountPoolManager
  * AWS SSO 设备授权启动
  */
 export async function awsSsoStart({ req, res, currentConfig, accountPoolManager }) {
+    let accountNumber; // 提升作用域，用于 catch 块清理 in-flight
     try {
         const { parseRequestBody } = await import('../../../ui-manager.js');
         const { broadcastEvent } = await import('../../events.js');
         const axios = (await import('axios')).default;
 
         const body = await parseRequestBody(req);
-        const { accountNumber = 1, startUrl } = body;
+        const { accountNumber: rawAccountNumber, startUrl } = body;
+
+        // accountNumber 必填（无默认值）
+        if (rawAccountNumber === undefined || rawAccountNumber === null || rawAccountNumber === '') {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+                success: false,
+                message: '请提供 accountNumber'
+            }));
+            return;
+        }
+
+        // 支持 numeric string（与 manualImport 对齐）
+        accountNumber = rawAccountNumber;
+        if (typeof accountNumber === 'string') {
+            const trimmed = accountNumber.trim();
+            if (/^\d+$/.test(trimmed)) {
+                accountNumber = Number(trimmed);
+            }
+        }
+
+        // 验证 accountNumber 的类型和范围
+        if (typeof accountNumber !== 'number' || !Number.isFinite(accountNumber) || accountNumber < 1 || accountNumber > 999999) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+                success: false,
+                message: 'accountNumber 必须是 number 类型（或 numeric string），且范围为 1-999999'
+            }));
+            return;
+        }
+
+        // 进程内 in-flight 并发控制：同一 accountNumber 拒绝第二个请求
+        if (awsSsoInflight.has(accountNumber)) {
+            res.writeHead(409, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+                success: false,
+                message: `账号 #${accountNumber} 正在进行 AWS SSO 授权，请稍后重试`,
+                accountNumber
+            }));
+            return;
+        }
+        awsSsoInflight.set(accountNumber, { startedAt: Date.now() });
 
         const region = 'us-east-1';
         const finalStartUrl = startUrl || 'https://view.awsapps.com/start';
@@ -402,21 +447,61 @@ export async function awsSsoStart({ req, res, currentConfig, accountPoolManager 
             });
             logger.info(`[AWS SSO] Token saved to: ${saveInfo.tokenFilePath}`);
 
+            // 统一入池逻辑：使用 accountPoolManager.addAccount()
             try {
-                const result = accountPoolManager.addTokenFile(saveInfo.tokenFilePath);
-                logger.info(`[AWS SSO] Token added to acount_pool.json: ${result}`);
+                const newAccount = {
+                    KIRO_OAUTH_CREDS_FILE_PATH: saveInfo.relativePath,
+                    isHealthy: true,
+                    usageCount: 0,
+                    errorCount: 0,
+                    lastUsed: null,
+                    lastErrorTime: null,
+                    isDisabled: false,
+                    lastHealthCheckTime: new Date().toISOString(),
+                    lastHealthCheckModel: 'claude-haiku-4-5',
+                    lastErrorMessage: null,
+                    checkModelName: '',
+                    checkHealth: true,
+                    notSupportedModels: []
+                };
 
-                if(result === 1) {
-                    // 广播提供商更新事件
-                    broadcastEvent('provider_update', {
-                        action: 'add',
-                        providerType: 'claude-kiro-oauth',
-                        providerConfig: accountPoolManager.providerPools['claude-kiro-oauth'].slice(-1)[0],
-                        timestamp: new Date().toISOString()
-                    });
-                }
+                accountPoolManager.addAccount(newAccount);
+                logger.info(`[AWS SSO] Token added to account pool: ${saveInfo.relativePath}`);
+
+                // 广播提供商更新事件
+                broadcastEvent('provider_update', {
+                    action: 'add',
+                    providerType: 'claude-kiro-oauth',
+                    providerConfig: newAccount,
+                    timestamp: new Date().toISOString()
+                });
             } catch (error) {
-                logger.error(`[AWS SSO] Failed to add token to account_pool.json: ${error.message}`);
+                logger.error(`[AWS SSO] Failed to add token to account pool: ${error.message}`);
+
+                // 统一入池失败语义：失败回滚 token 文件
+                try {
+                    await tokenStore.deleteToken(accountNumber);
+                    logger.info(`[AWS SSO] Rolled back token file for account ${accountNumber}`);
+                } catch (rollbackError) {
+                    logger.error(`[AWS SSO] Failed to rollback token file: ${rollbackError.message}`);
+                }
+
+                // 广播错误事件，让前端能够感知入池失败
+                try {
+                    broadcastEvent('oauth_error', {
+                        provider: 'claude-kiro-oauth-builderid',
+                        error: error.message,
+                        errorName: error.name || 'Error',
+                        errorCode: error.code || null,
+                        timestamp: new Date().toISOString(),
+                        accountNumber,
+                        stage: 'addAccount'
+                    });
+                } catch (broadcastError) {
+                    logger.error(`[AWS SSO] Failed to broadcast oauth_error: ${broadcastError.message}`);
+                }
+
+                return; // 入池失败，不继续执行
             }
 
             // 广播OAuth成功事件
@@ -444,6 +529,10 @@ export async function awsSsoStart({ req, res, currentConfig, accountPoolManager 
             } catch (broadcastError) {
                 logger.error(`[AWS SSO] Failed to broadcast oauth_error: ${broadcastError.message}`);
             }
+        }).finally(() => {
+            // 清理 in-flight 标记（无论成功或失败）
+            awsSsoInflight.delete(accountNumber);
+            logger.debug(`[AWS SSO] Cleared in-flight flag for account ${accountNumber}`);
         });
 
         // 立即返回设备授权信息给前端
@@ -460,6 +549,12 @@ export async function awsSsoStart({ req, res, currentConfig, accountPoolManager 
             deviceCode: deviceAuthInfo.deviceCode
         }));
     } catch (error) {
+        // 避免 start 阶段抛错导致 in-flight 泄漏
+        if (typeof accountNumber === 'number') {
+            awsSsoInflight.delete(accountNumber);
+            logger.debug(`[AWS SSO] Cleared in-flight flag for account ${accountNumber} due to error`);
+        }
+
         logger.error('[AWS SSO] Error:', error);
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
