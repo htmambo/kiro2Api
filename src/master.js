@@ -136,16 +136,16 @@ function startWorker(isRestarting = false) {
 function stopWorker(graceful = true) {
     return new Promise((resolve) => {
         if (!workerProcess) {
-            logger.info('No worker process to stop');
+            logger.error('No worker process to stop');
             resolve();
             return;
         }
 
-        logger.info(`Stopping worker process, PID: ${workerProcess.pid}`);
+        logger.warn(`Stopping worker process, PID: ${workerProcess.pid}`);
 
         const timeout = setTimeout(() => {
             if (workerProcess) {
-                logger.info('Force killing worker process...');
+                logger.warn('Force killing worker process...');
                 workerProcess.kill('SIGKILL');
             }
             resolve();
@@ -155,7 +155,7 @@ function stopWorker(graceful = true) {
             clearTimeout(timeout);
             workerProcess = null;
             workerStatus.pid = null;
-            logger.info('Worker process stopped');
+            logger.warn('Worker process stopped');
             resolve();
         });
 
