@@ -9,6 +9,12 @@
 
 ### 2026-01
 
+- ✅ [错误处理模块整合](Archive/2026-01/ERROR_HANDLER_CONSOLIDATION_PLAN.md) - 完成于 2026-01-08
+  - 删除未使用的 error-handler.js (264 行)
+  - 增强 error-logger.js，添加结构化日志和 URL 清理
+  - 优化 error-middleware.js，消除重复代码
+  - 净减少 254 行代码，职责更清晰
+
 - ✅ [日志系统统一重构](Archive/2026-01/LOGGER_UNIFICATION_PLAN.md) - 完成于 2026-01-06
   - 将 550+ 处 console.* 调用统一为 logger 调用
   - 添加 verbose 日志级别支持
@@ -37,5 +43,5 @@
 
 ---
 
-**更新时间**: 2026-01-06
+**更新时间**: 2026-01-08
 **维护说明**: 任务完成后自动归档到 Archive/YYYY-MM/ 目录
