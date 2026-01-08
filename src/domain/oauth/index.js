@@ -100,24 +100,38 @@ export class OAuthFacade {
             });
             events.push({ type: OAUTH_DOMAIN_EVENTS.TOKEN_SAVED, timestamp: new Date().toISOString(), payload: saveInfo });
 
+            // ⚠️ 修复：添加事务一致性保证 - 如果入池失败，回滚 token 文件
             if (this.accountPool && typeof this.accountPool.addAccount === 'function') {
-                this.accountPool.addAccount({
-                    KIRO_OAUTH_CREDS_FILE_PATH: saveInfo.relativePath,
-                    isHealthy: true,
-                    usageCount: 0,
-                    errorCount: 0,
-                    lastUsed: null,
-                    lastErrorTime: null,
-                    isDisabled: false,
-                    lastHealthCheckTime: new Date().toISOString(),
-                    lastHealthCheckModel: 'claude-haiku-4-5',
-                    lastErrorMessage: null,
-                    checkModelName: '',
-                    checkHealth: true,
-                    notSupportedModels: []
-                });
+                try {
+                    await this.accountPool.addAccount({
+                        KIRO_OAUTH_CREDS_FILE_PATH: saveInfo.relativePath,
+                        isHealthy: true,
+                        usageCount: 0,
+                        errorCount: 0,
+                        lastUsed: null,
+                        lastErrorTime: null,
+                        isDisabled: false,
+                        lastHealthCheckTime: new Date().toISOString(),
+                        lastHealthCheckModel: 'claude-haiku-4-5',
+                        lastErrorMessage: null,
+                        checkModelName: '',
+                        checkHealth: true,
+                        notSupportedModels: []
+                    });
+                } catch (addAccountError) {
+                    // 入池失败，回滚已保存的 token 文件
+                    logger.error('Failed to add account to pool, rolling back token file', addAccountError);
+                    try {
+                        await this.tokenStore.deleteToken({ filePath: saveInfo.tokenFilePath });
+                        logger.info('Token file rolled back successfully');
+                    } catch (deleteError) {
+                        logger.error('Failed to rollback token file', deleteError);
+                    }
+                    return fail(new Error(`入池失败: ${addAccountError.message}`), events);
+                }
             }
 
+            // ⚠️ 修复：只在所有操作成功后才消费 state
             await this.stateStore.validateState(state, {
                 consume: true,
                 markCompleted: true,
@@ -125,7 +139,14 @@ export class OAuthFacade {
             });
 
             events.push({ type: OAUTH_DOMAIN_EVENTS.OAUTH_COMPLETED, timestamp: new Date().toISOString(), payload: { state, accountNumber } });
-            return ok({ accountNumber, tokenFileName: saveInfo.tokenFileName, tokenFilePath: saveInfo.tokenFilePath }, events);
+
+            // ⚠️ 修复：返回 provider 信息，避免 handler 需要再次读取已消费的 state
+            return ok({
+                accountNumber,
+                tokenFileName: saveInfo.tokenFileName,
+                tokenFilePath: saveInfo.tokenFilePath,
+                provider: stateData.provider  // 新增：返回 provider 信息
+            }, events);
         } catch (error) {
             logger.warn('handleWebCallback failed', error);
             events.push({ type: OAUTH_DOMAIN_EVENTS.OAUTH_FAILED, timestamp: new Date().toISOString(), payload: { state, message: error.message } });
