@@ -8,10 +8,10 @@ const logger = createLogger('OAuthStateStore');
 
 const DEFAULT_STATE_FILE = path.join('configs', 'kiro-oauth-states.json');
 const DEFAULT_STATE_TTL_MS = 30 * 60 * 1000; // 30 minutes
-const DEFAULT_COMPLETED_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const DEFAULT_COMPLETED_TTL_MS = 30 * 60 * 1000; // 30 minutes (与 state TTL 对齐)
 
 export const kiroOAuthStates = new Map(); // state -> { code_verifier, machineid, timestamp, accountNumber, redirectUri, provider, ... }
-export const kiroOAuthCompletedStates = new Map(); // state -> { accountNumber, completedAt }
+export const kiroOAuthCompletedStates = new Map(); // state -> { accountNumber, relativePath, provider, completedAt, resultOk, errorMessage? }
 
 function nowMs() {
     return Date.now();
