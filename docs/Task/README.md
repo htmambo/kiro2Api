@@ -9,6 +9,12 @@
 
 ### 2026-01
 
+- ✅ [OAuth 结果页面生成拆分](Archive/2026-01/STAGE_2_5_SPLIT_OAUTH_PAGE_GENERATION_PLAN.md) - 完成于 2026-01-08
+  - 创建独立的 UI 视图模块 (src/ui/views/oauth-result.js)
+  - ui-manager.js 从 582 行减少到 498 行
+  - 删除 domain 层的重复视图实现
+  - 符合 DDD 分层原则，避免循环依赖
+
 - ✅ [错误处理模块整合](Archive/2026-01/ERROR_HANDLER_CONSOLIDATION_PLAN.md) - 完成于 2026-01-08
   - 删除未使用的 error-handler.js (264 行)
   - 增强 error-logger.js，添加结构化日志和 URL 清理
