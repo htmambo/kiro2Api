@@ -253,13 +253,13 @@ export async function handleStreamRequest(res, service, model, requestBody, from
                     // fullOldResponseJson += chunk.type+"\n";
                     // fullResponseJson += chunk.type+"\n";
                     res.write(`event: ${chunk.type}\n`);
-                    // console.log(`event: ${chunk.type}\n`);
+                    // logger.info(`event: ${chunk.type}\n`);
                 }
 
                 // fullOldResponseJson += JSON.stringify(chunk)+"\n";
                 // fullResponseJson += JSON.stringify(chunk)+"\n\n";
                 res.write(`data: ${JSON.stringify(chunk)}\n\n`);
-                // console.log(`data: ${JSON.stringify(chunk)}\n`);
+                // logger.info(`data: ${JSON.stringify(chunk)}\n`);
             }
         }
 
@@ -314,7 +314,7 @@ export async function handleUnaryRequest(res, service, model, requestBody, fromP
         // Convert the response back to the client's format (fromProvider), if necessary.
         let clientResponse = nativeResponse;
 
-        //console.log(`[Response] Sending response to client: ${JSON.stringify(clientResponse)}`);
+        //logger.info(`[Response] Sending response to client: ${JSON.stringify(clientResponse)}`);
         await handleUnifiedResponse(res, JSON.stringify(clientResponse), false);
         responseWritten = true;
         logger.verbose(responseText);

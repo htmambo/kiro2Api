@@ -58,7 +58,7 @@ import {
     detectImageFormat
 } from './utils.js';
 
-const logger = createLogger('kiro:adapter');
+const logger = createLogger('adapter');
 
 // 扩展认证模块的常量，添加上下文管理配置
 const KIRO_CONSTANTS = {

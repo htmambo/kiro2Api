@@ -26,7 +26,7 @@ export class AccountPoolManager {
         this.maxErrorCount = options.maxErrorCount ?? 3;
         this.healthCheckInterval = options.healthCheckInterval ?? 10 * 60 * 1000;
         this.logLevel = options.logLevel || 'info';
-        this.logger = createLogger('services:pools:json');
+        this.logger = createLogger('pools:json');
 
         // 保存与防抖
         this.accountPoolFilePath = options.accountPoolFilePath ||

@@ -8,7 +8,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { KIRO_CONSTANTS, initializeAuth } from './auth.js';
 import { createLogger } from '../lib/logger.js';
 
-const logger = createLogger('kiro:streaming');
+const logger = createLogger('streaming');
 
 /**
  * 最大待处理缓冲区大小（默认10MB）
@@ -345,7 +345,7 @@ export function parseAwsEventStreamBuffer(buffer) {
                 }
             }
         } catch (e) {
-            logger.warn(`[Kiro Streaming] 解析 payload 失败 (${message.eventType}):`, { error: e.message });
+            logger.warn(`解析 payload 失败 (${message.eventType}):`, { error: e.message });
         }
     }
 
@@ -395,7 +395,7 @@ export async function* streamApiReal(service, method, model, body, isRetry = fal
     const buildDuration = Date.now() - buildStartTime;
     if (buildDuration > 100) {
         logger.debug(
-            `[Kiro Perf] streamApiReal buildCodewhispererRequest took ${buildDuration}ms (messages: ${body.messages?.length || 0})`
+            `streamApiReal buildCodewhispererRequest took ${buildDuration}ms (messages: ${body.messages?.length || 0})`
         );
     }
 
@@ -415,7 +415,7 @@ export async function* streamApiReal(service, method, model, body, isRetry = fal
 
     // 简洁模式：只显示关键信息
     if (!service.verboseLogging) {
-        logger.info(`[Kiro] 📤 STREAM [${model}] - ${new Date().toISOString()}`);
+        logger.info(`📤 STREAM [${model}] - ${new Date().toISOString()}`);
     } else {
         // 详细模式：显示所有信息
         logger.debug('\n' + '='.repeat(60));
@@ -470,7 +470,7 @@ export async function* streamApiReal(service, method, model, body, isRetry = fal
             const nextBufferSize = pendingBuffer.length + chunk.length;
             if (nextBufferSize > MAX_BUFFER_SIZE) {
                 throw new Error(
-                    `[Kiro Stream] Pending buffer exceeded MAX_BUFFER_SIZE (${MAX_BUFFER_SIZE} bytes). ` +
+                    `Pending buffer exceeded MAX_BUFFER_SIZE (${MAX_BUFFER_SIZE} bytes). ` +
                     `This may indicate a malformed response or protocol mismatch. ` +
                     `Current: pending=${pendingBuffer.length}, chunk=${chunk.length}, total=${nextBufferSize}. ` +
                     `You can increase the limit via KIRO_MAX_BUFFER_SIZE environment variable.`
@@ -495,7 +495,7 @@ export async function* streamApiReal(service, method, model, body, isRetry = fal
                 // 记录首字时间（TTFT）
                 if (firstTokenTime === null && (event.type === 'content' || event.type === 'thinking')) {
                     firstTokenTime = Date.now() - requestStartTime;
-                    logger.info(`[Kiro] ⚡ TTFT: ${(firstTokenTime / 1000).toFixed(2)}s`);
+                    logger.info(`⚡ TTFT: ${(firstTokenTime / 1000).toFixed(2)}s`);
                 }
 
                 if (event.type === 'content' && event.data) {
@@ -533,7 +533,7 @@ export async function* streamApiReal(service, method, model, body, isRetry = fal
 
         // 简洁模式：只显示关键信息
         if (!service.verboseLogging) {
-            logger.info(`[Kiro] 📥 STREAM [Complete] [${requestDuration}s]`);
+            logger.info(`📥 STREAM [Complete] [${requestDuration}s]`);
         } else {
             // 详细模式：显示所有信息
             logger.debug('\n' + '='.repeat(60));
@@ -580,7 +580,7 @@ export async function* streamApiReal(service, method, model, body, isRetry = fal
 
         // 403 错误：Token 过期，刷新后重试
         if (error.response?.status === 403 && !isRetry) {
-            logger.info('[Kiro] Received 403 in stream. Attempting token refresh and retrying...');
+            logger.info('Received 403 in stream. Attempting token refresh and retrying...');
             await initializeAuth(service, true);
             yield* streamApiReal(service, method, model, body, true, retryCount);
             return;
@@ -589,7 +589,7 @@ export async function* streamApiReal(service, method, model, body, isRetry = fal
         // 429 错误：速率限制，指数退避重试
         if (error.response?.status === 429 && retryCount < maxRetries) {
             const delay = baseDelay * Math.pow(2, retryCount);
-            logger.warn(`[Kiro] Received 429 in stream. Retrying in ${delay}ms...`);
+            logger.warn(`Received 429 in stream. Retrying in ${delay}ms...`);
             await new Promise(resolve => setTimeout(resolve, delay));
             yield* streamApiReal(service, method, model, body, isRetry, retryCount + 1);
             return;

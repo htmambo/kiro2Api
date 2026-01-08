@@ -13,7 +13,7 @@ import { getAccountPoolManager } from '../services/manager.js';
 const logLevel = process.env.LOG_LEVEL || 'info';
 initLogger({ level: logLevel });
 
-const logger = createLogger('api:server');
+const logger = createLogger('server');
 
 // --- Server Initialization ---
 async function startServer() {

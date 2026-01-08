@@ -7,6 +7,9 @@ const inter = Inter({ subsets: ['latin'] });
 export const metadata: Metadata = {
   title: 'Kiro2API - 管理控制台',
   description: '现代化的 Kiro OAuth API 服务管理平台',
+  icons: {
+    icon: '/favicon.ico',
+  },
 };
 
 export default function RootLayout({

@@ -356,7 +356,7 @@ export async function callApi(service, method, model, body, isRetry = false, ret
 
 function processApiResponse(response) {
     const rawResponseText = Buffer.isBuffer(response.data) ? response.data.toString('utf8') : String(response.data);
-    //console.log(`Raw response length: ${rawResponseText.length}`);
+    //logger.info(`Raw response length: ${rawResponseText.length}`);
     if (rawResponseText.includes("[Called")) {
         logger.info("Raw response contains [Called marker.");
     }
@@ -365,18 +365,18 @@ function processApiResponse(response) {
     const parsedFromEvents = parseEventStreamChunk(rawResponseText);
     let fullResponseText = parsedFromEvents.content;
     let allToolCalls = [...parsedFromEvents.toolCalls]; // clone
-    //console.log(`Found ${allToolCalls.length} tool calls from event stream parsing.`);
+    //logger.info(`Found ${allToolCalls.length} tool calls from event stream parsing.`);
 
     // 2. Crucial fix from Python example: Parse bracket tool calls from the original raw response
     const rawBracketToolCalls = parseBracketToolCalls(rawResponseText);
     if (rawBracketToolCalls) {
-        //console.log(`Found ${rawBracketToolCalls.length} bracket tool calls in raw response.`);
+        //logger.info(`Found ${rawBracketToolCalls.length} bracket tool calls in raw response.`);
         allToolCalls.push(...rawBracketToolCalls);
     }
 
     // 3. Deduplicate all collected tool calls
     const uniqueToolCalls = deduplicateToolCalls(allToolCalls);
-    //console.log(`Total unique tool calls after deduplication: ${uniqueToolCalls.length}`);
+    //logger.info(`Total unique tool calls after deduplication: ${uniqueToolCalls.length}`);
 
     // 4. Clean up response text by removing all tool call syntax from the final text.
     // The text from parseEventStreamChunk is already partially cleaned.
@@ -391,8 +391,8 @@ function processApiResponse(response) {
         fullResponseText = fullResponseText.replace(/\s+/g, ' ').trim();
     }
 
-    //console.log(`Final response text after tool call cleanup: ${fullResponseText}`);
-    //console.log(`Final tool calls after deduplication: ${JSON.stringify(uniqueToolCalls)}`);
+    //logger.info(`Final response text after tool call cleanup: ${fullResponseText}`);
+    //logger.info(`Final tool calls after deduplication: ${JSON.stringify(uniqueToolCalls)}`);
     return { responseText: fullResponseText, toolCalls: uniqueToolCalls };
 }
 
@@ -502,7 +502,7 @@ export async function* generateContentStream(service, model, requestBody) {
         // 2-3. 流式接收并发送每个事件
         for await (const event of streamApiReal(service, '', finalModel, requestBody)) {
             // Debug: 记录事件类型（仅在调试时启用，生产环境注释掉以提升性能）
-            // console.log(`Event received: type=${event.type}`);
+            // logger.info(`Event received: type=${event.type}`);
 
             if (event.type === 'thinking') {
                 // 处理原生thinking块（API直接返回的，目前Kiro不支持）

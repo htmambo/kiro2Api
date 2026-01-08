@@ -3,7 +3,7 @@ import { promises as fs } from 'fs';
 import path from 'node:path';
 import { createLogger } from '../../lib/logger.js';
 
-const logger = createLogger('domain:oauth:token-store');
+const logger = createLogger('token-store');
 
 function normalizePath(p) {
     return String(p).replace(/\\/g, '/');

@@ -11,7 +11,7 @@ import { generateOAuthResultPage } from '../../views/oauth-result.js';
 import { OAuthFacade } from '../../../domain/oauth/index.js';
 import { withLock } from '../../../utils/mutex.js';
 
-const logger = createLogger('ui:handlers:oauth');
+const logger = createLogger('oauth');
 
 // AWS SSO in-flight 标记（跨请求生命周期的并发控制）
 const awsSsoInflight = new Map();
@@ -29,7 +29,7 @@ export async function webCallback({ req, res, accountPoolManager }) {
         const code = urlObj.searchParams.get('code');
         const state = urlObj.searchParams.get('state');
 
-        logger.info(`[Kiro OAuth Web] Received callback: code=${code?.substring(0, 10)}..., state=${state?.substring(0, 10)}...`);
+        logger.info(`OAuth Web Received callback: code=${code?.substring(0, 10)}..., state=${state?.substring(0, 10)}...`);
 
         if (!code || !state) {
             res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -61,7 +61,7 @@ export async function webCallback({ req, res, accountPoolManager }) {
             provider: provider || 'Kiro'
         }));
     } catch (error) {
-        logger.error('[Kiro OAuth Web] Callback handling error:', error);
+        logger.error('OAuth Web Callback handling error:', error);
         res.writeHead(500, { 'Content-Type': 'text/html; charset=utf-8' });
         res.end('<html><body><h1>处理失败</h1></body></html>');
     }
@@ -95,7 +95,7 @@ export async function checkState({ req, res }) {
             }));
         }
     } catch (error) {
-        logger.error('[Kiro OAuth] Check state error:', error);
+        logger.error('OAuth Check state error:', error);
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: error.message }));
     }
@@ -185,10 +185,10 @@ export async function manualImport({ req, res, currentConfig, accountPoolManager
             expiresAt = refreshedExpiresAt;
             finalProfileArn = profileArn || fetchedProfileArn;
 
-            logger.info('[Kiro Manual Import] RefreshToken validated and refreshed successfully');
-            logger.info(`[Kiro Manual Import] ProfileArn: ${finalProfileArn}`);
+            logger.info('Manual Import RefreshToken validated and refreshed successfully');
+            logger.info(`Manual Import ProfileArn: ${finalProfileArn}`);
         } catch (refreshError) {
-            logger.error(`[Kiro Manual Import] RefreshToken validation failed: ${refreshError.message}`);
+            logger.error(`Manual Import RefreshToken validation failed: ${refreshError.message}`);
 
             // 广播错误事件，让前端能够感知 refreshToken 验证失败
             try {
@@ -202,7 +202,7 @@ export async function manualImport({ req, res, currentConfig, accountPoolManager
                     stage: 'validateRefreshToken'
                 });
             } catch (broadcastError) {
-                logger.error(`[Kiro Manual Import] Failed to broadcast oauth_error: ${broadcastError.message}`);
+                logger.error(`Manual Import Failed to broadcast oauth_error: ${broadcastError.message}`);
             }
 
             res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -223,7 +223,7 @@ export async function manualImport({ req, res, currentConfig, accountPoolManager
 
         await withLock(tokenLockKey, async () => {
             await withLock(accountLockKey, async () => {
-                logger.info(`[Kiro Manual Import] Importing refreshToken for account ${accountNumber} (tokenHash=${refreshTokenHash.substring(0, 8)}...)`);
+                logger.info(`Manual Import Importing refreshToken for account ${accountNumber} (tokenHash=${refreshTokenHash.substring(0, 8)}...)`);
 
             // ⚠️ 事务一致性优化：在保存 token 之前先进行完整的重复检测
             const { findDuplicateUserId } = await import('../../../utils/account-utils.js');
@@ -234,7 +234,7 @@ export async function manualImport({ req, res, currentConfig, accountPoolManager
                     ? accountPoolManager.listAccounts()
                     : [];
             } catch (error) {
-                logger.error(`[Kiro Manual Import] Failed to list accounts: ${error.message}`);
+                logger.error(`Manual Import Failed to list accounts: ${error.message}`);
                 // 获取账号列表失败不应阻止导入流程，继续执行（但重复检测会被跳过）
             }
 
@@ -244,7 +244,7 @@ export async function manualImport({ req, res, currentConfig, accountPoolManager
                     const userIdResult = await findDuplicateUserId(newAccessToken, finalProfileArn, accounts, currentConfig);
                     if (userIdResult) {
                         const duplicateProvider = userIdResult.existingProvider;
-                        logger.info(`[Kiro Manual Import] Duplicate account detected: ${userIdResult.userId}`);
+                        logger.info(`Manual Import Duplicate account detected: ${userIdResult.userId}`);
 
                         res.writeHead(200, { 'Content-Type': 'application/json' });
                         res.end(JSON.stringify({
@@ -258,7 +258,7 @@ export async function manualImport({ req, res, currentConfig, accountPoolManager
                         return;
                     }
                 } catch (error) {
-                    logger.error(`[Kiro Manual Import] Duplicate userId check failed: ${error.message}`);
+                    logger.error(`Manual Import Duplicate userId check failed: ${error.message}`);
                     // 重复检测失败不应阻止导入流程，继续执行
                 }
             }
@@ -272,7 +272,7 @@ export async function manualImport({ req, res, currentConfig, accountPoolManager
             });
 
             if (pathExists) {
-                logger.info(`[Kiro Manual Import] Path already exists in account pool: ${expectedRelativePath}`);
+                logger.info(`Manual Import Path already exists in account pool: ${expectedRelativePath}`);
                 // 路径已存在，但不是错误，只是跳过添加到池中
             }
 
@@ -289,7 +289,7 @@ export async function manualImport({ req, res, currentConfig, accountPoolManager
             const saveInfo = await tokenStore.saveToken(accountNumber, credentialsData, {
                 fileName: `kiro-auth-token-${accountNumber}.json`
             });
-            logger.info(`[Kiro Manual Import] Token saved to: ${saveInfo.tokenFilePath}`);
+            logger.info(`Manual Import Token saved to: ${saveInfo.tokenFilePath}`);
 
             // 如果路径不存在于账号池，则添加
             if (!pathExists) {
@@ -312,7 +312,7 @@ export async function manualImport({ req, res, currentConfig, accountPoolManager
 
                     // 使用 accountPoolManager 统一入池
                     accountPoolManager.addAccount(newAccount);
-                    logger.info(`[Kiro Manual Import] Added to account pool: ${saveInfo.relativePath}`);
+                    logger.info(`Manual Import Added to account pool: ${saveInfo.relativePath}`);
 
                     broadcastEvent('provider_update', {
                         action: 'add',
@@ -321,14 +321,14 @@ export async function manualImport({ req, res, currentConfig, accountPoolManager
                         timestamp: new Date().toISOString()
                     });
                 } catch (error) {
-                    logger.error(`[Kiro Manual Import] Failed to add to provider pool: ${error.message}`);
+                    logger.error(`Manual Import Failed to add to provider pool: ${error.message}`);
 
                     // 统一入池失败语义：失败回滚 token 文件
                     try {
                         await tokenStore.deleteToken({ filePath: saveInfo.tokenFilePath });
-                        logger.info(`[Kiro Manual Import] Rolled back token file: ${saveInfo.tokenFilePath}`);
+                        logger.info(`Manual Import Rolled back token file: ${saveInfo.tokenFilePath}`);
                     } catch (rollbackError) {
-                        logger.error(`[Kiro Manual Import] Failed to rollback token file: ${rollbackError.message}`);
+                        logger.error(`Manual Import Failed to rollback token file: ${rollbackError.message}`);
                     }
 
                     // 广播错误事件，让前端能够感知入池失败
@@ -343,7 +343,7 @@ export async function manualImport({ req, res, currentConfig, accountPoolManager
                             stage: 'addAccount'
                         });
                     } catch (broadcastError) {
-                        logger.error(`[Kiro Manual Import] Failed to broadcast oauth_error: ${broadcastError.message}`);
+                        logger.error(`Manual Import Failed to broadcast oauth_error: ${broadcastError.message}`);
                     }
 
                     res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -371,7 +371,7 @@ export async function manualImport({ req, res, currentConfig, accountPoolManager
             }); // 结束 accountLockKey withLock
         }); // 结束 tokenLockKey withLock
     } catch (error) {
-        logger.error('[Kiro Manual Import] Error:', error);
+        logger.error('Manual Import Error:', error);
 
         // 防止二次写响应（如果已经发送过响应，则跳过）
         if (!res.headersSent && !res.writableEnded) {
@@ -381,7 +381,7 @@ export async function manualImport({ req, res, currentConfig, accountPoolManager
                 message: error.message
             }));
         } else {
-            logger.warn('[Kiro Manual Import] Response already sent, skipping error response');
+            logger.warn('Manual Import Response already sent, skipping error response');
         }
     }
 }

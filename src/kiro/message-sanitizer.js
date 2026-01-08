@@ -15,7 +15,7 @@
 
 import { createLogger } from '../lib/logger.js';
 
-const logger = createLogger('kiro:message-sanitizer');
+const logger = createLogger('message-sanitizer');
 
 /**
  * 提取消息的文本内容
@@ -231,7 +231,7 @@ export function sanitizeMessages(messages, verboseLogging = false) {
                 } catch (e) {
                     // 无法解析，说明是不完整的 JSON，过滤掉
                     logger.info(
-                        `[Kiro] Filtered invalid JSON content at message ${index}: ${content.substring(0, 50)}...`
+                        `Filtered invalid JSON content at message ${index}: ${content.substring(0, 50)}...`
                     );
                     return false;
                 }
@@ -305,7 +305,7 @@ export function sanitizeMessages(messages, verboseLogging = false) {
 
     // 只在有实际修改时输出一次汇总信息(减少日志噪音)
     if (sanitizeActions.length > 0 && verboseLogging) {
-        logger.info(`[Kiro] Message sanitization: ${sanitizeActions.join(', ')}`);
+        logger.info(`Message sanitization: ${sanitizeActions.join(', ')}`);
     }
 
     return alternating;
@@ -356,7 +356,7 @@ export function sanitizeMessageHistory(history, currentToolResults) {
             if (validToolUses.length !== toolUses.length) {
                 const removedCount = toolUses.length - validToolUses.length;
                 logger.warn(
-                    `[Kiro Sanitize] History[${i}]: Removed ${removedCount} orphan toolUses without matching toolResults`
+                    `Sanitize History[${i}]: Removed ${removedCount} orphan toolUses without matching toolResults`
                 );
                 fixCount++;
 
@@ -379,7 +379,7 @@ export function sanitizeMessageHistory(history, currentToolResults) {
 
             if (!hasContent && !hasToolResults) {
                 message.userInputMessage.content = 'Continue';
-                logger.warn(`[Kiro Sanitize] History[${i}]: Added default content to empty user message`);
+                logger.warn(`Sanitize History[${i}]: Added default content to empty user message`);
                 fixCount++;
             }
         }
@@ -392,7 +392,7 @@ export function sanitizeMessageHistory(history, currentToolResults) {
             const hasContent = message.assistantResponseMessage.content && message.assistantResponseMessage.content.trim() !== '';
             if (!hasContent) {
                 message.assistantResponseMessage.content = message.assistantResponseMessage.toolUses ? 'Calling tools...' : '...';
-                logger.warn(`[Kiro Sanitize] History[${i}]: Added default content to empty assistant message`);
+                logger.warn(`Sanitize History[${i}]: Added default content to empty assistant message`);
                 fixCount++;
             }
         }
@@ -405,7 +405,7 @@ export function sanitizeMessageHistory(history, currentToolResults) {
             for (const toolUse of message.assistantResponseMessage.toolUses) {
                 if (toolUse.input === undefined) {
                     toolUse.input = {};
-                    logger.warn(`[Kiro Sanitize] History[${i}]: Added empty input to toolUse '${toolUse.name}'`);
+                    logger.warn(`Sanitize History[${i}]: Added empty input to toolUse '${toolUse.name}'`);
                     fixCount++;
                 }
             }
@@ -430,7 +430,7 @@ export function sanitizeMessageHistory(history, currentToolResults) {
             if (validToolResults.length !== toolResults.length) {
                 const removedCount = toolResults.length - validToolResults.length;
                 logger.warn(
-                    `[Kiro Sanitize] History[${i}]: Removed ${removedCount} orphan toolResults without matching toolUses`
+                    `Sanitize History[${i}]: Removed ${removedCount} orphan toolResults without matching toolUses`
                 );
                 fixCount++;
 
@@ -465,7 +465,7 @@ export function sanitizeMessageHistory(history, currentToolResults) {
                 '\n\n[... content truncated ...]\n\n' +
                 message.userInputMessage.content.substring(originalLength - keepEnd);
             logger.warn(
-                `[Kiro Sanitize] History[${i}]: Truncated user content from ${originalLength} to ${message.userInputMessage.content.length} chars`
+                `Sanitize History[${i}]: Truncated user content from ${originalLength} to ${message.userInputMessage.content.length} chars`
             );
             fixCount++;
         }
@@ -480,7 +480,7 @@ export function sanitizeMessageHistory(history, currentToolResults) {
                 '\n\n[... content truncated ...]\n\n' +
                 message.assistantResponseMessage.content.substring(originalLength - keepEnd);
             logger.warn(
-                `[Kiro Sanitize] History[${i}]: Truncated assistant content from ${originalLength} to ${message.assistantResponseMessage.content.length} chars`
+                `Sanitize History[${i}]: Truncated assistant content from ${originalLength} to ${message.assistantResponseMessage.content.length} chars`
             );
             fixCount++;
         }
@@ -507,7 +507,7 @@ export function sanitizeMessageHistory(history, currentToolResults) {
             };
             history.splice(i, 0, placeholderAssistant);
             logger.warn(
-                `[Kiro Sanitize] Inserted placeholder assistant message between History[${i - 1}] and History[${i}] to fix consecutive user messages`
+                `Inserted placeholder assistant message between History[${i - 1}] and History[${i}] to fix consecutive user messages`
             );
             fixCount++;
         }
@@ -533,13 +533,13 @@ export function sanitizeMessageHistory(history, currentToolResults) {
             };
             history.splice(i, 0, placeholderUser);
             logger.warn(
-                `[Kiro Sanitize] Inserted placeholder user message between History[${i - 1}] and History[${i}] to fix consecutive assistant messages`
+                `Inserted placeholder user message between History[${i - 1}] and History[${i}] to fix consecutive assistant messages`
             );
             fixCount++;
         }
     }
 
     if (fixCount > 0) {
-        logger.info(`[Kiro Sanitize] Applied ${fixCount} fixes to message history`);
+        logger.info(`Applied ${fixCount} fixes to message history`);
     }
 }

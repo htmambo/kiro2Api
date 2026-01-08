@@ -5,7 +5,7 @@ import { KiroService } from '../../../kiro/adapter.js';
 import { tokenStore as defaultTokenStore } from '../token-store.js';
 import { OAUTH_DOMAIN_EVENTS } from '../index.js';
 
-const logger = createLogger('domain:oauth:aws-sso-device');
+const logger = createLogger('aws-sso-device');
 
 /**
  * Kiro SSO 配置 (AWS SSO BuilderId)

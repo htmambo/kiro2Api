@@ -6,7 +6,7 @@
 import axios from 'axios';
 import { createLogger } from '../lib/logger.js';
 
-const logger = createLogger('kiro:search');
+const logger = createLogger('search');
 
 /**
  * Web 搜索配置
@@ -30,7 +30,7 @@ const WEB_SEARCH_CONFIG = {
  */
 export async function executeWebSearch(query, verboseLogging = false) {
     if (verboseLogging) {
-        logger.info(`[Kiro WebSearch] Executing search: "${query}"`);
+        logger.info(`Executing search: "${query}"`);
     }
 
     try {
@@ -99,7 +99,7 @@ export async function duckDuckGoSearch(query, verboseLogging = false) {
     }
 
     if (verboseLogging) {
-        logger.info(`[Kiro WebSearch] DuckDuckGo found ${results.length} results`);
+        logger.info(`DuckDuckGo found ${results.length} results`);
     }
 
     return {
@@ -137,7 +137,7 @@ export async function bingSearch(query, verboseLogging = false) {
     }));
 
     if (verboseLogging) {
-        logger.info(`[Kiro WebSearch] Bing found ${results.length} results`);
+        logger.info(`Bing found ${results.length} results`);
     }
 
     return {
