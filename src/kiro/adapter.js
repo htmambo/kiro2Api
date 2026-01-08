@@ -18,7 +18,6 @@ import { streamApiReal } from './streaming.js';
 // 导入 API 客户端模块
 import {
     generateContent,
-    streamApi,
     generateContentStream,
     countTextTokens,
     estimateInputTokens,

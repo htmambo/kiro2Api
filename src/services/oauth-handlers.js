@@ -22,10 +22,7 @@ async function getBroadcastEvent() {
  */
 const KIRO_SSO_CONFIG = {
     startUrl: 'https://view.awsapps.com/start/',
-    region: 'us-east-1',
-    credentialsDir: './configs/kiro',
-    credentialsFile: 'kiro-auth-token.json',
-    logPrefix: '[Kiro OAuth]'
+    region: 'us-east-1'
 };
 
 /**
