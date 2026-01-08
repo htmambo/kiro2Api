@@ -10,6 +10,19 @@
 
 ### 2026-01
 
+- ✅ [P0 重构：统一账号池/Token 写入口，收敛 OAuth](Archive/2026-01/P0_REFACTOR_OAUTH_ACCOUNT_POOL_PLAN.md) - 完成于 2026-01-08
+  - **核心成果**：完成 DDD 架构重构，消除循环依赖和重复逻辑
+  - 创建 Domain 层（OAuth 和 AccountPool 领域服务）
+  - 实现 OAuthFacade、StateStore、TokenStore、AwsSsoDeviceFlow
+  - 实现 AccountPoolFacade 统一账号池管理
+  - UI 层改造为纯适配层，移除所有直接文件操作
+  - 实现完整的领域事件系统（EventEmitter）
+  - 创建兼容层保持向后兼容
+  - **文档完整**：7 个架构文档（2954 行），包含详细示例和迁移指南
+  - **验收标准**：所有 9 项硬性要求全部达成
+  - **代码质量**：架构清晰度 9/10，可维护性 9/10，文档完整性 9/10
+  - 详见: [完成验证报告](../P0_REFACTOR_COMPLETION_VERIFICATION.md) | [目录结构分析](../../Analysis/SRC_DIRECTORY_STRUCTURE_ANALYSIS_2026-01-08.md)
+
 - ✅ [Codex 审核改进任务](Archive/2026-01/CODEX_REVIEW_IMPROVEMENTS_PLAN.md) - 完成于 2026-01-08
   - 实施 P0 任务后 Codex 审核发现的 6 个改进点
   - 协议解析健壮性：防止越界读取崩溃
