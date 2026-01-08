@@ -375,7 +375,7 @@ export async function pollDeviceToken(service, deviceCode, interval = 5, expires
             }
 
             logger.warn(
-                `Polling error (attempt ${attempts}/${maxAttempts}):`,
+                `Polling(${deviceCode}) error (attempt ${attempts}/${maxAttempts}):`,
                 { error: error.message }
             );
             await new Promise(resolve => setTimeout(resolve, interval * 1000));

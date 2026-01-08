@@ -1545,6 +1545,48 @@ export default function ProvidersPage() {
                     </div>
                   </div>
 
+                  <div>
+                    <div className="text-sm text-gray-400 mb-2">验证链接(推荐复制后新开无痕窗口打开):</div>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        readOnly
+                        value={deviceAuthResult.verificationUriComplete}
+                        className="flex-1 px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-sm font-mono text-green-400 truncate"
+                        title={deviceAuthResult.verificationUriComplete}
+                      />
+                      <button
+                        onClick={() => {
+                          if (navigator.clipboard && navigator.clipboard.writeText) {
+                            navigator.clipboard.writeText(deviceAuthResult.verificationUriComplete).then(() => {
+                              toast.success('已复制', '验证链接已复制到剪贴板');
+                            }).catch(() => {
+                              toast.error('复制失败', '请手动复制链接');
+                            });
+                          } else {
+                            // 回退方案：使用 textarea
+                            const textarea = document.createElement('textarea');
+                            textarea.value = deviceAuthResult.verificationUriComplete;
+                            document.body.appendChild(textarea);
+                            textarea.select();
+                            try {
+                              document.execCommand('copy');
+                              toast.success('已复制', '验证链接已复制到剪贴板');
+                            } catch (err) {
+                              toast.error('复制失败', '请手动复制链接');
+                            }
+                            document.body.removeChild(textarea);
+                          }
+                        }}
+                        className="px-4 py-2 bg-blue-500 hover:bg-blue-600 rounded-lg transition-colors flex items-center gap-2"
+                        title="复制链接"
+                      >
+                        <IconCopy className="w-4 h-4" />
+                        
+                      </button>
+                    </div>
+                  </div>
+
                   <a
                     href={deviceAuthResult.verificationUriComplete}
                     target="_blank"
