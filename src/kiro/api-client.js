@@ -12,7 +12,7 @@ import { streamApiReal } from './streaming.js';
 import { parseBracketToolCalls, deduplicateToolCalls } from './tools.js';
 import { executeWebSearch, formatSearchResults } from './search.js';
 import { MODEL_MAPPING } from './adapter.js';
-import { KIRO_CONSTANTS, refreshAccessTokenIfNeeded } from './auth.js';
+import { KIRO_CONSTANTS, refreshAccessTokenIfNeeded, initializeAuth } from './auth.js';
 import { unescapeHTML } from './utils.js';
 import { createLogger } from '../lib/logger.js';
 
@@ -1350,7 +1350,7 @@ export async function getUsageLimits(service) {
         if (error.response?.status === 403) {
             logger.info('Received 403 on getUsageLimits. Attempting token refresh and retrying...');
             try {
-                await service.initializeAuth(true);
+                await initializeAuth(service, true);
                 // 更新 Authorization header
                 headers['Authorization'] = `Bearer ${service.accessToken}`;
                 headers['amz-sdk-invocation-id'] = uuidv4();
