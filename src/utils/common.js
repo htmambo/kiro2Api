@@ -5,8 +5,11 @@ import * as crypto from 'crypto'; // Import crypto for MD5 hashing
 import { KiroService } from '../kiro/adapter.js'; // Import KiroService
 import { generateContent, generateContentStream } from '../kiro/api-client.js';
 import { KiroStrategy } from '../kiro/strategy.js';
+import { KIRO_MODELS } from '../kiro/constants.js';
 import os from 'os';
 import { createLogger } from '../lib/logger.js';
+import { convertData, getOpenAIStreamChunkStop } from './convert.js';
+import { getProtocolPrefix, MODEL_PROTOCOL_PREFIX } from './protocol.js';
 
 const logger = createLogger('utils:common');
 
@@ -61,22 +64,11 @@ export function getCpuUsagePercent() {
     return `${cpuPercent.toFixed(1)}%`;
 }
 
-/**
- * Extracts the protocol prefix from a given model provider string.
- * This is used to determine if two providers belong to the same underlying protocol (e.g., claude).
- * @param {string} provider - The model provider string (e.g., 'claude-kiro-oauth').
- * @returns {string} The protocol prefix (e.g., 'claude').
- */
-export function getProtocolPrefix(provider) {
-    const hyphenIndex = provider.indexOf('-');
-    if (hyphenIndex !== -1) {
-        return provider.substring(0, hyphenIndex);
-    }
-    return provider; // Return original if no hyphen is found
-}
-
 export const ENDPOINT_TYPE = {
+    OPENAI_CHAT: 'openai_chat',
+    OPENAI_RESPONSES: 'openai_responses',
     CLAUDE_MESSAGE: 'claude_message',
+    OPENAI_MODEL_LIST: 'openai_model_list',
 };
 
 export const FETCH_SYSTEM_PROMPT_FILE = path.join(process.cwd(), 'configs', 'fetch_system_prompt.txt');
@@ -215,9 +207,12 @@ export async function handleStreamRequest(res, service, model, requestBody, from
     // fs.writeFile('request'+Date.now()+'.json', JSON.stringify(requestBody));
     // The service returns a stream in its native format (toProvider).
     requestBody.model = model;
+    const needsConversion = getProtocolPrefix(fromProvider) !== getProtocolPrefix(toProvider);
+    const addEvent = getProtocolPrefix(fromProvider) === MODEL_PROTOCOL_PREFIX.CLAUDE || getProtocolPrefix(fromProvider) === MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES;
+    const openStop = getProtocolPrefix(fromProvider) === MODEL_PROTOCOL_PREFIX.OPENAI ;
 
-    let nativeStream;
     let streamStarted = false;
+    let nativeStream;
 
     try {
         nativeStream = await generateContentStream(service, model, requestBody);
@@ -226,8 +221,6 @@ export async function handleStreamRequest(res, service, model, requestBody, from
         logger.error(`[Stream] Initial stream generation failed: ${initialError.message}`);
         throw initialError; // 抛出让外层重试逻辑处理
     }
-
-    const addEvent = getProtocolPrefix(fromProvider) === 'claude';
 
     try {
         streamStarted = true;
@@ -239,7 +232,9 @@ export async function handleStreamRequest(res, service, model, requestBody, from
             }
 
             // Convert the complete chunk object to the client's format (fromProvider), if necessary.
-            const chunkToSend = nativeChunk;
+            const chunkToSend = needsConversion
+                ? convertData(nativeChunk, 'streamChunk', toProvider, fromProvider, model)
+                : nativeChunk;
 
             if (!chunkToSend) {
                 continue;
@@ -261,6 +256,10 @@ export async function handleStreamRequest(res, service, model, requestBody, from
                 res.write(`data: ${JSON.stringify(chunk)}\n\n`);
                 // logger.info(`data: ${JSON.stringify(chunk)}\n`);
             }
+        }
+        if (openStop && needsConversion) {
+            res.write(`data: ${JSON.stringify(getOpenAIStreamChunkStop(model))}\n\n`);
+            // console.log(`data: ${JSON.stringify(getOpenAIStreamChunkStop(model))}\n`);
         }
 
         // 流式请求成功完成，统计使用次数，错误次数重置为0
@@ -313,6 +312,10 @@ export async function handleUnaryRequest(res, service, model, requestBody, fromP
 
         // Convert the response back to the client's format (fromProvider), if necessary.
         let clientResponse = nativeResponse;
+        const needsConversion = getProtocolPrefix(fromProvider) !== getProtocolPrefix(toProvider);
+        if (needsConversion) {
+            clientResponse = convertData(nativeResponse, 'response', toProvider, fromProvider, model);
+        }
 
         //logger.info(`[Response] Sending response to client: ${JSON.stringify(clientResponse)}`);
         await handleUnifiedResponse(res, JSON.stringify(clientResponse), false);
@@ -361,7 +364,9 @@ export async function handleContentGenerationRequest(req, res, service, endpoint
     }
 
     const clientProviderMap = {
-        [ENDPOINT_TYPE.CLAUDE_MESSAGE]: 'claude',
+        [ENDPOINT_TYPE.OPENAI_CHAT]: MODEL_PROTOCOL_PREFIX.OPENAI,
+        [ENDPOINT_TYPE.OPENAI_RESPONSES]: MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES,
+        [ENDPOINT_TYPE.CLAUDE_MESSAGE]: MODEL_PROTOCOL_PREFIX.CLAUDE,
     };
 
     const fromProvider = clientProviderMap[endpointType];
@@ -372,16 +377,48 @@ export async function handleContentGenerationRequest(req, res, service, endpoint
         throw new Error(`Unsupported endpoint type for content generation: ${endpointType}`);
     }
 
-    // 1. Convert request body from client format to backend format, if necessary.
-    let processedRequestBody = originalRequestBody;
-
     // 2. Extract model and determine if the request is for streaming.
-    const { model, isStream } = _extractModelAndStreamInfo(req, originalRequestBody, fromProvider);
+    let model = originalRequestBody.model;
+    /**
+     * 这里需要一个转换列表，将OpenAI的模型名称转换为Claude对应的模型名称
+     * 例如：
+     * gpt-5.2-codex -> 'claude-opus-4-5'
+     * gpt-5.2 -> 'claude-opus-4-5'
+     * gpt-5.1 -> 'claude-sonnet-4-5'
+     * gpt-5.1-codex -> 'claude-sonnet-4-5'
+     * 其它都转换成 claude-sonnet-4-5
+     */
+    const modelMapping = {
+        'gpt-5.2-codex': 'claude-opus-4-5',
+        'gpt-5.2': 'claude-opus-4-5',
+        'gpt-5.1': 'claude-sonnet-4-5',
+        'gpt-5.1-codex': 'claude-sonnet-4-5',
+    };
+    let mappedModel = modelMapping[model] ?? model;
+    if (!KIRO_MODELS.includes(mappedModel)) {
+        mappedModel = 'claude-sonnet-4-5';
+    }
+    model = mappedModel;
+    const isStream = originalRequestBody.stream === true;
 
     if (!model) {
         throw new Error("Could not determine the model from the request.");
     }
     logger.warn(`[Content Generation] Model: ${model}, Stream: ${isStream}`);
+
+    // 1. Convert request body from client format to backend format, if necessary.
+    let processedRequestBody = originalRequestBody;
+    if (fromProvider !== MODEL_PROTOCOL_PREFIX.CLAUDE) {
+        logger.warn(`Converting request from ${fromProvider} to ${toProvider}`);
+        processedRequestBody = convertData(originalRequestBody, 'request', fromProvider, toProvider);
+        // 如果processedRequestBody中有model，则需要更新为转换后的model
+        if (processedRequestBody.model) {
+            processedRequestBody.model = model;
+        }
+        logger.warn(`Converted request: ${JSON.stringify(processedRequestBody)}`);
+    } else {
+        logger.log(`Request format matches backend provider. No conversion needed.`);
+    }
 
     // 2.5. 如果使用了提供商池，根据模型重新选择提供商
     // 注意：这里使用 skipUsageCount: true，因为初次选择时已经增加了 usageCount
@@ -470,8 +507,9 @@ export async function handleContentGenerationRequest(req, res, service, endpoint
  * @returns {{model: string, isStream: boolean}} An object containing the model name and stream status.
  */
 function _extractModelAndStreamInfo(req, requestBody, fromProvider) {
-    const strategy = new KiroStrategy();
-    return strategy.extractModelAndStreamInfo(req, requestBody);
+    const model = requestBody.model;
+    const isStream = requestBody.stream === true;
+    return { model, isStream };
 }
 
 async function _applySystemPromptFromFile(config, requestBody, toProvider) {

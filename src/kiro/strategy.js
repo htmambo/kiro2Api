@@ -1,5 +1,6 @@
 import { extractSystemPromptFromRequestBody } from '../utils/common.js';
 import { createLogger } from '../lib/logger.js';
+import { KIRO_MODELS } from '../kiro/constants.js';
 
 const logger = createLogger('kiro:strategy');
 
@@ -7,12 +8,6 @@ const logger = createLogger('kiro:strategy');
  * Claude provider strategy implementation.
  */
 class KiroStrategy {
-    extractModelAndStreamInfo(req, requestBody) {
-        const model = requestBody.model;
-        const isStream = requestBody.stream === true;
-        return { model, isStream };
-    }
-
     extractResponseText(response) {
         if (response.type === 'content_block_delta' && response.delta ) {
             if(response.delta.type === 'text_delta' ){

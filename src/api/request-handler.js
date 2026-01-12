@@ -129,7 +129,7 @@ export function createRequestHandler(config, accountPoolManager) {
         } catch (error) {
             const serviceError = createError(`Failed to get API service: ${error.message}`, 500);
             await errorMiddleware(serviceError, req, res);
-            const activeAccountPoolManager = poolManager || getAccountPoolManager();
+            const activeAccountPoolManager = accountPoolManager || getAccountPoolManager();
             if (activeAccountPoolManager && currentConfig.uuid) {
                 if (typeof activeAccountPoolManager.markAccountUnhealthy === 'function') {
                     activeAccountPoolManager.markAccountUnhealthy(currentConfig.uuid, error);
