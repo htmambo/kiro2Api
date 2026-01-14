@@ -273,7 +273,7 @@ export async function handleStreamRequest(res, service, model, requestBody, from
         }
         if (openStop && needsConversion) {
             res.write(`data: ${JSON.stringify(getOpenAIStreamChunkStop(model))}\n\n`);
-            // console.log(`data: ${JSON.stringify(getOpenAIStreamChunkStop(model))}\n`);
+            // logger.info(`data: ${JSON.stringify(getOpenAIStreamChunkStop(model))}\n`);
         }
 
         // 流式请求成功完成，统计使用次数，错误次数重置为0
@@ -385,7 +385,7 @@ export async function handleContentGenerationRequest(req, res, service, endpoint
 
     const fromProvider = clientProviderMap[endpointType];
     const toProvider = CONFIG.MODEL_PROVIDER;
-    logger.warn(`[Content Generation] fromProvider: ${fromProvider}, toProvider: ${toProvider}`);
+    logger.warn(`fromProvider: ${fromProvider}, toProvider: ${toProvider}`);
 
     if (!fromProvider) {
         throw new Error(`Unsupported endpoint type for content generation: ${endpointType}`);
@@ -418,7 +418,7 @@ export async function handleContentGenerationRequest(req, res, service, endpoint
     if (!model) {
         throw new Error("Could not determine the model from the request.");
     }
-    logger.warn(`[Content Generation] Model: ${model}, Stream: ${isStream}`);
+    logger.warn(`Model: ${model}, Stream: ${isStream}`);
 
     // 1. Convert request body from client format to backend format, if necessary.
     let processedRequestBody = originalRequestBody;
@@ -434,12 +434,12 @@ export async function handleContentGenerationRequest(req, res, service, endpoint
         logger.log(`Request format matches backend provider. No conversion needed.`);
     }
 
-    // 2.5. 如果使用了提供商池，根据模型重新选择提供商
+    // 2.5. 如果使用了号池，根据模型重新选择提供商
     // 注意：这里使用 skipUsageCount: true，因为初次选择时已经增加了 usageCount
     if (_canUsePool(CONFIG, providerPoolManager)) {
         const { getApiService } = await import('../services/manager.js');
         service = await getApiService(CONFIG, model);
-        logger.info(`[Content Generation] Re-selected service adapter based on model: ${model}`);
+        logger.info(`Re-selected service adapter based on model: ${model}`);
     }
 
     // 3. Apply system prompt from file if configured.
@@ -450,7 +450,7 @@ export async function handleContentGenerationRequest(req, res, service, endpoint
     const promptText = extractPromptText(processedRequestBody, toProvider);
     logger.verbose(promptText);
 
-    // 5. 添加重试逻辑：如果使用了提供商池，当请求失败时自动切换到下一个健康的provider
+    // 5. 添加重试逻辑：如果使用了号池，当请求失败时自动切换到下一个健康的provider
     // 限制最多重试3次，避免把所有provider都试一遍
     const availableProviders = _countAvailablePoolItems(CONFIG, providerPoolManager);
     const maxRetries = Math.min(3, availableProviders);
@@ -538,20 +538,20 @@ async function _manageSystemPrompt(requestBody, provider) {
         currentSystemText = await fs.readFile(FETCH_SYSTEM_PROMPT_FILE, 'utf8');
     } catch (error) {
         if (error.code !== 'ENOENT') {
-            logger.error(`[System Prompt Manager] Error reading system prompt file: ${error.message}`);
+            logger.error(`Error reading system prompt file: ${error.message}`);
         }
     }
 
     try {
         if (incomingSystemText && incomingSystemText !== currentSystemText) {
             await fs.writeFile(FETCH_SYSTEM_PROMPT_FILE, incomingSystemText);
-            logger.info('[System Prompt Manager] System prompt updated.');
+            logger.info('System prompt updated.');
         } else if (!incomingSystemText && currentSystemText) {
             await fs.writeFile(FETCH_SYSTEM_PROMPT_FILE, '');
-            logger.info('[System Prompt Manager] System prompt cleared from file.');
+            logger.info('System prompt cleared from file.');
         }
     } catch (error) {
-        logger.error(`[System Prompt Manager] Failed to manage system prompt file: ${error.message}`);
+        logger.error(`Failed to manage system prompt file: ${error.message}`);
     }
 }
 

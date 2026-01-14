@@ -142,7 +142,7 @@ function sendSSEError(res, payload, method, path) {
         res.write(eventData);
     } catch (writeError) {
         logger.error(
-            `[Error Middleware] Failed to emit SSE error event for ${method} ${path}: ` +
+            `Failed to emit SSE error event for ${method} ${path}: ` +
             `${writeError.message}`
         );
     }
@@ -160,7 +160,7 @@ function sendJSONError(res, payload, statusCode, method, path) {
     // 检查 headers 是否已发送
     if (res.headersSent) {
         logger.warn(
-            `[Error Middleware] Headers already sent for ${method} ${path}, ` +
+            `Headers already sent for ${method} ${path}, ` +
             `cannot send JSON error response`
         );
         return;
@@ -171,7 +171,7 @@ function sendJSONError(res, payload, statusCode, method, path) {
         res.end(JSON.stringify(payload));
     } catch (writeError) {
         logger.error(
-            `[Error Middleware] Failed to send JSON error response for ${method} ${path}: ` +
+            `Failed to send JSON error response for ${method} ${path}: ` +
             `${writeError.message}`
         );
     }

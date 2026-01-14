@@ -422,16 +422,16 @@ import * as usageHandlers from '../handlers/usage.handlers.js';
  * @param {Router} router - 路由器实例
  */
 export function setupUsageRoutes(router) {
-    // 获取所有提供商用量
+    // 获取所有账号用量
     router.addRoute('GET', '/api/usage', usageHandlers.getAllUsage, {
         auth: true,
-        description: '获取所有提供商的用量信息'
+        description: '获取所有账号的用量信息'
     });
 
-    // 获取指定提供商类型或单个账号的用量（单段路径）
+    // 获取指定所有账号或单个账号的用量（单段路径）
     router.addRoute('GET', /^\/api\/usage\/([^\/]+)$/, usageHandlers.getUsageBySegment, {
         auth: true,
-        description: '获取指定提供商类型或账号 UUID 的用量'
+        description: '获取指定所有账号或账号 UUID 的用量'
     });
 
     // 获取指定账号的详细用量（双段路径）
@@ -525,7 +525,7 @@ export function setupUploadRoutes(router) {
     // 快速关联配置文件
     router.addRoute('POST', '/api/quick-link-provider', uploadHandlers.quickLink, {
         auth: true,
-        description: '快速关联配置文件到对应提供商'
+        description: '快速关联配置文件到对应号池'
     });
 
     // 批量快速关联

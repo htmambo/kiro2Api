@@ -118,7 +118,7 @@ export async function readUsageCache() {
         }
         return null;
     } catch (error) {
-        logger.warn('[Usage Cache] Failed to read usage cache', error);
+        logger.warn('Failed to read usage cache', error);
         return null;
     }
 }
@@ -130,9 +130,9 @@ export async function readUsageCache() {
 export async function writeUsageCache(usageData) {
     try {
         await fs.writeFile(USAGE_CACHE_FILE, JSON.stringify(usageData, null, 2), 'utf8');
-        logger.info(`[Usage Cache] Usage data cached to ${USAGE_CACHE_FILE}`);
+        logger.info(`Usage data cached to ${USAGE_CACHE_FILE}`);
     } catch (error) {
-        logger.error('[Usage Cache] Failed to write usage cache', error);
+        logger.error('Failed to write usage cache', error);
     }
 }
 

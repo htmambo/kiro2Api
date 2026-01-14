@@ -358,7 +358,7 @@ REDIS_PORT=6379
 | `SERVER_PORT` | number | `8045` | 服务端口 |
 | `HOST` | string | `"0.0.0.0"` | 监听地址 |
 | `REQUIRED_API_KEY` | string | `"123456"` | API 访问密钥 |
-| `MODEL_PROVIDER` | string | `"claude-kiro-oauth"` | ��型提供商 |
+| `MODEL_PROVIDER` | string | `"claude-kiro-oauth"` | 模型提供商 |
 | `LOG_LEVEL` | string | `"info"` | 日志级别 |
 
 ### OAuth 配置

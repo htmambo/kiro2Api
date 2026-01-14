@@ -561,19 +561,21 @@ function isPathUsed(relativePath, fileName, usedPaths) {
 
 async function scanConfigFiles(currentConfig, accountPoolManager) {
     const configFiles = [];
-    
-    // 只扫描configs目录
+    const seenPaths = new Set();
+
     const configsPath = path.join(process.cwd(), 'configs');
-    
+    // 只扫描 OAuth 凭据专用目录
+    const oauthCredsPath = path.join(configsPath, 'kiro');
+
     if (!existsSync(configsPath)) {
         return configFiles;
     }
 
     const usedPaths = new Set(); // 存储已使用的路径，用于判断关联状态
-    // 使用最新的提供商池数据
+    // 使用最新的号池数据
     let accounts = accountPoolManager.listAccounts();
 
-    // 检查提供商池文件中的所有OAuth凭据路径 - 标准化路径格式
+    // 检查号池文件中的所有OAuth凭据路径 - 标准化路径格式
     if (accounts) {
         const { addToUsedPaths } = await import('../../../utils/account-utils.js');
         for (const account of accounts) {
@@ -582,9 +584,56 @@ async function scanConfigFiles(currentConfig, accountPoolManager) {
     }
 
     try {
-        // 扫描configs目录下的所有子目录和文件
-        const configsFiles = await scanOAuthDirectory(configsPath, usedPaths, currentConfig);
-        configFiles.push(...configsFiles);
+        // 1. 扫描 configs/kiro 目录（OAuth 凭据专用目录）
+        if (existsSync(oauthCredsPath)) {
+            const oauthFiles = await scanOAuthDirectory(oauthCredsPath, usedPaths, currentConfig);
+            for (const fileInfo of oauthFiles) {
+                if (fileInfo?.path && !seenPaths.has(fileInfo.path)) {
+                    seenPaths.add(fileInfo.path);
+                    configFiles.push(fileInfo);
+                }
+            }
+        }
+
+        // 2. 补充：把"正在被引用"的凭据文件也加入列表（兼容非 kiro 目录的凭据）
+        const candidatePaths = new Set();
+        if (currentConfig?.KIRO_OAUTH_CREDS_FILE_PATH) {
+            candidatePaths.add(currentConfig.KIRO_OAUTH_CREDS_FILE_PATH);
+        }
+        for (const usedPath of usedPaths) {
+            if (usedPath) candidatePaths.add(usedPath);
+        }
+
+        // 与上传入口 fileFilter 保持一致（.json, .txt, .key, .pem, .p12, .pfx）+ OAuth 专用扩展名
+        const allowedExts = ['.json', '.oauth', '.creds', '.key', '.pem', '.txt', '.p12', '.pfx'];
+        for (const candidatePath of candidatePaths) {
+            if (!candidatePath) continue;
+
+            const normalizedPath = String(candidatePath).replace(/\\/g, path.sep);
+            const absPath = path.resolve(process.cwd(), normalizedPath);
+            const relPath = path.relative(process.cwd(), absPath);
+
+            // 安全检查：只允许 configs 目录下的文件
+            if (!relPath || relPath.startsWith('..')) continue;
+            if (!(relPath === 'configs' || relPath.startsWith('configs' + path.sep))) continue;
+
+            // 跳过已扫描的 kiro 目录文件
+            if (relPath.startsWith(path.join('configs', 'kiro') + path.sep)) continue;
+            if (seenPaths.has(relPath)) continue;
+
+            // 仅处理凭据文件类型
+            const ext = path.extname(relPath).toLowerCase();
+            if (!allowedExts.includes(ext)) continue;
+
+            // 分析并添加
+            if (existsSync(absPath)) {
+                const fileInfo = await analyzeOAuthFile(absPath, usedPaths, currentConfig);
+                if (fileInfo?.path && !seenPaths.has(fileInfo.path)) {
+                    seenPaths.add(fileInfo.path);
+                    configFiles.push(fileInfo);
+                }
+            }
+        }
     } catch (error) {
         logger.warn(`[Config Scanner] Failed to scan configs directory: ${error.message}`);
     }
@@ -612,8 +661,8 @@ async function scanOAuthDirectory(dirPath, usedPaths, currentConfig) {
             
             if (file.isFile()) {
                 const ext = path.extname(file.name).toLowerCase();
-                // 只关注OAuth相关的文件类型
-                if (['.json', '.oauth', '.creds', '.key', '.pem', '.txt'].includes(ext)) {
+                // 只关注OAuth相关的文件类型（与上传入口 fileFilter 保持一致）
+                if (['.json', '.oauth', '.creds', '.key', '.pem', '.txt', '.p12', '.pfx'].includes(ext)) {
                     const fileInfo = await analyzeOAuthFile(fullPath, usedPaths, currentConfig);
                     if (fileInfo) {
                         oauthFiles.push(fileInfo);
@@ -753,7 +802,7 @@ function getFileUsageInfo(relativePath, fileName, usedPaths, currentConfig) {
         });
     }
 
-    // 检查提供商池中的使用情况
+    // 检查号池中的使用情况
     if (currentConfig.providerPools) {
         logger.warn(`[OAuth Analyzer] Checking provider pools for file ${relativePath}`);
         logger.warn(`[OAuth Analyzer] Provider pools: ${JSON.stringify(currentConfig.providerPools)}`);
@@ -770,7 +819,7 @@ function getFileUsageInfo(relativePath, fileName, usedPaths, currentConfig) {
                 (pathsEqual(relativePath, provider.KIRO_OAUTH_CREDS_FILE_PATH) ||
                  pathsEqual(relativePath, provider.KIRO_OAUTH_CREDS_FILE_PATH.replace(/\\/g, '/')))) {
                 providerUsages.push({
-                    type: '提供商池',
+                    type: '号池',
                     location: `Kiro OAuth凭据 (节点${index + 1})`,
                     providerType: providerType,
                     providerIndex: index,

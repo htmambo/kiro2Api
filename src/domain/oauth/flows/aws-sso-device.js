@@ -202,7 +202,7 @@ export class AwsSsoDeviceFlow extends EventEmitter {
                     verificationUriComplete: deviceAuthInfo.verificationUriComplete,
                     expiresIn: deviceAuthInfo.expiresIn,
                     interval: deviceAuthInfo.interval,
-                    instructions: '请在浏览器中打开此链接进行AWS SSO授权。授权完成后,系统会自动获取访问令牌并添加到提供商池中。'
+                    instructions: '请在浏览器中打开此链接进行AWS SSO授权。授权完成后,系统会自动获取访问令牌并添加到提号池中。'
                 }
             };
         } catch (error) {

@@ -109,7 +109,7 @@ export function createRequestHandler(config, accountPoolManager) {
         if (uiHandled) return;
 
         logger.info(`\n${new Date().toLocaleString()}`);
-        logger.info(`[Server] Received request: ${req.method} http://${host}${sanitizeUrlForLogs(req.url)}`);
+        logger.info(`Received request: ${req.method} http://${host}${sanitizeUrlForLogs(req.url)}`);
 
         // Health check endpoint
         if (method === 'GET' && path === '/health') {
@@ -151,7 +151,7 @@ export function createRequestHandler(config, accountPoolManager) {
 
         // Ignore count_tokens requests
         if (path.includes('/count_tokens')) {
-            logger.info(`[Server] Ignoring count_tokens request: ${path}`);
+            logger.info(`Ignoring count_tokens request: ${path}`);
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
                 tokens: 0,

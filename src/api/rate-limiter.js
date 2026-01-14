@@ -46,7 +46,7 @@ function startCleanup() {
         }
 
         if (cleanedCount > 0) {
-            logger.info(`[Rate Limiter] Cleaned up ${cleanedCount} expired records. Current size: ${records.size}`);
+            logger.info(`Cleaned up ${cleanedCount} expired records. Current size: ${records.size}`);
         }
     }, CLEANUP_INTERVAL_MS);
 

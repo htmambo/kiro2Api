@@ -2,7 +2,7 @@
  * OpenAI转换器
  * 处理OpenAI协议与其他协议之间的转换
  */
-
+import { logger } from '../../utils/logger.js';
 import { v4 as uuidv4 } from 'uuid';
 import { BaseConverter } from '../BaseConverter.js';
 import {
@@ -33,6 +33,7 @@ import {
     generateOutputItemDone,
     generateResponseCompleted
 } from '../../openai/openai-responses-core.mjs';
+const logger = logger.child({ module: 'OpenAIConverter' });
 
 /**
  * OpenAI转换器类
@@ -1167,10 +1168,10 @@ export class OpenAIConverter extends BaseConverter {
         // But this parameter cannot be added when using tools (causes 400 error)
         const hasTools = tools && Array.isArray(tools) && tools.length > 0;
         if (!hasTools && model && (model.includes('2.5') || model.includes('thinking') || model.includes('2.0-flash-thinking'))) {
-            console.log(`[OpenAI->Gemini] Adding responseModalities: ["TEXT"] for model: ${model}`);
+            logger.info(`[OpenAI->Gemini] Adding responseModalities: ["TEXT"] for model: ${model}`);
             config.responseModalities = ["TEXT"];
         } else if (hasTools && model && (model.includes('2.5') || model.includes('thinking') || model.includes('2.0-flash-thinking'))) {
-            console.log(`[OpenAI->Gemini] Skipping responseModalities for model ${model} because tools are present`);
+            logger.info(`[OpenAI->Gemini] Skipping responseModalities for model ${model} because tools are present`);
         }
 
         return config;

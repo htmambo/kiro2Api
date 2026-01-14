@@ -210,12 +210,12 @@ export default function ProvidersPage() {
       }
     });
 
-    // 监听提供商更新事件
+    // 监听号池更新事件
     eventSource.addEventListener('provider_update', (event) => {
       try {
         const data = JSON.parse(event.data);
         console.log('Provider update event received:', data);
-        // 自动刷新提供商列表
+        // 自动刷新号池列表
         loadProviders();
       } catch (e) {
         console.error('Failed to parse provider_update event:', e);
@@ -237,7 +237,7 @@ export default function ProvidersPage() {
 	    try {
 	      const response = await fetchWithAuth('/api/accounts');
 	      if (!response.ok) {
-	        const message = await getApiErrorMessage(response, '加载提供商失败');
+	        const message = await getApiErrorMessage(response, '加载号池失败');
 	        throw new Error(message);
 	      }
 	      const data = await response.json();
@@ -251,7 +251,7 @@ export default function ProvidersPage() {
 	        return;
 	      }
 	      console.error('Failed to load providers:', error);
-	      toast.error('加载提供商失败', error instanceof Error ? error.message : undefined);
+	      toast.error('加载号池失败', error instanceof Error ? error.message : undefined);
 	    } finally {
 	      const elapsed = Date.now() - startTime;
 	      const minDelay = 800;
@@ -800,7 +800,7 @@ export default function ProvidersPage() {
       {/* Page Header */}
       <div className="flex items-center justify-between animate-fade-in-up">
         <div>
-          <h1 className="text-3xl font-bold mb-2">提供商池管理</h1>
+          <h1 className="text-3xl font-bold mb-2">号池管理</h1>
           <p className="text-gray-400">管理和监控多账号池</p>
         </div>
         <div className="flex items-center gap-3">

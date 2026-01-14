@@ -45,13 +45,13 @@ export async function handleAPIRequests(method, path, req, res, currentConfig, a
  */
 export function initializeAPIManagement(services) {
     return async function heartbeatAndRefreshToken() {
-        logger.info(`[Heartbeat] Server is running. Current time: ${new Date().toLocaleString()}`, { providers: Object.keys(services) });
+        logger.info(`Server is running. Current time: ${new Date().toLocaleString()}`, { providers: Object.keys(services) });
         for (const providerKey in services) {
             const serviceAdapter = services[providerKey];
             try {
                 await serviceAdapter.checkToken();
             } catch (error) {
-                logger.error(`[Token Refresh Error] Failed to refresh token for ${providerKey}`, error);
+                logger.error(`Failed to refresh token for ${providerKey}`, error);
             }
         }
     };

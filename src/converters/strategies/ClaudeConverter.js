@@ -29,6 +29,8 @@ import {
     generateOutputItemDone,
     generateResponseCompleted
 } from '../../openai/openai-responses-core.mjs';
+import { logger } from '../../utils/logger.js';
+const logger = logger.child({ module: 'ClaudeConverter' });
 
 /**
  * Claude转换器类
@@ -249,7 +251,7 @@ export class ClaudeConverter extends BaseConverter {
                     try {
                         maxCompletionTokens = parseInt(envMaxTokens, 10);
                     } catch (e) {
-                        console.warn(`Invalid OPENAI_REASONING_MAX_TOKENS value '${envMaxTokens}'`);
+                        logger.warn(`Invalid OPENAI_REASONING_MAX_TOKENS value '${envMaxTokens}'`);
                     }
                 }
                 if (!envMaxTokens) {
@@ -754,7 +756,7 @@ export class ClaudeConverter extends BaseConverter {
      */
     toGeminiRequest(claudeRequest) {
         if (!claudeRequest || typeof claudeRequest !== 'object') {
-            console.warn("Invalid claudeRequest provided to toGeminiRequest.");
+            logger.warn("Invalid claudeRequest provided to toGeminiRequest.");
             return { contents: [] };
         }
 
@@ -795,7 +797,7 @@ export class ClaudeConverter extends BaseConverter {
         if (Array.isArray(claudeRequest.messages)) {
             claudeRequest.messages.forEach(message => {
                 if (!message || typeof message !== 'object' || !message.role) {
-                    console.warn("Skipping invalid message in claudeRequest.messages.");
+                    logger.warn("Skipping invalid message in claudeRequest.messages.");
                     return;
                 }
 
@@ -947,7 +949,7 @@ export class ClaudeConverter extends BaseConverter {
             
             claudeRequest.tools.forEach(tool => {
                 if (!tool || typeof tool !== 'object' || !tool.name) {
-                    console.warn("Skipping invalid tool declaration in claudeRequest.tools.");
+                    logger.warn("Skipping invalid tool declaration in claudeRequest.tools.");
                     return;
                 }
 
@@ -1223,7 +1225,7 @@ export class ClaudeConverter extends BaseConverter {
 
             content.forEach(block => {
                 if (!block || typeof block !== 'object' || !block.type) {
-                    console.warn("Skipping invalid content block.");
+                    logger.warn("Skipping invalid content block.");
                     return;
                 }
 
@@ -1289,7 +1291,7 @@ export class ClaudeConverter extends BaseConverter {
      */
     buildGeminiToolConfigFromClaude(claudeToolChoice) {
         if (!claudeToolChoice || typeof claudeToolChoice !== 'object' || !claudeToolChoice.type) {
-            console.warn("Invalid claudeToolChoice provided.");
+            logger.warn("Invalid claudeToolChoice provided.");
             return undefined;
         }
 
@@ -1307,10 +1309,10 @@ export class ClaudeConverter extends BaseConverter {
                         } 
                     };
                 }
-                console.warn("Invalid tool name in claudeToolChoice of type 'tool'.");
+                logger.warn("Invalid tool name in claudeToolChoice of type 'tool'.");
                 return undefined;
             default:
-                console.warn(`Unsupported claudeToolChoice type: ${claudeToolChoice.type}`);
+                logger.warn(`Unsupported claudeToolChoice type: ${claudeToolChoice.type}`);
                 return undefined;
         }
     }

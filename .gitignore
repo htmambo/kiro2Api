@@ -44,3 +44,4 @@ configs/*.json
 configs/*.txt
 
 1-参考项目
+.ace-tool/
