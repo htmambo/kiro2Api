@@ -186,7 +186,8 @@ export default function ConfigPage() {
     loadConfig();
 
     // 建立持久的 SSE 连接，监听配置更新事件
-    const eventSource = new EventSource('/api/events');
+    const token = localStorage.getItem('authToken') || '';
+    const eventSource = new EventSource(`/api/events?token=${encodeURIComponent(token)}`);
     eventSourceRef.current = eventSource;
 
     // 监听配置更新事件

@@ -157,7 +157,18 @@ npm run pm2:start
 
 打开浏览器访问：`http://localhost:8045/login.html`
 
-登录密码：`.env` 文件中的 `REQUIRED_API_KEY`
+登录密码：项目根目录的 `pwd` 文件内容（不会提交到 git）
+
+首次启动请先创建 `pwd`：
+
+```bash
+cp pwd.example pwd
+# 编辑 pwd，填入你的强密码（建议 >= 16 位）
+```
+
+> 提示：`REQUIRED_API_KEY` 用于访问 `/v1/*` API（给 Claude Code/Cursor 等使用），与后台登录密码可相同也可不同（推荐不同）。
+
+> 旧版本升级提示：仓库根目录的 `token-store.json` 已弃用（示例见 `token-store.json.example`）。当前 UI 登录 token 存储在 `configs/token-store.json`（运行时文件）。
 
 ---
 

@@ -116,7 +116,8 @@ export default function LogsPage() {
     fetchLogs();
 
     // 建立 SSE 连接以接收实时日志
-    const eventSource = new EventSource('/api/events');
+    const token = localStorage.getItem('authToken') || '';
+    const eventSource = new EventSource(`/api/events?token=${encodeURIComponent(token)}`);
     eventSourceRef.current = eventSource;
 
     eventSource.addEventListener('log', (event) => {

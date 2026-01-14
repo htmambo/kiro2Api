@@ -93,7 +93,7 @@ export function setupAccountRoutes(router) {
 
     // 清理重复账号
     router.addRoute('POST', '/api/accounts/cleanup-duplicates', accountHandlers.cleanupDuplicates, {
-        auth: false,
+        auth: true,
         description: '清理重复的账号（基于 userId）'
     });
 }

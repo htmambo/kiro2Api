@@ -11,6 +11,33 @@ import { checkRateLimit, isRateLimitWhitelisted } from './rate-limiter.js';
 import { createLogger } from '../lib/logger.js';
 
 const logger = createLogger('api:request-handler');
+
+function sanitizeUrlForLogs(rawUrl) {
+    if (!rawUrl) return 'unknown';
+    try {
+        const u = new URL(rawUrl, 'http://dummy');
+        for (const key of ['key', 'api_key', 'apikey', 'token', 'password', 'secret']) {
+            if (u.searchParams.has(key)) u.searchParams.set(key, '***REDACTED***');
+        }
+        return u.pathname + u.search;
+    } catch {
+        return String(rawUrl).replace(/([?&])(key|api_key|apikey|token|password|secret)=([^&]*)/gi, '$1$2=***REDACTED***');
+    }
+}
+
+function setBasicSecurityHeaders(res) {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
+}
+
+function isApiKeyProtectedPath(pathname) {
+    if (!pathname) return false;
+    if (pathname.startsWith('/v1/')) return true;
+    if (pathname === '/stats') return true;
+    return false;
+}
 /**
  * Main request handler. It authenticates the request, determines the endpoint type,
  * and delegates to the appropriate specialized handler function.
@@ -23,20 +50,35 @@ export function createRequestHandler(config, accountPoolManager) {
         try {
             // Deep copy the config for each request to allow dynamic modification
             const currentConfig = deepmerge({}, config);
-        const requestUrl = new URL(req.url, `http://${req.headers.host}`);
-        let path = requestUrl.pathname;
-        const method = req.method;
+            const host = req.headers.host || 'localhost';
+            const requestUrl = new URL(req.url, `http://${host}`);
+            let path = requestUrl.pathname;
+            const method = req.method;
 
-        // Check rate limit (before any heavy processing)
-        if (!isRateLimitWhitelisted(path, currentConfig)) {
-            const { allowed, retryAfterSeconds } = checkRateLimit(req, currentConfig);
-            if (!allowed) {
-                res.setHeader('Retry-After', String(retryAfterSeconds));
-                const rateLimitError = createError('Too many requests. Rate limit exceeded.', 429);
-                await errorMiddleware(rateLimitError, req, res);
-                return;
+            setBasicSecurityHeaders(res);
+
+            // Normalize provider prefix early (e.g. /claude-kiro-oauth/v1/messages)
+            const pathSegments = path.split('/').filter(segment => segment.length > 0);
+            if (pathSegments.length > 0) {
+                const firstSegment = pathSegments[0];
+                const isValidProvider = firstSegment === 'claude-kiro-oauth';
+                if (firstSegment && isValidProvider) {
+                    pathSegments.shift();
+                    path = '/' + pathSegments.join('/');
+                    requestUrl.pathname = path;
+                }
             }
-        }
+
+            // Check rate limit (before any heavy processing)
+            if (!isRateLimitWhitelisted(path, currentConfig)) {
+                const { allowed, retryAfterSeconds } = checkRateLimit(req, currentConfig);
+                if (!allowed) {
+                    res.setHeader('Retry-After', String(retryAfterSeconds));
+                    const rateLimitError = createError('Too many requests. Rate limit exceeded.', 429);
+                    await errorMiddleware(rateLimitError, req, res);
+                    return;
+                }
+            }
 
         // Handle CORS preflight requests
         if (method === 'OPTIONS') {
@@ -54,11 +96,20 @@ export function createRequestHandler(config, accountPoolManager) {
             if (served) return;
         }
 
+        // API-key protected endpoints should be authenticated before any handler consumes the request
+        if (isApiKeyProtectedPath(path)) {
+            if (!isAuthorized(req, requestUrl, currentConfig.REQUIRED_API_KEY)) {
+                res.writeHead(401, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: { message: 'Unauthorized: API key is invalid or missing.' } }));
+                return;
+            }
+        }
+
         const uiHandled = await handleUIApiRequests(method, path, req, res, currentConfig, accountPoolManager);
         if (uiHandled) return;
 
         logger.info(`\n${new Date().toLocaleString()}`);
-        logger.info(`[Server] Received request: ${req.method} http://${req.headers.host}${req.url}`);
+        logger.info(`[Server] Received request: ${req.method} http://${host}${sanitizeUrlForLogs(req.url)}`);
 
         // Health check endpoint
         if (method === 'GET' && path === '/health') {
@@ -110,17 +161,6 @@ export function createRequestHandler(config, accountPoolManager) {
         }
 
         currentConfig.MODEL_PROVIDER = 'claude-kiro-oauth';
-        // Check if the first path segment matches a MODEL_PROVIDER and switch if it does
-        const pathSegments = path.split('/').filter(segment => segment.length > 0);
-        if (pathSegments.length > 0) {
-            const firstSegment = pathSegments[0];
-            const isValidProvider = firstSegment === 'claude-kiro-oauth';
-            if (firstSegment && isValidProvider) {
-                pathSegments.shift();
-                path = '/' + pathSegments.join('/');
-                requestUrl.pathname = path;
-            }
-        }
 
         // 获取或选择 API Service 实例
         let apiService;
@@ -140,16 +180,6 @@ export function createRequestHandler(config, accountPoolManager) {
         // Handle API requests
         const apiHandled = await handleAPIRequests(method, path, req, res, currentConfig, apiService, accountPoolManager, PROMPT_LOG_FILENAME);
         if (apiHandled) return;
-
-        // Skip authentication for OAuth callback endpoints
-        const isOAuthCallback = path === '/api/kiro/oauth/callback';
-
-        // Check authentication for API requests
-        if (!isOAuthCallback && !isAuthorized(req, requestUrl, currentConfig.REQUIRED_API_KEY)) {
-            res.writeHead(401, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: { message: 'Unauthorized: API key is invalid or missing.' } }));
-            return;
-        }
 
 
             // Fallback for unmatched routes

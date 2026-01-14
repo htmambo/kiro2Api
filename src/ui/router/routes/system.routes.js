@@ -52,7 +52,7 @@ export function setupSystemRoutes(router) {
 
     // 获取日志 - 无需认证
     router.addRoute('GET', '/api/logs', systemHandlers.getLogs, {
-        auth: false,
+        auth: true,
         description: '获取系统运行日志',
         metadata: {
             category: 'system',
@@ -62,7 +62,7 @@ export function setupSystemRoutes(router) {
 
     // 清空日志 - 无需认证
     router.addRoute('DELETE', '/api/logs', systemHandlers.clearLogs, {
-        auth: false,
+        auth: true,
         description: '清空系统日志缓冲区',
         metadata: {
             category: 'system',
@@ -72,6 +72,7 @@ export function setupSystemRoutes(router) {
 
     // SSE 实时事件推送 - 无需认证
     router.addRoute('GET', '/api/events', systemHandlers.eventStream, {
+        // EventSource 无法自定义请求头；在 handler 内使用 ?token= 做鉴权
         auth: false,
         description: 'Server-Sent Events 实时事件推送',
         metadata: {

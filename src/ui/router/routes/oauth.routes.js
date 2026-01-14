@@ -24,13 +24,13 @@ export function setupOAuthRoutes(router) {
 
     // 手动导入 refreshToken
     router.addRoute('POST', '/api/kiro/oauth/manual-import', oauthHandlers.manualImport, {
-        auth: false,
+        auth: true,
         description: '手动导入 Kiro OAuth refreshToken'
     });
 
     // AWS SSO 设备授权启动
     router.addRoute('POST', '/api/kiro/oauth/aws-sso/start', oauthHandlers.awsSsoStart, {
-        auth: false,
+        auth: true,
         description: '启动 AWS SSO BuilderId 设备授权流程'
     });
 }

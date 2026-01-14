@@ -1,4 +1,5 @@
-import { existsSync, readFileSync, statSync } from 'fs';
+import { createReadStream } from 'fs';
+import { promises as fs } from 'fs';
 import path from 'path';
 
 /**
@@ -13,6 +14,7 @@ import path from 'path';
  * @returns {Promise<boolean>} - 如果文件被成功提供则返回true
  */
 export async function serveStaticFiles(pathParam, res) {
+    const staticRoot = path.resolve(process.cwd(), 'static');
     // 处理不同类型的路径
     let relativePath;
     if (pathParam === '/' || pathParam === '/index.html') {
@@ -34,67 +36,59 @@ export async function serveStaticFiles(pathParam, res) {
         // 其他路径移除 /static/ 前缀
         relativePath = pathParam.replace('/static/', '');
     }
-    let filePath = path.join(process.cwd(), 'static', relativePath);
+    const safeRelativePath = String(relativePath || '').replace(/^([/\\\\])+/, '');
+    const candidateBase = path.resolve(staticRoot, safeRelativePath);
 
-    // 首先尝试添加 .html 扩展名（优先于目录处理）
-    const ext = path.extname(filePath);
-    if (!ext && !filePath.endsWith('/')) {
-        const htmlPath = filePath + '.html';
-        if (existsSync(htmlPath)) {
-            try {
-                const stats = statSync(htmlPath);
-                if (!stats.isDirectory()) {
-                    filePath = htmlPath;
-                }
-            } catch (e) {
-                // 忽略错误
-            }
-        }
+    // 防止路径穿越：必须落在 staticRoot 下
+    if (!(candidateBase === staticRoot || candidateBase.startsWith(staticRoot + path.sep))) {
+        return false;
     }
 
-    // 如果文件不存在，检查是否是目录并尝试添加 index.html
-    if (!existsSync(filePath) || (existsSync(filePath) && statSync(filePath).isDirectory())) {
-        const currentPath = path.join(process.cwd(), 'static', relativePath);
-        if (existsSync(currentPath)) {
-            try {
-                const stats = statSync(currentPath);
-                if (stats.isDirectory()) {
-                    const indexPath = path.join(currentPath, 'index.html');
-                    if (existsSync(indexPath)) {
-                        filePath = indexPath;
-                    }
-                }
-            } catch (e) {
-                // 忽略错误
-            }
-        }
+    const candidates = [];
+    const ext = path.extname(candidateBase);
+    if (!ext && !candidateBase.endsWith(path.sep)) {
+        candidates.push(candidateBase + '.html');
     }
+    candidates.push(candidateBase);
+    candidates.push(path.join(candidateBase, 'index.html'));
 
-    if (existsSync(filePath)) {
+    let filePath = null;
+    for (const candidate of candidates) {
         try {
-            const stats = statSync(filePath);
-            if (stats.isDirectory()) {
-                return false; // 仍然是目录，返回 false
+            const stat = await fs.stat(candidate);
+            if (stat.isFile()) {
+                filePath = candidate;
+                break;
             }
-        } catch (e) {
-            return false;
+        } catch {
+            // ignore missing
         }
-
-        const fileExt = path.extname(filePath);
-        const contentType = getContentType(fileExt);
-
-        // 为HTML文件添加允许Next.js运行的CSP头（完全禁用CSP限制）
-        const headers = { 'Content-Type': contentType };
-        if (fileExt === '.html') {
-            // 使用最宽松的CSP策略
-            headers['Content-Security-Policy'] = "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;";
-        }
-
-        res.writeHead(200, headers);
-        res.end(readFileSync(filePath));
-        return true;
     }
-    return false;
+
+    if (!filePath) return false;
+
+    const fileExt = path.extname(filePath);
+    const contentType = getContentType(fileExt);
+
+    const headers = { 'Content-Type': contentType };
+    if (fileExt === '.html' && process.env.NODE_ENV === 'production') {
+        headers['Content-Security-Policy'] = "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self';";
+    }
+
+    res.writeHead(200, headers);
+    const stream = createReadStream(filePath);
+    stream.on('error', () => {
+        try {
+            if (!res.headersSent) {
+                res.writeHead(500, { 'Content-Type': 'text/plain' });
+            }
+            res.end('Internal Server Error');
+        } catch {
+            // ignore
+        }
+    });
+    stream.pipe(res);
+    return true;
 }
 
 /**

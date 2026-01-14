@@ -150,7 +150,8 @@ export default function ProvidersPage() {
     loadProviders();
 
     // 建立持久的 SSE 连接，监听实时事件
-    const eventSource = new EventSource('/api/events');
+    const token = localStorage.getItem('authToken') || '';
+    const eventSource = new EventSource(`/api/events?token=${encodeURIComponent(token)}`);
     eventSourceRef.current = eventSource;
 
     // 监听账号更新事件

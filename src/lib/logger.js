@@ -214,6 +214,8 @@ class Logger {
     }
 }
 
+export default Logger;
+
 /**
  * 默认 Logger 实例
  */
@@ -257,5 +259,3 @@ export const logger = {
     warn: (message, meta) => getLogger().warn(message, meta),
     error: (message, metaOrError) => getLogger().error(message, metaOrError),
 };
-
-export default Logger;

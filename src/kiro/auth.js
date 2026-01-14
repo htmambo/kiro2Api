@@ -198,7 +198,13 @@ export async function doRefreshToken(service) {
         const response = await service.axiosInstance.post(refreshUrl, requestBody);
         logger.debug('Token refresh response status:', { status: response.status });
         logger.debug('Token refresh response data keys:', { keys: Object.keys(response.data || {}) });
-        logger.debug('Token refresh response data:', { data: JSON.stringify(response.data, null, 2) });
+        if (response.data && typeof response.data === 'object') {
+            const safeData = { ...response.data };
+            if ('accessToken' in safeData) safeData.accessToken = '***REDACTED***';
+            if ('refreshToken' in safeData) safeData.refreshToken = '***REDACTED***';
+            if ('idToken' in safeData) safeData.idToken = '***REDACTED***';
+            logger.debug('Token refresh response data (redacted):', { data: JSON.stringify(safeData, null, 2) });
+        }
 
         if (response.data && response.data.accessToken) {
             service.accessToken = response.data.accessToken;

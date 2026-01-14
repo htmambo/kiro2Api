@@ -197,9 +197,11 @@ router.use(async (req, res, next) => {
    ```
 
 2. 路由系统自动验证 Token：
-   - 从 `configs/token-store.json` 读取 Token 存储
+   - 从 `configs/token-store.json` 读取 Token 存储（运行时文件，不应提交到 git）
    - 检查 Token 是否存在且未过期
    - 验证通过后执行 Handler，否则返回 401
+
+> `configs/token-store.json` 会在首次登录时自动创建；仓库提供示例文件 `configs/token-store.json.example` 供参考。
 
 ### Token 生成（登录）
 

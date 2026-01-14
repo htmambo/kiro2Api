@@ -15,10 +15,30 @@ initLogger({ level: logLevel });
 
 const logger = createLogger('server');
 
+function isInsecureDefaultApiKey(value) {
+    return value === '123456' || value === 'password' || value === 'admin';
+}
+
+function maskSecret(value) {
+    if (!value) return '(unset)';
+    const str = String(value);
+    if (str.length <= 4) return '****';
+    return `${str.slice(0, 2)}****${str.slice(-2)}`;
+}
+
 // --- Server Initialization ---
 async function startServer() {
     // Initialize configuration
     await initializeConfig();
+
+    // 生产环境禁止使用弱默认 API Key（可用 ALLOW_WEAK_API_KEY=true 覆盖）
+    if (process.env.NODE_ENV === 'production' && isInsecureDefaultApiKey(CONFIG.REQUIRED_API_KEY)) {
+        if (process.env.ALLOW_WEAK_API_KEY !== 'true') {
+            logger.error('Refusing to start with insecure REQUIRED_API_KEY in production. Please set a strong REQUIRED_API_KEY.');
+            process.exit(1);
+        }
+        logger.warn('Starting with insecure REQUIRED_API_KEY because ALLOW_WEAK_API_KEY=true is set.');
+    }
     
     // Initialize API services
     const services = await initApiService(CONFIG);
@@ -39,7 +59,7 @@ async function startServer() {
         logger.info(`  System Prompt Mode: ${CONFIG.SYSTEM_PROMPT_MODE}`);
         logger.info(`  Host: ${CONFIG.HOST}`);
         logger.info(`  Port: ${CONFIG.SERVER_PORT}`);
-        logger.info(`  Required API Key: ${CONFIG.REQUIRED_API_KEY}`);
+        logger.info(`  Required API Key: ${process.env.NODE_ENV === 'production' ? '[configured]' : maskSecret(CONFIG.REQUIRED_API_KEY)}`);
         logger.info(`  Prompt Logging: ${CONFIG.PROMPT_LOG_MODE}${CONFIG.PROMPT_LOG_FILENAME ? ` (to ${CONFIG.PROMPT_LOG_FILENAME})` : ''}`);
         logger.info(`------------------------------------------`);
         logger.info(`Unified API Server running on http://${CONFIG.HOST}:${CONFIG.SERVER_PORT}`);

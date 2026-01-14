@@ -1,0 +1,5 @@
+{
+  "__comment": "示例文件：历史遗留的 token-store.json（仓库根目录）已不再被当前代码使用。当前 UI 会使用 configs/token-store.json 存储登录 token（运行时文件，不应提交到 git）。",
+  "tokens": {}
+}
+

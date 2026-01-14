@@ -12,6 +12,9 @@ import { convertData, getOpenAIStreamChunkStop } from './convert.js';
 import { getProtocolPrefix, MODEL_PROTOCOL_PREFIX } from './protocol.js';
 
 const logger = createLogger('utils:common');
+const DEFAULT_MAX_BODY_BYTES = Number(process.env.REQUEST_MAX_BODY_BYTES) > 0
+    ? Number(process.env.REQUEST_MAX_BODY_BYTES)
+    : 10 * 1024 * 1024;
 
 export const API_ACTIONS = {
     GENERATE_CONTENT: 'generateContent',
@@ -96,7 +99,15 @@ export function formatExpiryTime(expiryTimestamp) {
 export function getRequestBody(req) {
     return new Promise((resolve, reject) => {
         let body = '';
+        let receivedBytes = 0;
         req.on('data', chunk => {
+            receivedBytes += chunk.length;
+            if (receivedBytes > DEFAULT_MAX_BODY_BYTES) {
+                const err = new Error('Request body too large');
+                err.status = 413;
+                req.destroy(err);
+                return;
+            }
             body += chunk.toString();
         });
         req.on('end', () => {
@@ -124,7 +135,6 @@ export function getRequestBody(req) {
  */
 export function isAuthorized(req, requestUrl, REQUIRED_API_KEY) {
     const authHeader = req.headers['authorization'];
-    const queryKey = requestUrl.searchParams.get('key');
     const claudeApiKey = req.headers['x-api-key']; // Claude-specific header
 
     // Check for Bearer token in Authorization header
@@ -140,7 +150,11 @@ export function isAuthorized(req, requestUrl, REQUIRED_API_KEY) {
         return true;
     }
 
-    logger.warn(`[Auth] Unauthorized request denied. Bearer: "${authHeader ? 'present' : 'N/A'}", Query Key: "${queryKey}", x-api-key: "${claudeApiKey}"`);
+    logger.warn('[Auth] Unauthorized request denied', {
+        bearerPresent: Boolean(authHeader),
+        xApiKeyPresent: Boolean(claudeApiKey),
+        hasKeyQuery: requestUrl.searchParams.has('key') || requestUrl.searchParams.has('api_key') || requestUrl.searchParams.has('apikey')
+    });
     return false;
 }
 

@@ -4,9 +4,57 @@
  */
 import { promises as fs, existsSync } from 'fs';
 import path from 'path';
+import multer from 'multer';
 import { createLogger } from '../../../lib/logger.js';
 
 const logger = createLogger('ui:handlers:upload');
+
+const MAX_UPLOAD_BYTES = Number(process.env.OAUTH_UPLOAD_MAX_BYTES) > 0
+    ? Number(process.env.OAUTH_UPLOAD_MAX_BYTES)
+    : 5 * 1024 * 1024; // 5MB
+
+// 配置 multer（只在该 handler 内使用，避免绕过路由鉴权）
+const storage = multer.diskStorage({
+    destination: async (req, file, cb) => {
+        try {
+            const uploadPath = path.join(process.cwd(), 'configs', 'temp');
+            await fs.mkdir(uploadPath, { recursive: true });
+            cb(null, uploadPath);
+        } catch (error) {
+            cb(error);
+        }
+    },
+    filename: (req, file, cb) => {
+        const timestamp = Date.now();
+        const sanitizedName = String(file.originalname || 'upload').replace(/[^a-zA-Z0-9.-]/g, '_');
+        cb(null, `${timestamp}_${sanitizedName}`);
+    }
+});
+
+const fileFilter = (req, file, cb) => {
+    const allowedTypes = ['.json', '.txt', '.key', '.pem', '.p12', '.pfx'];
+    const ext = path.extname(String(file.originalname || '')).toLowerCase();
+    if (allowedTypes.includes(ext)) {
+        cb(null, true);
+    } else {
+        cb(new Error('不支持的文件类型'), false);
+    }
+};
+
+const upload = multer({
+    storage,
+    fileFilter,
+    limits: { fileSize: MAX_UPLOAD_BYTES }
+});
+
+function runMulterSingle(req, res, fieldName) {
+    return new Promise((resolve, reject) => {
+        upload.single(fieldName)(req, res, (err) => {
+            if (err) return reject(err);
+            resolve();
+        });
+    });
+}
 
 /**
  * Helper function to attempt quick link for a single file
@@ -91,12 +139,40 @@ export async function uploadCredentials({ req, res, currentConfig }) {
     try {
         const { broadcastEvent } = await import('../../events.js');
 
+        // 仅支持 multipart/form-data
+        const contentType = String(req.headers['content-type'] || '').toLowerCase();
+        if (!contentType.includes('multipart/form-data')) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: { message: '仅支持 multipart/form-data 上传' } }));
+            return;
+        }
+
+        // 解析 multipart（会填充 req.file / req.body）
+        if (!req.file) {
+            await runMulterSingle(req, res, 'file');
+        }
+
+        if (!req.file) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: { message: '没有文件被上传' } }));
+            return;
+        }
+
         // multer执行完成后，表单字段已解析到req.body中
-        const provider = req.body.provider || 'common';
+        const providerRaw = req.body?.provider || 'common';
+        const provider = String(providerRaw).trim() || 'common';
         const tempFilePath = req.file.path;
 
         // 根据实际的provider移动文件到正确的目录
-        let targetDir = path.join(process.cwd(), 'configs', provider);
+        const configsRoot = path.resolve(process.cwd(), 'configs');
+        let targetDir = path.resolve(configsRoot, provider);
+
+        // 防止路径穿越：必须落在 configsRoot 下
+        if (!(targetDir === configsRoot || targetDir.startsWith(configsRoot + path.sep))) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: { message: '非法 provider 参数' } }));
+            return;
+        }
 
         // 如果是kiro类型的凭证，需要再包裹一层文件夹
         if (provider === 'kiro') {

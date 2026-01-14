@@ -1,7 +1,6 @@
 import { existsSync, readFileSync, writeFileSync, statSync } from 'fs';
 import { promises as fs } from 'fs';
 import path from 'path';
-import multer from 'multer';
 import crypto from 'crypto';
 import { getRequestBody } from './utils/common.js';
 import { CONFIG } from './config/manager.js';
@@ -278,7 +277,38 @@ async function readPasswordFile() {
  */
 export async function validateCredentials(password) {
     const storedPassword = await readPasswordFile();
-    return storedPassword && password === storedPassword;
+    if (!storedPassword) return false;
+    if (typeof password !== 'string') return false;
+
+    // 新格式：scrypt$<saltB64>$<hashB64>
+    if (storedPassword.startsWith('scrypt$')) {
+        const parts = storedPassword.split('$');
+        if (parts.length !== 3) return false;
+        try {
+            const salt = Buffer.from(parts[1], 'base64');
+            const expected = Buffer.from(parts[2], 'base64');
+            const keylen = expected.length;
+            const derived = await new Promise((resolve, reject) => {
+                crypto.scrypt(password, salt, keylen, { N: 16384, r: 8, p: 1 }, (err, buf) => {
+                    if (err) return reject(err);
+                    resolve(buf);
+                });
+            });
+            return crypto.timingSafeEqual(Buffer.from(derived), expected);
+        } catch {
+            return false;
+        }
+    }
+
+    // 旧格式：明文（兼容）
+    try {
+        const a = Buffer.from(password);
+        const b = Buffer.from(storedPassword);
+        if (a.length !== b.length) return false;
+        return crypto.timingSafeEqual(a, b);
+    } catch {
+        return false;
+    }
 }
 
 /**
@@ -287,7 +317,18 @@ export async function validateCredentials(password) {
 export function parseRequestBody(req) {
     return new Promise((resolve, reject) => {
         let body = '';
+        let receivedBytes = 0;
+        const maxBytes = Number(process.env.REQUEST_MAX_BODY_BYTES) > 0
+            ? Number(process.env.REQUEST_MAX_BODY_BYTES)
+            : 10 * 1024 * 1024;
         req.on('data', chunk => {
+            receivedBytes += chunk.length;
+            if (receivedBytes > maxBytes) {
+                const err = new Error('请求体过大');
+                err.status = 413;
+                req.destroy(err);
+                return;
+            }
             body += chunk.toString();
         });
         req.on('end', () => {
@@ -308,44 +349,6 @@ export function parseRequestBody(req) {
 
 // 定时清理过期token
 setInterval(cleanupExpiredTokens, 5 * 60 * 1000); // 每5分钟清理一次
-
-// 配置multer中间件
-const storage = multer.diskStorage({
-    destination: async (req, file, cb) => {
-        try {
-            // multer在destination回调时req.body还未解析，先使用默认路径
-            // 实际的provider会在文件上传完成后从req.body中获取
-            const uploadPath = path.join(process.cwd(), 'configs', 'temp');
-            await fs.mkdir(uploadPath, { recursive: true });
-            cb(null, uploadPath);
-        } catch (error) {
-            cb(error);
-        }
-    },
-    filename: (req, file, cb) => {
-        const timestamp = Date.now();
-        const sanitizedName = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
-        cb(null, `${timestamp}_${sanitizedName}`);
-    }
-});
-
-const fileFilter = (req, file, cb) => {
-    const allowedTypes = ['.json', '.txt', '.key', '.pem', '.p12', '.pfx'];
-    const ext = path.extname(file.originalname).toLowerCase();
-    if (allowedTypes.includes(ext)) {
-        cb(null, true);
-    } else {
-        cb(new Error('不支持的文件类型'), false);
-    }
-};
-
-const upload = multer({
-    storage,
-    fileFilter,
-    limits: {
-        fileSize: 5 * 1024 * 1024 // 5MB限制
-    }
-});
 
 /**
  * Serve static files for the UI
@@ -394,50 +397,6 @@ export async function reloadConfig() {
  * @returns {Promise<boolean>} - True if the request was handled by UI API
  */
 export async function handleUIApiRequests(method, pathParam, req, res, currentConfig, accountPoolManager) {
-    // ========== 文件上传特殊处理（需要在路由器之前） ==========
-    if (method === 'POST' && pathParam === '/api/upload-oauth-credentials') {
-        // 使用 multer 中间件处理文件上传
-        const uploadMiddleware = upload.single('file');
-
-        uploadMiddleware(req, res, async (err) => {
-            if (err) {
-                logger.error('文件上传错误', err);
-                res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({
-                    error: {
-                        message: err.message || '文件上传失败'
-                    }
-                }));
-                return;
-            }
-
-            try {
-                if (!req.file) {
-                    res.writeHead(400, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({
-                        error: {
-                            message: '没有文件被上传'
-                        }
-                    }));
-                    return;
-                }
-
-                // 调用handler处理上传后的逻辑
-                const { uploadCredentials } = await import('./ui/router/handlers/upload.handlers.js');
-                await uploadCredentials({ req, res, currentConfig });
-            } catch (error) {
-                logger.error('[Router] Upload handler error', error);
-                if (!res.headersSent) {
-                    res.writeHead(500, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({
-                        error: { message: '文件上传处理失败: ' + error.message }
-                    }));
-                }
-            }
-        });
-        return true;
-    }
-
     // ========== 路由器处理逻辑 ==========
     // 创建路由器实例
     if (!global.uiRouter || process.env.NODE_ENV !== 'production') {

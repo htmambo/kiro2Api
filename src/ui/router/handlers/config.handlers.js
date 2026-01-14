@@ -8,6 +8,7 @@ import path from 'path';
 import { createLogger } from '../../../lib/logger.js';
 import { getRequestBody } from '../../../utils/common.js';
 import { broadcastEvent } from '../../events.js';
+import crypto from 'node:crypto';
 
 const logger = createLogger('ui:handlers:config');
 
@@ -124,8 +125,25 @@ export async function updateAdminPassword({ req, res }) {
             return;
         }
 
+        const trimmed = password.trim();
+        if (trimmed.length < 8) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: { message: '密码至少需要 8 位' } }));
+            return;
+        }
+
+        const salt = crypto.randomBytes(16);
+        const keylen = 64;
+        const derived = await new Promise((resolve, reject) => {
+            crypto.scrypt(trimmed, salt, keylen, { N: 16384, r: 8, p: 1 }, (err, buf) => {
+                if (err) return reject(err);
+                resolve(buf);
+            });
+        });
+        const encoded = `scrypt$${salt.toString('base64')}$${Buffer.from(derived).toString('base64')}`;
+
         const pwdFilePath = path.join(process.cwd(), 'pwd');
-        await fs.writeFile(pwdFilePath, password.trim(), 'utf8');
+        await fs.writeFile(pwdFilePath, encoded, 'utf8');
 
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({

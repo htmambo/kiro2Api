@@ -65,9 +65,20 @@ export function initializeUIManagement() {
 export function broadcastEvent(eventType, data) {
     if (global.eventClients && global.eventClients.length > 0) {
         const payload = typeof data === 'string' ? data : JSON.stringify(data);
+        const aliveClients = [];
         global.eventClients.forEach(client => {
-            client.write(`event: ${eventType}\n`);
-            client.write(`data: ${payload}\n\n`);
+            try {
+                client.write(`event: ${eventType}\n`);
+                client.write(`data: ${payload}\n\n`);
+                aliveClients.push(client);
+            } catch {
+                try {
+                    client.end();
+                } catch {
+                    // ignore
+                }
+            }
         });
+        global.eventClients = aliveClients;
     }
 }

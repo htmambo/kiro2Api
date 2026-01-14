@@ -5,6 +5,10 @@ node_modules/
 .env
 .env*.local
 
+# Sensitive runtime secrets (do NOT commit)
+pwd
+token-store.json
+
 # OS
 .DS_Store
 Thumbs.db
@@ -19,6 +23,9 @@ Thumbs.db
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# History rewrite backups
+backup/
 
 # Next.js
 .next/

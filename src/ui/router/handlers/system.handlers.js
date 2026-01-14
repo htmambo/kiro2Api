@@ -166,6 +166,37 @@ export async function clearLogs({ res }) {
  * 长连接实现，用于实时推送事件
  */
 export async function eventStream({ req, res }) {
+    // EventSource 无法设置 Authorization header，这里使用 ?token= 传递
+    try {
+        const urlObj = new URL(req.url, `http://${req.headers.host}`);
+        const token = urlObj.searchParams.get('token');
+        if (!token) {
+            res.writeHead(401, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: { message: '未授权访问，请先登录' } }));
+            return;
+        }
+
+        const { readTokenStore, writeTokenStore } = await import('../../../ui-manager.js');
+        const tokenStore = await readTokenStore();
+        const tokenInfo = tokenStore.tokens?.[token];
+        if (!tokenInfo) {
+            res.writeHead(401, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: { message: '未授权访问，请先登录' } }));
+            return;
+        }
+        if (Date.now() > tokenInfo.expiryTime) {
+            delete tokenStore.tokens[token];
+            await writeTokenStore(tokenStore);
+            res.writeHead(401, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: { message: '登录已过期，请重新登录' } }));
+            return;
+        }
+    } catch (e) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: { message: '未授权访问，请先登录' } }));
+        return;
+    }
+
     res.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
@@ -181,6 +212,17 @@ export async function eventStream({ req, res }) {
         global.eventClients = [];
     }
     global.eventClients.push(res);
+
+    // 限制最大连接数，避免被长连接耗尽资源
+    const MAX_SSE_CLIENTS = Number(process.env.MAX_SSE_CLIENTS) > 0 ? Number(process.env.MAX_SSE_CLIENTS) : 50;
+    while (global.eventClients.length > MAX_SSE_CLIENTS) {
+        const oldest = global.eventClients.shift();
+        try {
+            oldest?.end();
+        } catch {
+            // ignore
+        }
+    }
 
     // 保持连接活跃
     const keepAlive = setInterval(() => {
