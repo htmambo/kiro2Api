@@ -16,7 +16,6 @@ const DEFAULT_CONFIG = {
     HOST: '0.0.0.0',
     MODEL_PROVIDER: MODEL_PROVIDER.KIRO_API,
     ACCOUNT_POOL_FILE_PATH: "./configs/account_pool.json",
-    KIRO_OAUTH_CREDS_BASE64: null,
     SYSTEM_PROMPT_FILE_PATH: INPUT_SYSTEM_PROMPT_FILE,
     SYSTEM_PROMPT_MODE: 'overwrite',
     PROMPT_LOG_BASE_NAME: "prompt_log",
@@ -216,13 +215,6 @@ export async function initializeConfig(args = process.argv.slice(2), configFileP
                 i++;
             } else {
                 logger.warn(`--prompt-log-base-name flag requires a value.`);
-            }
-        } else if (args[i] === '--kiro-oauth-creds-base64') {
-            if (i + 1 < args.length) {
-                currentConfig.KIRO_OAUTH_CREDS_BASE64 = args[i + 1];
-                i++;
-            } else {
-                logger.warn(`--kiro-oauth-creds-base64 flag requires a value.`);
             }
        } else if (args[i] === '--cron-near-minutes') {
             if (i + 1 < args.length) {

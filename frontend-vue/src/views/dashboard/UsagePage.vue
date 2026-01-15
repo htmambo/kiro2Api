@@ -192,6 +192,17 @@ const refreshAccountUsage = async (uuid: string) => {
 const formatDate = (dateStr: string) => new Date(dateStr).toLocaleString('zh-CN')
 const formatPercentage = (value?: number) => `${(value ?? 0).toFixed(1)}%`
 
+const getSpotlightColors = (percent?: number) => {
+  const value = percent ?? 0
+  if (value > 90) {
+    return { accent: '#ef4444', dim: 'rgba(239, 68, 68, 0.18)' }
+  }
+  if (value > 70) {
+    return { accent: '#f97316', dim: 'rgba(249, 115, 22, 0.18)' }
+  }
+  return { accent: '#10b981', dim: 'rgba(16, 185, 129, 0.18)' }
+}
+
 const getAccountPool = (instance: ProviderInstance): 'healthy' | 'banned' => {
   if (instance.isDisabled || !instance.isHealthy) {
     return 'banned'
@@ -373,6 +384,8 @@ onBeforeUnmount(() => {
           :key="instance.uuid || index"
           no-padding
           class="rounded-lg"
+          :accent-color="getSpotlightColors(instance.limits?.percentUsed).accent"
+          :accent-dim="getSpotlightColors(instance.limits?.percentUsed).dim"
         >
           <div class="p-4">
             <div class="flex items-center justify-between mb-3">

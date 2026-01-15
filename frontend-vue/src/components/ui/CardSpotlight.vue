@@ -5,10 +5,20 @@ import { cn } from '@/lib/utils'
 
 defineOptions({ inheritAttrs: false })
 
-const props = withDefaults(defineProps<{ noBackground?: boolean; noPadding?: boolean }>(), {
-  noBackground: false,
-  noPadding: false,
-})
+const props = withDefaults(
+  defineProps<{
+    noBackground?: boolean
+    noPadding?: boolean
+    accentColor?: string
+    accentDim?: string
+  }>(),
+  {
+    noBackground: false,
+    noPadding: false,
+    accentColor: 'var(--fitness-accent)',
+    accentDim: 'var(--fitness-accent-dim)',
+  }
+)
 
 const attrs = useAttrs()
 
@@ -50,6 +60,8 @@ const rootClass = computed(() => cn(paddingClass.value, attrs.class as ClassValu
 const containerStyle = computed(() => ({
   borderColor: 'var(--fitness-border)',
   boxShadow: '0 4px 24px rgba(0, 0, 0, 0.4)',
+  '--spotlight-accent': props.accentColor,
+  '--spotlight-accent-dim': props.accentDim,
   ...(props.noBackground ? {} : { backgroundColor: 'var(--fitness-card)' }),
 }))
 
@@ -81,7 +93,7 @@ const attrsWithoutClass = computed(() => {
     <div
       v-if="!noBackground"
       class="absolute inset-0 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-500 blur-2xl -z-20"
-      :style="{ backgroundColor: 'var(--fitness-accent-dim)' }"
+      :style="{ backgroundColor: 'var(--spotlight-accent-dim)' }"
     />
 
     <div
@@ -89,7 +101,7 @@ const attrsWithoutClass = computed(() => {
       class="pointer-events-none absolute -inset-px opacity-0 ease-smooth transition-opacity duration-300 rounded-xl"
       :style="{
         opacity,
-        background: `radial-gradient(600px circle at ${position.x}px ${position.y}px, rgba(0, 217, 163, 0.08), rgba(0, 217, 163, 0.03), transparent 50%)`,
+        background: `radial-gradient(600px circle at ${position.x}px ${position.y}px, var(--spotlight-accent-dim), transparent 55%)`,
       }"
     />
 
@@ -97,7 +109,7 @@ const attrsWithoutClass = computed(() => {
 
     <div
       class="absolute left-0 top-0 bottom-0 w-[2px] rounded-full opacity-0 group-hover:opacity-100 ease-smooth transition-opacity duration-500"
-      :style="{ background: 'linear-gradient(to bottom, transparent, var(--fitness-accent), transparent)' }"
+      :style="{ background: 'linear-gradient(to bottom, transparent, var(--spotlight-accent), transparent)' }"
     />
 
     <div class="relative z-10">

@@ -225,6 +225,8 @@ onBeforeUnmount(() => {
 
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
       <ConfigCard
+        :accent-color="'#0000ff'"
+        :accent-dim="'#0000ff55'"
         :icon="IconServer"
         title="服务器设置"
         description="API 端口和主机配置"
@@ -246,6 +248,23 @@ onBeforeUnmount(() => {
           />
         </div>
         <ConfigInput
+          label="API Key"
+          placeholder="your-api-key"
+          hint="用于验证 API 请求"
+          :model-value="config.REQUIRED_API_KEY"
+          @update:model-value="value => updateConfig('REQUIRED_API_KEY', value)"
+        />
+      </ConfigCard>
+
+      <ConfigCard
+        :accent-color="'#ff6900'"
+        :accent-dim="'#ff690055'"
+        :icon="IconKey"
+        title="认证设置"
+        description="API 密钥与凭据"
+        gradient="from-amber-500 to-orange-500"
+      >
+        <ConfigInput
           label="启用 SQLite 模式"
           type="checkbox"
           hint="账号多时建议开启，保存后需重启服务器生效"
@@ -262,81 +281,13 @@ onBeforeUnmount(() => {
             :model-value="config.SQLITE_DB_PATH"
             @update:model-value="value => updateConfig('SQLITE_DB_PATH', value)"
           />
-          <div class="grid grid-cols-3 gap-3">
-            <ConfigInput
-              label="缓存时长(秒)"
-              type="number"
-              placeholder="300"
-              :model-value="config.USAGE_CACHE_TTL"
-              @update:model-value="value => updateConfig('USAGE_CACHE_TTL', value)"
-            />
-            <ConfigInput
-              label="检查并发"
-              type="number"
-              placeholder="5"
-              :model-value="config.HEALTH_CHECK_CONCURRENCY"
-              @update:model-value="value => updateConfig('HEALTH_CHECK_CONCURRENCY', value)"
-            />
-            <ConfigInput
-              label="查询并发"
-              type="number"
-              placeholder="10"
-              :model-value="config.USAGE_QUERY_CONCURRENCY"
-              @update:model-value="value => updateConfig('USAGE_QUERY_CONCURRENCY', value)"
-            />
-          </div>
         </template>
-      </ConfigCard>
+
+    </ConfigCard>
 
       <ConfigCard
-        :icon="IconKey"
-        title="认证设置"
-        description="API 密钥与凭据"
-        gradient="from-amber-500 to-orange-500"
-      >
-        <ConfigInput
-          label="API Key"
-          placeholder="your-api-key"
-          hint="用于验证 API 请求"
-          :model-value="config.REQUIRED_API_KEY"
-          @update:model-value="value => updateConfig('REQUIRED_API_KEY', value)"
-        />
-        <template v-if="config.MODEL_PROVIDER === 'claude-kiro-oauth'">
-          <div class="flex gap-2 p-1 bg-black/20 rounded-lg">
-            <button
-              class="flex-1 px-3 py-1.5 rounded-md text-xs font-medium transition-all"
-              :class="kiroCredsType === 'file' ? 'bg-white/10 text-white' : 'text-gray-400 hover:text-white'"
-              @click="kiroCredsType = 'file'"
-            >
-              文件路径
-            </button>
-            <button
-              class="flex-1 px-3 py-1.5 rounded-md text-xs font-medium transition-all"
-              :class="kiroCredsType === 'base64' ? 'bg-white/10 text-white' : 'text-gray-400 hover:text-white'"
-              @click="kiroCredsType = 'base64'"
-            >
-              Base64
-            </button>
-          </div>
-          <ConfigInput
-            v-if="kiroCredsType === 'file'"
-            label="凭据文件"
-            placeholder="configs/kiro-oauth/creds.json"
-            :model-value="config.KIRO_OAUTH_CREDS_FILE_PATH"
-            @update:model-value="value => updateConfig('KIRO_OAUTH_CREDS_FILE_PATH', value)"
-          />
-          <ConfigInput
-            v-else
-            label="凭据 (Base64)"
-            type="textarea"
-            placeholder="Base64 编码的凭据..."
-            :model-value="config.KIRO_OAUTH_CREDS_BASE64"
-            @update:model-value="value => updateConfig('KIRO_OAUTH_CREDS_BASE64', value)"
-          />
-        </template>
-      </ConfigCard>
-
-      <ConfigCard
+        :accent-color="'#ff0000'"
+        :accent-dim="'#ff000055'"
         :icon="IconSparkles"
         title="AI 功能"
         description="模型行为设置"
@@ -382,6 +333,8 @@ onBeforeUnmount(() => {
       </ConfigCard>
 
       <ConfigCard
+        :accent-color="'#8200db'"
+        :accent-dim="'#8200db55'"
         :icon="IconAdjustments"
         title="请求设置"
         description="重试与延迟配置"
@@ -409,10 +362,34 @@ onBeforeUnmount(() => {
             :model-value="config.MAX_ERROR_COUNT"
             @update:model-value="value => updateConfig('MAX_ERROR_COUNT', value)"
           />
+        <ConfigInput
+            label="缓存时长(秒)"
+            type="number"
+            placeholder="300"
+            :model-value="config.USAGE_CACHE_TTL"
+            @update:model-value="value => updateConfig('USAGE_CACHE_TTL', value)"
+        />
+        <ConfigInput
+            label="检查并发"
+            type="number"
+            placeholder="5"
+            :model-value="config.HEALTH_CHECK_CONCURRENCY"
+            @update:model-value="value => updateConfig('HEALTH_CHECK_CONCURRENCY', value)"
+        />
+        <ConfigInput
+            label="查询并发"
+            type="number"
+            placeholder="10"
+            :model-value="config.USAGE_QUERY_CONCURRENCY"
+            @update:model-value="value => updateConfig('USAGE_QUERY_CONCURRENCY', value)"
+        />
+
         </div>
       </ConfigCard>
 
       <ConfigCard
+        :accent-color="'#155bfc'"
+        :accent-dim="'#155bfc55'"
         :icon="IconClock"
         title="定时任务"
         description="Token 刷新设置"
@@ -436,6 +413,8 @@ onBeforeUnmount(() => {
       </ConfigCard>
 
       <ConfigCard
+        :accent-color="'#62748e'"
+        :accent-dim="'#62748e55'"
         :icon="IconDatabase"
         title="日志设置"
         description="请求日志记录"
@@ -460,6 +439,8 @@ onBeforeUnmount(() => {
       </ConfigCard>
 
       <ConfigCard
+        :accent-color="'#ec003f'"
+        :accent-dim="'#ec003f55'"
         :icon="IconShieldCheck"
         title="号池管理"
         description="多账号池配置"

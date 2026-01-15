@@ -963,7 +963,6 @@ onBeforeUnmount(() => {
       <div class="animate-scale-in delay-250">
         <div
           class="cursor-pointer transition-all"
-          :class="activePool === 'all' ? 'ring-2 ring-blue-500 rounded-xl' : ''"
           @click="activePool = 'all'"
         >
           <CardSpotlight>
@@ -1013,7 +1012,7 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <div class="grid grid-cols-1 gap-6">
+    <div class="grid grid-cols-1 gap-3">
       <div
         v-if="filteredAccounts.length"
         class="flex items-center gap-4 px-4 py-2 bg-white/5 rounded-lg border border-white/10"
