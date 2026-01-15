@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import type { Component } from 'vue'
+import CardSpotlight from '@/components/ui/CardSpotlight.vue'
 
 defineProps<{ icon: Component; title: string; description?: string; gradient: string }>()
 </script>
 
 <template>
-  <div class="group relative bg-gradient-to-br from-white/[0.05] to-white/[0.02] rounded-2xl border border-white/10 overflow-hidden hover:border-white/20 transition-all duration-300">
+  <CardSpotlight no-padding class="rounded-2xl bg-gradient-to-br from-white/[0.05] to-white/[0.02]">
     <div class="h-1 bg-gradient-to-r" :class="gradient" />
 
     <div class="p-5">
@@ -23,5 +24,5 @@ defineProps<{ icon: Component; title: string; description?: string; gradient: st
         <slot />
       </div>
     </div>
-  </div>
+  </CardSpotlight>
 </template>

@@ -363,122 +363,121 @@ onBeforeUnmount(() => {
       </div>
     </CardSpotlight>
 
-    <CardSpotlight
+    <div
       v-for="[providerName, providerData] in providerEntries"
       :key="providerName"
-      no-background
-      no-padding
+      class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4"
     >
-      <div class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
-        <div
+        <CardSpotlight
           v-for="(instance, index) in filterInstances(providerData.instances || [])"
           :key="instance.uuid || index"
-          class="p-4 rounded-lg border border-white/10"
-          style="background-color: var(--fitness-card);"
+          no-padding
+          class="rounded-lg"
         >
-          <div class="flex items-center justify-between mb-3">
-            <div class="flex items-center gap-2">
-              <span class="font-medium text-sm" :title="instance.email">
-                {{ instance.email || `账户 ${index + 1}` }}
-              </span>
-              <Badge v-if="getAccountPool(instance) === 'healthy'" class="bg-green-500/20 text-green-400 border-green-500/30">
-                健康
-              </Badge>
-              <Badge v-else class="bg-red-500/20 text-red-400 border-red-500/30">
-                异常
-              </Badge>
+          <div class="p-4">
+            <div class="flex items-center justify-between mb-3">
+              <div class="flex items-center gap-2">
+                <span class="font-medium text-sm" :title="instance.email">
+                  {{ instance.email || `账户 ${index + 1}` }}
+                </span>
+                <Badge v-if="getAccountPool(instance) === 'healthy'" class="bg-green-500/20 text-green-400 border-green-500/30">
+                  健康
+                </Badge>
+                <Badge v-else class="bg-red-500/20 text-red-400 border-red-500/30">
+                  异常
+                </Badge>
+              </div>
+              <div class="flex items-center gap-2">
+                <Badge v-if="instance.subscription" variant="outline" class="flex items-center gap-1">
+                  <IconCrown class="w-3 h-3" />
+                  {{ instance.subscription.title }}
+                </Badge>
+                <button
+                  class="p-1.5 rounded-lg hover:bg-white/10 transition-colors disabled:opacity-50"
+                  :disabled="refreshingAccount === instance.uuid"
+                  title="刷新此账号用量"
+                  @click="refreshAccountUsage(instance.uuid)"
+                >
+                  <IconLoader2 v-if="refreshingAccount === instance.uuid" class="w-4 h-4 animate-spin" />
+                  <IconRefresh v-else class="w-4 h-4" />
+                </button>
+              </div>
             </div>
-            <div class="flex items-center gap-2">
-              <Badge v-if="instance.subscription" variant="outline" class="flex items-center gap-1">
-                <IconCrown class="w-3 h-3" />
-                {{ instance.subscription.title }}
-              </Badge>
-              <button
-                class="p-1.5 rounded-lg hover:bg-white/10 transition-colors disabled:opacity-50"
-                :disabled="refreshingAccount === instance.uuid"
-                title="刷新此账号用量"
-                @click="refreshAccountUsage(instance.uuid)"
-              >
-                <IconLoader2 v-if="refreshingAccount === instance.uuid" class="w-4 h-4 animate-spin" />
-                <IconRefresh v-else class="w-4 h-4" />
-              </button>
-            </div>
-          </div>
 
-          <div v-if="instance.credentialsPath" class="flex items-center gap-2 mb-3 text-xs text-gray-500">
-            <IconFile class="w-3 h-3" />
-            <span class="truncate" :title="instance.credentialsPath">{{ instance.credentialsPath }}</span>
-          </div>
-
-          <div v-if="instance.limits" class="mb-4 p-3 rounded-lg border border-white/10" style="background-color: var(--fitness-card-hover);">
-            <div class="flex justify-between text-sm mb-2">
-              <span class="text-gray-400">总用量</span>
-              <span class="font-medium">
-                {{ (instance.limits.used || 0).toFixed(2) }} / {{ (instance.limits.total || 0).toFixed(2) }}
-              </span>
+            <div v-if="instance.credentialsPath" class="flex items-center gap-2 mb-3 text-xs text-gray-500">
+              <IconFile class="w-3 h-3" />
+              <span class="truncate" :title="instance.credentialsPath">{{ instance.credentialsPath }}</span>
             </div>
-            <div class="h-2.5 bg-black/40 rounded-full overflow-hidden mb-1 ring-1 ring-white/10">
-              <div
-                class="h-full rounded-full transition-all"
-                :class="(instance.limits.percentUsed || 0) > 90
-                  ? 'bg-red-500'
-                  : (instance.limits.percentUsed || 0) > 70
-                    ? 'bg-orange-500'
-                    : 'bg-gradient-to-r from-green-500 to-emerald-600'"
-                :style="{ width: `${Math.min(instance.limits.percentUsed || 0, 100)}%` }"
-              />
-            </div>
-            <p
-              class="text-xs text-right font-medium"
-              :class="(instance.limits.percentUsed || 0) > 90
-                ? 'text-red-400'
-                : (instance.limits.percentUsed || 0) > 70
-                  ? 'text-orange-400'
-                  : 'text-emerald-300'"
-            >
-              {{ formatPercentage(instance.limits.percentUsed) }}
-            </p>
-          </div>
 
-          <div v-if="instance.usageBreakdown && instance.usageBreakdown.length" class="space-y-2 mb-3">
-            <div v-for="(breakdown, idx) in instance.usageBreakdown" :key="idx" class="text-sm">
-              <div class="flex justify-between text-gray-400">
-                <span>{{ breakdown.displayName }}</span>
-                <span>
-                  {{ (breakdown.currentUsage || 0).toFixed(2) }} / {{ (breakdown.usageLimit || 0).toFixed(2) }}
+            <div v-if="instance.limits" class="mb-4 p-3 rounded-lg border border-white/10" style="background-color: var(--fitness-card-hover);">
+              <div class="flex justify-between text-sm mb-2">
+                <span class="text-gray-400">总用量</span>
+                <span class="font-medium">
+                  {{ (instance.limits.used || 0).toFixed(2) }} / {{ (instance.limits.total || 0).toFixed(2) }}
                 </span>
               </div>
-              <div v-if="breakdown.freeTrial" class="mt-1 pl-3 border-l-2 border-purple-500/50">
-                <div class="flex justify-between text-xs text-purple-400">
-                  <span>免费试用</span>
+              <div class="h-2.5 bg-black/40 rounded-full overflow-hidden mb-1 ring-1 ring-white/10">
+                <div
+                  class="h-full rounded-full transition-all"
+                  :class="(instance.limits.percentUsed || 0) > 90
+                    ? 'bg-red-500'
+                    : (instance.limits.percentUsed || 0) > 70
+                      ? 'bg-orange-500'
+                      : 'bg-gradient-to-r from-green-500 to-emerald-600'"
+                  :style="{ width: `${Math.min(instance.limits.percentUsed || 0, 100)}%` }"
+                />
+              </div>
+              <p
+                class="text-xs text-right font-medium"
+                :class="(instance.limits.percentUsed || 0) > 90
+                  ? 'text-red-400'
+                  : (instance.limits.percentUsed || 0) > 70
+                    ? 'text-orange-400'
+                    : 'text-emerald-300'"
+              >
+                {{ formatPercentage(instance.limits.percentUsed) }}
+              </p>
+            </div>
+
+            <div v-if="instance.usageBreakdown && instance.usageBreakdown.length" class="space-y-2 mb-3">
+              <div v-for="(breakdown, idx) in instance.usageBreakdown" :key="idx" class="text-sm">
+                <div class="flex justify-between text-gray-400">
+                  <span>{{ breakdown.displayName }}</span>
                   <span>
-                    {{ (breakdown.freeTrial.currentUsage || 0).toFixed(2) }} / {{ (breakdown.freeTrial.usageLimit || 0).toFixed(2) }}
+                    {{ (breakdown.currentUsage || 0).toFixed(2) }} / {{ (breakdown.usageLimit || 0).toFixed(2) }}
                   </span>
                 </div>
-                <p v-if="breakdown.freeTrial.expiresAt" class="text-xs text-gray-500">
-                  到期: {{ new Date(breakdown.freeTrial.expiresAt).toLocaleString('zh-CN') }}
-                </p>
+                <div v-if="breakdown.freeTrial" class="mt-1 pl-3 border-l-2 border-purple-500/50">
+                  <div class="flex justify-between text-xs text-purple-400">
+                    <span>免费试用</span>
+                    <span>
+                      {{ (breakdown.freeTrial.currentUsage || 0).toFixed(2) }} / {{ (breakdown.freeTrial.usageLimit || 0).toFixed(2) }}
+                    </span>
+                  </div>
+                  <p v-if="breakdown.freeTrial.expiresAt" class="text-xs text-gray-500">
+                    到期: {{ new Date(breakdown.freeTrial.expiresAt).toLocaleString('zh-CN') }}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div class="pt-3 border-t border-white/10 grid grid-cols-2 gap-2 text-xs text-gray-400">
+              <div v-if="instance.usageCount !== undefined" class="flex justify-between">
+                <span>使用次数:</span>
+                <span class="text-white">{{ instance.usageCount }}</span>
+              </div>
+              <div v-if="instance.errorCount !== undefined && instance.errorCount > 0" class="flex justify-between">
+                <span>错误次数:</span>
+                <span class="text-red-400">{{ instance.errorCount }}</span>
+              </div>
+              <div v-if="instance.daysUntilReset !== undefined" class="flex justify-between">
+                <span>重置倒计时:</span>
+                <span class="text-blue-400">{{ instance.daysUntilReset }} 天</span>
               </div>
             </div>
           </div>
-
-          <div class="pt-3 border-t border-white/10 grid grid-cols-2 gap-2 text-xs text-gray-400">
-            <div v-if="instance.usageCount !== undefined" class="flex justify-between">
-              <span>使用次数:</span>
-              <span class="text-white">{{ instance.usageCount }}</span>
-            </div>
-            <div v-if="instance.errorCount !== undefined && instance.errorCount > 0" class="flex justify-between">
-              <span>错误次数:</span>
-              <span class="text-red-400">{{ instance.errorCount }}</span>
-            </div>
-            <div v-if="instance.daysUntilReset !== undefined" class="flex justify-between">
-              <span>重置倒计时:</span>
-              <span class="text-blue-400">{{ instance.daysUntilReset }} 天</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    </CardSpotlight>
+        </CardSpotlight>
+    </div>
 
     <CardSpotlight v-if="Object.keys(providers).length === 0">
       <div class="text-center py-12">
