@@ -1,6 +1,7 @@
 import deepmerge from 'deepmerge';
 import { isAuthorized } from '../utils/common.js';
 import { handleUIApiRequests, serveStaticFiles } from '../ui-manager.js';
+import { proxyViteRequest, shouldProxyToVitePath } from '../ui/vite-dev-proxy.js';
 import { handleAPIRequests } from './manager.js';
 import { getApiService } from '../services/manager.js';
 import { getAccountPoolManager } from '../services/manager.js';
@@ -69,8 +70,10 @@ export function createRequestHandler(config, accountPoolManager) {
                 }
             }
 
+            const bypassRateLimitForVite = shouldProxyToVitePath(path);
+
             // Check rate limit (before any heavy processing)
-            if (!isRateLimitWhitelisted(path, currentConfig)) {
+            if (!bypassRateLimitForVite && !isRateLimitWhitelisted(path, currentConfig)) {
                 const { allowed, retryAfterSeconds } = checkRateLimit(req, currentConfig);
                 if (!allowed) {
                     res.setHeader('Retry-After', String(retryAfterSeconds));
@@ -91,7 +94,26 @@ export function createRequestHandler(config, accountPoolManager) {
         }
 
         // Serve static files for UI (除了登录页面需要认证)
-        if (path.startsWith('/static/') ||path.startsWith('/assets/') ||  path.startsWith('/static-site/') || path === '/' || path === '/favicon.ico' || path === '/index.html' || path.startsWith('/app/') || path === '/login.html' || path.startsWith('/_next/') || path.startsWith('/dashboard') || path.endsWith('.png') || path.endsWith('.jpg') || path.endsWith('.svg')) {
+        if (shouldProxyToVitePath(path)) {
+            const proxied = await proxyViteRequest(req, res);
+            if (proxied) return;
+        } else if (
+            path.startsWith('/static/') ||
+            path.startsWith('/assets/') ||
+            path.startsWith('/static-site/') ||
+            path === '/' ||
+            path === '/favicon.ico' ||
+            path === '/index.html' ||
+            path === '/login' ||
+            path.startsWith('/login/') ||
+            path === '/login.html' ||
+            path.startsWith('/app/') ||
+            path.startsWith('/_next/') ||
+            path.startsWith('/dashboard') ||
+            path.endsWith('.png') ||
+            path.endsWith('.jpg') ||
+            path.endsWith('.svg')
+        ) {
             const served = await serveStaticFiles(path, res);
             if (served) return;
         }

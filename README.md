@@ -143,9 +143,9 @@ MAX_ERROR_COUNT=5
 
 #### 4. 启动服务
 
-**开发模式**：
+**开发模式**（前端+后端一键启动）：
 ```bash
-npm start
+npm run dev
 ```
 
 **生产模式 (使用 PM2)**：
@@ -155,7 +155,9 @@ npm run pm2:start
 
 #### 5. 访问管理界面
 
-打开浏览器访问：`http://localhost:8045/login.html`
+开发模式访问：`http://localhost:5173/login`
+
+生产模式访问：`http://localhost:8045/login`
 
 登录密码：项目根目录的 `pwd` 文件内容（不会提交到 git）
 
@@ -257,10 +259,11 @@ kiro2Api/
 │   ├── config/                   # 配置管理
 │   ├── lib/                      # 基础库
 │   └── ui/                       # Web UI 层
-├── frontend/                     # 前端源码 (Next.js)
+├── frontend/                     # 旧前端源码 (Next.js)
 │   ├── app/                      # 页面组件
 │   ├── components/               # UI 组件
 │   └── public/                   # 静态资源
+├── frontend-vue/                 # 新前端源码 (Vue/Vite)
 ├── configs/                      # 配置文件目录
 │   └── kiro/                    # Kiro Token 存储
 ├── docs/                         # 项目文档

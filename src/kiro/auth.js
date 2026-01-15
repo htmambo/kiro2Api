@@ -1,39 +1,9 @@
 import { promises as fs } from 'fs';
 import * as path from 'path';
 import { createLogger } from '../lib/logger.js';
-import { KIRO_IDE_VERSION } from './constants.js';
+import { KIRO_CONSTANTS } from "./constants.js";
 
 const logger = createLogger('Kiro Auth');
-
-export const KIRO_CONSTANTS = {
-    REFRESH_URL: 'https://prod.{{region}}.auth.desktop.kiro.dev/refreshToken',
-    REFRESH_IDC_URL: 'https://oidc.{{region}}.amazonaws.com/token',
-    DEVICE_AUTH_URL: 'https://oidc.{{region}}.amazonaws.com/device_authorization',
-    REGISTER_CLIENT_URL: 'https://oidc.{{region}}.amazonaws.com/client/register',
-    BASE_URL: 'https://codewhisperer.{{region}}.amazonaws.com/generateAssistantResponse',
-    AMAZON_Q_URL: 'https://codewhisperer.{{region}}.amazonaws.com/SendMessageStreaming',
-    USAGE_LIMITS_URL: 'https://q.{{region}}.amazonaws.com/getUsageLimits',
-    DEFAULT_MODEL_NAME: 'claude-sonnet-4-20250514',
-    AXIOS_TIMEOUT: 120000,
-    REQUEST_TIMEOUT_MS: 120000,  // 普通请求超时（120秒）
-    STREAM_TIMEOUT_MS: 180000,   // 流式请求超时（180秒）
-    SEARCH_TIMEOUT_MS: 10000,    // 搜索请求超时（10秒）
-    // 新增：可配置的超时常量（与 config.js 中的配置项对应）
-    TIMEOUT_API_REQUEST: 120000,    // API 请求超时（120秒）
-    TIMEOUT_STREAM_REQUEST: 300000, // 流式请求超时（300秒）
-    TIMEOUT_AUTH_REQUEST: 30000,    // 认证请求超时（30秒）
-    USER_AGENT: 'KiroIDE',
-    KIRO_VERSION: KIRO_IDE_VERSION,  // 从 constants.js 导入
-    CONTENT_TYPE_JSON: 'application/json',
-    ACCEPT_JSON: 'application/json',
-    AUTH_METHOD_SOCIAL: 'social',
-    AUTH_METHOD_IDC: 'IdC',
-    CHAT_TRIGGER_TYPE_MANUAL: 'MANUAL',
-    ORIGIN_AI_EDITOR: 'AI_EDITOR',
-    EXPIRE_WINDOW_MS: 5 * 60 * 1000,
-    REFRESH_DEBOUNCE_MS: 30 * 1000,
-    DEVICE_GRANT_TYPE: 'urn:ietf:params:oauth:grant-type:device_code'
-};
 
 const KIRO_AUTH_TOKEN_FILE = 'kiro-auth-token.json';
 const refreshTokenDebounceMap = new Map();

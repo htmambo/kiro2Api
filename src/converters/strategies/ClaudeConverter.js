@@ -29,8 +29,8 @@ import {
     generateOutputItemDone,
     generateResponseCompleted
 } from '../../openai/openai-responses-core.mjs';
-import { logger } from '../../utils/logger.js';
-const logger = logger.child({ module: 'ClaudeConverter' });
+import { createLogger } from '../../lib/logger.js';
+const logger = createLogger({ module: 'ClaudeConverter' });
 
 /**
  * Claude转换器类

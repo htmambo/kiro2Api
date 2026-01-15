@@ -5,8 +5,10 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
-import { KIRO_CONSTANTS, initializeAuth } from './auth.js';
+import { initializeAuth } from './auth.js';
+import { KIRO_CONSTANTS } from './constants.js';
 import { createLogger } from '../lib/logger.js';
+import { getAdaptiveTimeout } from "./tools.js";
 
 const logger = createLogger('streaming');
 
@@ -442,6 +444,9 @@ export async function* streamApiReal(service, method, model, body, isRetry = fal
 
     const requestUrl = model.startsWith('amazonq') ? service.amazonQUrl : service.baseUrl;
 
+    // 自适应超时：根据模型类型调整（慢模型 x3）
+    const adaptiveTimeout = getAdaptiveTimeout(model, KIRO_CONSTANTS.AXIOS_TIMEOUT);
+
     // 使用流式请求专用超时配置
     const streamTimeout = service.config?.TIMEOUT_STREAM_REQUEST ?? KIRO_CONSTANTS.TIMEOUT_STREAM_REQUEST;
 
@@ -451,13 +456,17 @@ export async function* streamApiReal(service, method, model, body, isRetry = fal
     let firstTokenTime = null;  // 首字时间（TTFT - Time To First Token）
 
     try {
-        const response = await service.axiosInstance.post(requestUrl, requestData, {
+        const response = await service.axiosInstance.post(
+          requestUrl,
+          requestData,
+          {
             headers,
-            responseType: 'stream',
-            timeout: streamTimeout,
+            responseType: "stream",
+            timeout: adaptiveTimeout,
             maxContentLength: Infinity,
-            maxBodyLength: Infinity
-        });
+            maxBodyLength: Infinity,
+          }
+        );
 
         stream = response.data;
         let pendingBuffer = Buffer.alloc(0);  // 待处理的缓冲区

@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { findMatchingBracket, repairJson } from './utils.js';
 import { createLogger } from '../lib/logger.js';
+import { KIRO_CONSTANTS } from './constants.js';
 
 const logger = createLogger('kiro:tools');
 
@@ -371,18 +372,202 @@ export function parseBracketToolCalls(responseText) {
     return toolCalls.length > 0 ? toolCalls : null;
 }
 
+// ============================================================================
+// 自适应超时函数（借鉴 KiroGate）
+// ============================================================================
+
+/**
+ * 根据模型类型获取自适应超时时间
+ * 对于 Opus 等慢模型，自动增加超时时间
+ */
+export function getAdaptiveTimeout(model, baseTimeout) {
+    if (!model) return baseTimeout;
+
+    const modelLower = model.toLowerCase();
+    for (const slowModel of KIRO_CONSTANTS.SLOW_MODELS) {
+        if (modelLower.includes(slowModel.toLowerCase())) {
+            const adaptiveTimeout = baseTimeout * KIRO_CONSTANTS.SLOW_MODEL_TIMEOUT_MULTIPLIER;
+            logger.info(`Slow model detected (${model}), timeout: ${baseTimeout}ms -> ${adaptiveTimeout}ms`);
+            return adaptiveTimeout;
+        }
+    }
+    return baseTimeout;
+}
+
+// ============================================================================
+// 长文档分段处理（借鉴 KiroGate）
+// ============================================================================
+
+/**
+ * 检查文本是否需要分段
+ */
+export function needsChunking(text) {
+    return KIRO_CONSTANTS.AUTO_CHUNKING_ENABLED &&
+           text &&
+           text.length > KIRO_CONSTANTS.AUTO_CHUNK_THRESHOLD;
+}
+
+/**
+ * 在目标位置附近找到合适的分割点（优先在段落/句子边界）
+ */
+function findSplitPoint(text, targetPos) {
+    if (targetPos >= text.length) return text.length;
+
+    const searchStart = Math.max(0, targetPos - 500);
+    const searchEnd = Math.min(text.length, targetPos + 500);
+    const searchText = text.substring(searchStart, searchEnd);
+
+    // 优先级 1：段落边界（双换行）
+    const paragraphBreaks = [...searchText.matchAll(/\n\n+/g)];
+    if (paragraphBreaks.length > 0) {
+        const best = paragraphBreaks.reduce((a, b) =>
+            Math.abs((searchStart + a.index + a[0].length) - targetPos) <
+            Math.abs((searchStart + b.index + b[0].length) - targetPos) ? a : b
+        );
+        return searchStart + best.index + best[0].length;
+    }
+
+    // 优先级 2：句子边界
+    const sentenceBreaks = [...searchText.matchAll(/[.!?。！？]\s+/g)];
+    if (sentenceBreaks.length > 0) {
+        const best = sentenceBreaks.reduce((a, b) =>
+            Math.abs((searchStart + a.index + a[0].length) - targetPos) <
+            Math.abs((searchStart + b.index + b[0].length) - targetPos) ? a : b
+        );
+        return searchStart + best.index + best[0].length;
+    }
+
+    // 优先级 3：单换行
+    const lineBreaks = [...searchText.matchAll(/\n/g)];
+    if (lineBreaks.length > 0) {
+        const best = lineBreaks.reduce((a, b) =>
+            Math.abs((searchStart + a.index + 1) - targetPos) <
+            Math.abs((searchStart + b.index + 1) - targetPos) ? a : b
+        );
+        return searchStart + best.index + 1;
+    }
+
+    return targetPos;
+}
+
+/**
+ * 将长文本分割成多个片段
+ */
+function splitLongText(text) {
+    if (!needsChunking(text)) {
+        return [text];
+    }
+
+    const chunks = [];
+    let currentPos = 0;
+    const maxChars = KIRO_CONSTANTS.CHUNK_MAX_CHARS;
+    const overlap = KIRO_CONSTANTS.CHUNK_OVERLAP_CHARS;
+
+    while (currentPos < text.length) {
+        let chunkEnd = currentPos + maxChars;
+
+        if (chunkEnd >= text.length) {
+            chunks.push(text.substring(currentPos));
+            break;
+        }
+
+        // 找到合适的分割点
+        const splitPos = findSplitPoint(text, chunkEnd);
+        chunks.push(text.substring(currentPos, splitPos));
+
+        // 移动到下一个位置（考虑重叠）
+        currentPos = splitPos - overlap;
+        if (currentPos <= 0 || currentPos >= splitPos) {
+            currentPos = splitPos;
+        }
+    }
+
+    logger.info(`Split long document into ${chunks.length} chunks (total: ${text.length} chars)`);
+    return chunks;
+}
+
+/**
+ * 为分段创建带上下文的提示词
+ */
+function createChunkPrompt(chunk, chunkIndex, totalChunks, originalPrompt) {
+    if (totalChunks === 1) {
+        return `${originalPrompt}\n\n${chunk}`;
+    }
+
+    const contextInfo = `[文档片段 ${chunkIndex + 1}/${totalChunks}]`;
+    let instruction;
+
+    if (chunkIndex === 0) {
+        instruction = '这是一个长文档的第一部分。请处理这部分内容，后续会提供剩余部分。';
+    } else if (chunkIndex === totalChunks - 1) {
+        instruction = '这是文档的最后一部分。请结合之前的内容完成处理。';
+    } else {
+        instruction = `这是文档的第 ${chunkIndex + 1} 部分。请继续处理。`;
+    }
+
+    return `${contextInfo}\n${instruction}\n\n${originalPrompt}\n\n---\n${chunk}\n---`;
+}
+
+/**
+ * 处理长文档分段并生成提示词列表
+ */
+export function processLongDocument(text, originalPrompt) {
+    const chunks = splitLongText(text);
+    const prompts = chunks.map((chunk, index) =>
+        createChunkPrompt(chunk, index, chunks.length, originalPrompt)
+    );
+    return prompts;
+}
 export function deduplicateToolCalls(toolCalls) {
+   if (!toolCalls || toolCalls.length === 0) {
+        return [];
+    }
+
+    // 第一步：按 id 去重，保留参数更完整的（借鉴 KiroGate）
+    const byId = new Map();
+
+    for (const tc of toolCalls) {
+        const tcId = tc.id || tc.toolUseId;
+        if (!tcId) {
+            // 没有 id 的直接加入
+            byId.set(`no-id-${byId.size}`, tc);
+            continue;
+        }
+
+        const existing = byId.get(tcId);
+        if (!existing) {
+            byId.set(tcId, tc);
+        } else {
+            // 有重复 id，保留参数更完整的
+            const existingArgs = existing.function?.arguments || existing.input || '{}';
+            const currentArgs = tc.function?.arguments || tc.input || '{}';
+
+            if (currentArgs !== '{}' && (existingArgs === '{}' || currentArgs.length > existingArgs.length)) {
+                logger.info(`Replacing tool call ${tcId} with better arguments: ${existingArgs.length} -> ${currentArgs.length} chars`);
+                byId.set(tcId, tc);
+            }
+        }
+    }
+
+    // 第二步：按 name+arguments 去重
     const seen = new Set();
     const uniqueToolCalls = [];
 
-    for (const tc of toolCalls) {
-        const key = `${tc.function.name}-${tc.function.arguments}`;
+    for (const tc of byId.values()) {
+        const name = tc.function?.name || tc.name || '';
+        const args = tc.function?.arguments || tc.input || '{}';
+        const key = `${name}-${args}`;
+
         if (!seen.has(key)) {
             seen.add(key);
             uniqueToolCalls.push(tc);
         } else {
-            logger.debug(`Skipping duplicate tool call: ${tc.function.name}`);
+            logger.info(`Skipping duplicate tool call: ${name}`);
         }
+    }
+
+    if (toolCalls.length !== uniqueToolCalls.length) {
+        logger.info(`Deduplicated tool calls: ${toolCalls.length} -> ${uniqueToolCalls.length}`);
     }
     return uniqueToolCalls;
 }

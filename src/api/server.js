@@ -5,6 +5,7 @@ import { initializeUIManagement } from '../ui-manager.js';
 import { initializeAPIManagement } from './manager.js';
 import { createRequestHandler } from './request-handler.js';
 import { initLogger, createLogger } from '../lib/logger.js';
+import { attachViteDevProxy } from '../ui/vite-dev-proxy.js';
 
 import 'dotenv/config'; // Import dotenv and configure it
 import { getAccountPoolManager } from '../services/manager.js';
@@ -53,6 +54,7 @@ async function startServer() {
     const requestHandlerInstance = createRequestHandler(CONFIG, getAccountPoolManager());
 
     const server = http.createServer(requestHandlerInstance);
+    attachViteDevProxy(server);
     server.listen(CONFIG.SERVER_PORT, CONFIG.HOST, async () => {
         logger.info(`--- Unified API Server Configuration ---`);
         logger.info(`  System Prompt File: ${CONFIG.SYSTEM_PROMPT_FILE_PATH || 'Default'}`);

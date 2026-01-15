@@ -12,7 +12,7 @@ const logger = createLogger('config:manager');
 // 默认配置常量
 const DEFAULT_CONFIG = {
     REQUIRED_API_KEY: "123456",
-    SERVER_PORT: 8045,
+    SERVER_PORT: 8088,
     HOST: '0.0.0.0',
     MODEL_PROVIDER: MODEL_PROVIDER.KIRO_API,
     ACCOUNT_POOL_FILE_PATH: "./configs/account_pool.json",
@@ -84,8 +84,6 @@ function normalizeConfiguredProviders(config) {
     if (dedupedProviders.length === 0) {
         dedupedProviders.push(fallbackProvider);
     }
-
-    config.DEFAULT_MODEL_PROVIDERS = dedupedProviders;
     config.MODEL_PROVIDER = dedupedProviders[0];
 }
 

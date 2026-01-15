@@ -2,8 +2,9 @@
  * 转换器工厂类
  * 使用工厂模式管理转换器实例的创建和缓存
  */
-import { logger } from '../utils/logger.js';
-const logger = logger.child({ module: 'ConverterFactory' });
+import { createLogger } from '../lib/logger.js';
+const logger = createLogger({ module: 'ConverterFactory' });
+
 /**
  * 转换器工厂（单例模式 + 工厂模式）
  */

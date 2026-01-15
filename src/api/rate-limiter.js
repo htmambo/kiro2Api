@@ -21,6 +21,11 @@ const DEFAULT_WINDOW_MS = 60000; // 60 秒
 const DEFAULT_MAX_REQUESTS = 60; // 每分钟 60 个请求
 const CLEANUP_INTERVAL_MS = 2 * 60 * 1000; // 2 分钟清理一次
 const DEFAULT_WHITELIST = ['/health', '/favicon.ico', '/public/'];
+const DEV_VITE_WHITELIST = ['/src/', '/@vite/', '/@id/', '/@fs/', '/@react-refresh', '/node_modules/'];
+
+function isDevViteWhitelistEnabled() {
+    return Boolean(process.env.VITE_DEV_SERVER_URL) && process.env.NODE_ENV !== 'production';
+}
 
 // 速率限制记录存储
 const records = new Map();
@@ -250,6 +255,13 @@ export function isRateLimitWhitelisted(path, config) {
     if (!path) return false;
 
     const normalizedPath = path.toLowerCase();
+
+    if (isDevViteWhitelistEnabled()) {
+        const isDevVitePath = DEV_VITE_WHITELIST.some(entry => normalizedPath.startsWith(entry));
+        if (isDevVitePath) {
+            return true;
+        }
+    }
 
     return whitelist.some(entry => {
         if (!entry) return false;

@@ -12,9 +12,11 @@ import { streamApiReal } from './streaming.js';
 import { parseBracketToolCalls, deduplicateToolCalls } from './tools.js';
 import { executeWebSearch, formatSearchResults } from './search.js';
 import { MODEL_MAPPING } from './adapter.js';
-import { KIRO_CONSTANTS, refreshAccessTokenIfNeeded, initializeAuth } from './auth.js';
+import { refreshAccessTokenIfNeeded, initializeAuth } from './auth.js';
+import { KIRO_CONSTANTS } from './constants.js';
 import { unescapeHTML } from './utils.js';
 import { createLogger } from '../lib/logger.js';
+import { getAdaptiveTimeout } from "./tools.js";
 
 const logger = createLogger('kiro:api-client');
 
@@ -177,7 +179,13 @@ export async function callApi(service, method, model, body, isRetry = false, ret
 
         // 当 model 以 kiro-amazonq 开头时，使用 amazonQUrl，否则使用 baseUrl
         const requestUrl = model.startsWith('amazonq') ? service.amazonQUrl : service.baseUrl;
-        const response = await service.axiosInstance.post(requestUrl, requestData, { headers });
+
+        // 自适应超时：根据模型类型调整（慢模型 x3）
+        const adaptiveTimeout = getAdaptiveTimeout(model, KIRO_CONSTANTS.AXIOS_TIMEOUT);
+        const response = await service.axiosInstance.post(requestUrl, requestData, {
+            headers,
+            timeout: adaptiveTimeout  // 使用自适应超时
+        });
 
         // ========================================
         // 📥 响应日志

@@ -4,8 +4,8 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
-import { logger } from '../utils/logger.js';
-const logger = logger.child({ module: 'ConverterUtils' });
+import { createLogger } from '../lib/logger.js';
+const logger = createLogger({ module: 'ConverterUtils' });
 // =============================================================================
 // 常量定义
 // =============================================================================

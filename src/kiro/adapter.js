@@ -5,7 +5,7 @@ import * as http from 'http';
 import * as https from 'https';
 import { countTokens } from '@anthropic-ai/tokenizer';
 import { MODEL_PROVIDER } from '../utils/common.js';
-import { KIRO_MODELS } from './constants.js';
+import { KIRO_MODELS, KIRO_CONSTANTS } from "./constants.js";
 import { sanitizeMessageHistory, getContentText, sanitizeMessages } from './message-sanitizer.js';
 import { promises as fs } from 'fs';
 import {getMacAddressSha256, generateRandomUserAgentComponents, getOriginalMacAddressSha256} from './utils.js';
@@ -33,11 +33,7 @@ import {
 
 // 导入认证模块
 import {
-    KIRO_CONSTANTS as AUTH_KIRO_CONSTANTS,
-    loadCredentialsFromFile,
-    saveCredentialsToFile,
-    refreshAccessTokenIfNeeded,
-    startDeviceAuthorization,
+    pollDeviceToken,
     initializeAuth
 } from './auth.js';
 
@@ -59,22 +55,6 @@ import {
 } from './utils.js';
 
 const logger = createLogger('adapter');
-
-// 扩展认证模块的常量，添加上下文管理配置
-const KIRO_CONSTANTS = {
-    ...AUTH_KIRO_CONSTANTS,
-
-    // Kiro 风格的上下文窗口管理配置
-    // 测试结果: AWS 实际限制约 223K tokens (720K chars 失败，710K chars 成功)
-    MAX_CONTEXT_TOKENS: 200000,       // 200K（AWS 限制 ~223K，留缓冲）
-    AUTO_SUMMARIZE_THRESHOLD: 0.80,   // 80% = 160K 时开始 pruning
-    CONTEXT_FILE_LIMIT: 0.75,        // 上下文文件限制为 75% 窗口（和 Kiro 一致）
-    MIN_MESSAGES_TO_KEEP: 5,         // 摘要时保留最近的消息数量
-    SUMMARIZATION_MODEL: 'claude-sonnet-4-5-20250929',  // 用于生成摘要的模型（更快更便宜）
-
-    // 官方 Kiro 输出限制（extension.js:766436）- 防止 tool_result 内容过长导致 400 错误
-    MAX_TOOL_OUTPUT_LENGTH: 64000,   // 64K 字符，和官方 Kiro 一致
-};
 
 // Thinking 功能的提示词模板（通过 prompt injection 实现，参考 cifang）
 // 优化版本：在简洁和效果之间平衡（~80 tokens）

@@ -65,6 +65,18 @@ export async function serveStaticFiles(pathParam, res) {
         }
     }
 
+    if (!filePath && !ext) {
+        const fallbackIndex = path.join(staticRoot, 'index.html');
+        try {
+            const stat = await fs.stat(fallbackIndex);
+            if (stat.isFile()) {
+                filePath = fallbackIndex;
+            }
+        } catch {
+            // ignore missing
+        }
+    }
+
     if (!filePath) return false;
 
     const fileExt = path.extname(filePath);
