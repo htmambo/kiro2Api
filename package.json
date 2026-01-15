@@ -27,12 +27,13 @@
     "http-proxy": "^1.18.1",
     "jest": "^29.7.0",
     "jest-environment-node": "^29.7.0",
+    "nodemon": "^3.1.4",
     "supertest": "^6.3.3"
   },
   "scripts": {
     "start": "node --max-old-space-size=120 src/api/server.js",
     "dev": "concurrently \"npm:dev:api\" \"npm:dev:web\"",
-    "dev:api": "VITE_DEV_SERVER_URL=http://localhost:5173 node --max-old-space-size=120 src/api/server.js --api-key 123456 --host 0.0.0.0 --port 8088 --model-provider claude-kiro-oauth",
+    "dev:api": "VITE_DEV_SERVER_URL=http://localhost:5173 nodemon",
     "dev:web": "npm --prefix frontend-vue run dev",
     "deploy:frontend": "bash deploy-frontend.sh",
     "pm2:start": "pm2 start ecosystem.config.cjs",

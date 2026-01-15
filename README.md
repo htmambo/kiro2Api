@@ -4,7 +4,7 @@
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen.svg)](https://nodejs.org/)
-[![Code Size](https://img.shields.io/github/languages/code-size/Lavender3533/kiro2Api)](https://github.com/Lavender3533/kiro2Api)
+[![Code Size](https://img.shields.io/github/languages/code-size/htmambo/kiro2Api)](https://github.com/htmambo/kiro2Api)
 [![Documentation](https://img.shields.io/badge/docs-latest-green.svg)](docs/)
 
 ---
@@ -148,6 +148,18 @@ MAX_ERROR_COUNT=5
 npm run dev
 ```
 
+> 开发模式下后端使用 nodemon 自动重启，仅监控 `src` 目录；`configs/**` 变化不会触发重启，需手动重启生效。
+
+**仅后端（开发模式）**：
+```bash
+npm run dev:api
+```
+
+**仅前端（开发模式）**：
+```bash
+npm run dev:web
+```
+
 **生产模式 (使用 PM2)**：
 ```bash
 npm run pm2:start
@@ -183,13 +195,10 @@ cp pwd.example pwd
 - 📖 **[使用指南](docs/Usage/USER_GUIDE.md)** - 安装、配置、部署和故障排除
 
 ### 分析文档
-- 🔒 **[安全分析报告](docs/Analysis/SECURITY_REPORT.md)** - 安全审计和修复建议
-- ⚡ **[性能分析报告](docs/Analysis/PERFORMANCE_REPORT.md)** - 性能评估和优化建议
 - 📊 **[综合分析报告](docs/Analysis/COMPREHENSIVE_ANALYSIS_REPORT.md)** - 项目整体评估
 
 ### 架构文档
 - 🏗️ **[系统架构](docs/Architecture/)** - 架构设计和技术决策
-- 📁 **[目录结构](docs/Analysis/SRC_DIRECTORY_STRUCTURE_ANALYSIS_2026-01-08.md)** - 代码组织说明
 
 ---
 
@@ -294,8 +303,6 @@ kiro2Api/
 5. 🔴 日志可能泄露敏感信息
 6. 🔴 速率限制功能未生效
 
-> 📋 详细信息请查看：[安全分析报告](docs/Analysis/SECURITY_REPORT.md)
-
 ### 安全最佳实践
 
 在部署到生产环境前，请务必：
@@ -332,8 +339,6 @@ kiro2Api/
 - 🔴 数据库查询效率低 (缺少索引)
 - 🔴 无有效缓存策略
 - 🟡 并发处理能力有限
-
-> 📋 详细信息和优化建议请查看：[性能分析报告](docs/Analysis/PERFORMANCE_REPORT.md)
 
 ### 优化建议
 
@@ -464,7 +469,7 @@ client_max_body_size 100M;
 
 1. 查看 [使用指南](docs/Usage/USER_GUIDE.md) 的故障排除章节
 2. 查看日志文件: `~/.pm2/logs/kiro2api-error.log`
-3. 提交 [Issue](https://github.com/Lavender3533/kiro2Api/issues)
+3. 提交 [Issue](https://github.com/htmambo/kiro2Api/issues)
 4. 发送邮件至：285567389@qq.com
 
 ---
@@ -547,7 +552,7 @@ tail -f ~/.pm2/logs/kiro2api-error.log
 
 ### 贡献方式
 
-1. **报告 Bug** - 提交 [Issue](https://github.com/Lavender3533/kiro2Api/issues)
+1. **报告 Bug** - 提交 [Issue](https://github.com/htmambo/kiro2Api/issues)
 2. **建议新功能** - 提交 Feature Request
 3. **提交代码** - Pull Request
 4. **改进文档** - 完善文档和示例
@@ -590,7 +595,7 @@ tail -f ~/.pm2/logs/kiro2api-error.log
 
 ## 📮 联系方式
 
-- **GitHub Issues**: [提交问题](https://github.com/Lavender3533/kiro2Api/issues)
+- **GitHub Issues**: [提交问题](https://github.com/htmambo/kiro2Api/issues)
 - **Email**: 285567389@qq.com
 - **文档**: [完整文档](docs/)
 

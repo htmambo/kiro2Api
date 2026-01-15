@@ -70,10 +70,8 @@ export function createRequestHandler(config, accountPoolManager) {
                 }
             }
 
-            const bypassRateLimitForVite = shouldProxyToVitePath(path);
-
             // Check rate limit (before any heavy processing)
-            if (!bypassRateLimitForVite && !isRateLimitWhitelisted(path, currentConfig)) {
+            if (!isRateLimitWhitelisted(path, currentConfig)) {
                 const { allowed, retryAfterSeconds } = checkRateLimit(req, currentConfig);
                 if (!allowed) {
                     res.setHeader('Retry-After', String(retryAfterSeconds));

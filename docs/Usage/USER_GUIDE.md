@@ -36,7 +36,7 @@
 #### 1. 克隆仓库
 
 ```bash
-git clone https://github.com/Lavender3533/kiro2Api.git
+git clone https://github.com/htmambo/kiro2Api.git
 cd kiro2Api
 ```
 
