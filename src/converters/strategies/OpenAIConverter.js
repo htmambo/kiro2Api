@@ -2,7 +2,7 @@
  * OpenAI转换器
  * 处理OpenAI协议与其他协议之间的转换
  */
-import { logger } from '../../utils/logger.js';
+import { createLogger } from '../../lib/logger.js';
 import { v4 as uuidv4 } from 'uuid';
 import { BaseConverter } from '../BaseConverter.js';
 import {
@@ -33,7 +33,7 @@ import {
     generateOutputItemDone,
     generateResponseCompleted
 } from '../../openai/openai-responses-core.mjs';
-const logger = logger.child({ module: 'OpenAIConverter' });
+const logger = createLogger('OpenAIConverter');
 
 /**
  * OpenAI转换器类

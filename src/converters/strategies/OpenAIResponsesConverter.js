@@ -12,6 +12,8 @@ import {
     GEMINI_DEFAULT_INPUT_TOKEN_LIMIT,
     GEMINI_DEFAULT_OUTPUT_TOKEN_LIMIT
 } from '../utils.js';
+import { createLogger } from '../../lib/logger.js';
+const logger = createLogger('OpenAIResponsesConverter');
 
 /**
  * OpenAI Responses API 转换器类

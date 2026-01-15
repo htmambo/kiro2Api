@@ -25,6 +25,8 @@ import {
     generateOutputItemDone,
     generateResponseCompleted
 } from '../../openai/openai-responses-core.mjs';
+import { createLogger } from '../../lib/logger.js';
+const logger = createLogger('GeminiConverter');
 
 /**
  * Gemini转换器类
