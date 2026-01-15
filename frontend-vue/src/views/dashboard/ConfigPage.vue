@@ -247,13 +247,6 @@ onBeforeUnmount(() => {
             @update:model-value="value => updateConfig('HOST', value)"
           />
         </div>
-        <ConfigInput
-          label="API Key"
-          placeholder="your-api-key"
-          hint="用于验证 API 请求"
-          :model-value="config.REQUIRED_API_KEY"
-          @update:model-value="value => updateConfig('REQUIRED_API_KEY', value)"
-        />
       </ConfigCard>
 
       <ConfigCard
@@ -265,24 +258,12 @@ onBeforeUnmount(() => {
         gradient="from-amber-500 to-orange-500"
       >
         <ConfigInput
-          label="启用 SQLite 模式"
-          type="checkbox"
-          hint="账号多时建议开启，保存后需重启服务器生效"
-          :model-value="config.USE_SQLITE_POOL"
-          @update:model-value="value => updateConfig('USE_SQLITE_POOL', value)"
+          label="API Key"
+          placeholder="your-api-key"
+          hint="用于验证 API 请求"
+          :model-value="config.REQUIRED_API_KEY"
+          @update:model-value="value => updateConfig('REQUIRED_API_KEY', value)"
         />
-        <template v-if="config.USE_SQLITE_POOL">
-          <div class="p-2 mb-2 rounded-lg bg-amber-500/10 border border-amber-500/20">
-            <p class="text-xs text-amber-400">修改后需重启服务器生效</p>
-          </div>
-          <ConfigInput
-            label="数据库路径"
-            placeholder="data/provider_pool.db"
-            :model-value="config.SQLITE_DB_PATH"
-            @update:model-value="value => updateConfig('SQLITE_DB_PATH', value)"
-          />
-        </template>
-
     </ConfigCard>
 
       <ConfigCard

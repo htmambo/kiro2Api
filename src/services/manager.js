@@ -49,6 +49,9 @@ export async function initApiService(config) {
     // Initialize configured service adapters at startup
     // 对于账号池管理的 provider，适配器将按需初始化（按 uuid 维度）
     const providersToInit = new Set();
+    if (Array.isArray(config.DEFAULT_MODEL_PROVIDERS)) {
+        config.DEFAULT_MODEL_PROVIDERS.forEach((provider) => providersToInit.add(provider));
+    }
     if (providersToInit.size === 0) {
         const { ALL_MODEL_PROVIDERS } = await import('../config/manager.js');
         ALL_MODEL_PROVIDERS.forEach((provider) => providersToInit.add(provider));

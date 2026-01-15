@@ -16,6 +16,7 @@ const DEFAULT_CONFIG = {
     HOST: '0.0.0.0',
     MODEL_PROVIDER: MODEL_PROVIDER.KIRO_API,
     ACCOUNT_POOL_FILE_PATH: "./configs/account_pool.json",
+    KIRO_OAUTH_CREDS_BASE64: null,
     SYSTEM_PROMPT_FILE_PATH: INPUT_SYSTEM_PROMPT_FILE,
     SYSTEM_PROMPT_MODE: 'overwrite',
     PROMPT_LOG_BASE_NAME: "prompt_log",
@@ -83,6 +84,8 @@ function normalizeConfiguredProviders(config) {
     if (dedupedProviders.length === 0) {
         dedupedProviders.push(fallbackProvider);
     }
+
+    config.DEFAULT_MODEL_PROVIDERS = dedupedProviders;
     config.MODEL_PROVIDER = dedupedProviders[0];
 }
 

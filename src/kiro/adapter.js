@@ -93,6 +93,7 @@ export class KiroService {
         this.isInitialized = false;
         this.config = config;
         this.credPath = path.join(process.cwd(), "configs", "kiro");
+        this.credsBase64 = config.KIRO_OAUTH_CREDS_BASE64;
         this.useSystemProxy = config?.USE_SYSTEM_PROXY_KIRO ?? false;
         // 详细日志开关（默认关闭，只显示简洁日志）
         this.verboseLogging = config?.ENABLE_VERBOSE_LOGGING ?? false;
@@ -100,19 +101,19 @@ export class KiroService {
         logger.info(`Verbose logging ${this.verboseLogging ? 'enabled' : 'disabled'}`);
         logger.info(`ENABLE_THINKING_BY_DEFAULT in config: ${config.ENABLE_THINKING_BY_DEFAULT}`);
 
-        // // Add kiro-oauth-creds-base64 and kiro-oauth-creds-file to config
-        // if (config.KIRO_OAUTH_CREDS_BASE64) {
-        //     try {
-        //         const decodedCreds = Buffer.from(config.KIRO_OAUTH_CREDS_BASE64, 'base64').toString('utf8');
-        //         const parsedCreds = JSON.parse(decodedCreds);
-        //         this.base64Creds = parsedCreds;
-        //         logger.info('Successfully decoded Base64 credentials in constructor.');
-        //     } catch (error) {
-        //         logger.error(`Failed to parse Base64 credentials in constructor: ${error.message}`);
-        //     }
-        // } else if (config.KIRO_OAUTH_CREDS_FILE_PATH) {
-        //     this.credsFilePath = config.KIRO_OAUTH_CREDS_FILE_PATH;
-        // }
+        // Add kiro-oauth-creds-base64 and kiro-oauth-creds-file to config
+        if (config.KIRO_OAUTH_CREDS_BASE64) {
+            try {
+                const decodedCreds = Buffer.from(config.KIRO_OAUTH_CREDS_BASE64, 'base64').toString('utf8');
+                const parsedCreds = JSON.parse(decodedCreds);
+                this.base64Creds = parsedCreds;
+                logger.info('Successfully decoded Base64 credentials in constructor.');
+            } catch (error) {
+                logger.error(`Failed to parse Base64 credentials in constructor: ${error.message}`);
+            }
+        } else if (config.KIRO_OAUTH_CREDS_FILE_PATH) {
+            this.credsFilePath = config.KIRO_OAUTH_CREDS_FILE_PATH;
+        }
 
         this.modelName = KIRO_CONSTANTS.DEFAULT_MODEL_NAME;
         this.axiosInstance = null; // Initialize later in async method
