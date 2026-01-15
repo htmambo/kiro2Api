@@ -30,11 +30,7 @@ import {
     generateResponseCompleted
 } from '../../openai/openai-responses-core.mjs';
 import { createLogger } from '../../lib/logger.js';
-<<<<<<< HEAD
 const logger = createLogger({ module: 'ClaudeConverter' });
-=======
-const logger = createLogger('ClaudeConverter');
->>>>>>> 969caca63272ad03dd4b0477749e0f1c77b4b58e
 
 /**
  * Claude转换器类
