@@ -3,7 +3,11 @@
  * 使用工厂模式管理转换器实例的创建和缓存
  */
 import { createLogger } from '../lib/logger.js';
+<<<<<<< HEAD
 const logger = createLogger({ module: 'ConverterFactory' });
+=======
+const logger = createLogger('ConverterFactory');
+>>>>>>> 969caca63272ad03dd4b0477749e0f1c77b4b58e
 
 /**
  * 转换器工厂（单例模式 + 工厂模式）

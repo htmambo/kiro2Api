@@ -5,7 +5,12 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { createLogger } from '../lib/logger.js';
+<<<<<<< HEAD
 const logger = createLogger({ module: 'ConverterUtils' });
+=======
+const logger = createLogger('ConverterFactory');
+
+>>>>>>> 969caca63272ad03dd4b0477749e0f1c77b4b58e
 // =============================================================================
 // 常量定义
 // =============================================================================

@@ -77,6 +77,8 @@ import {
     OLLAMA_DEFAULT_QUANTIZATION_LEVEL,
     OLLAMA_SHOW_QUANTIZATION_LEVEL
 } from '../utils.js';
+import { createLogger } from '../../lib/logger.js';
+const logger = createLogger('OllamaConverter');
 
 
 
