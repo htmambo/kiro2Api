@@ -21,7 +21,7 @@
 
 import { CC_TO_KIRO_TOOL_MAPPING, normalizeToolName } from '../tools.js';
 import { isZodSchema } from '../utils.js';
-import { createLogger } from '../lib/logger.js';
+import { createLogger } from '../../lib/logger.js';
 
 const logger = createLogger('kiro:tool-converter');
 

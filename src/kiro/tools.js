@@ -83,6 +83,44 @@ export const CC_TO_KIRO_TOOL_MAPPING = {
     }
 };
 
+const TOOL_NAME_ALIASES = {
+    Read: ['read_file', 'readfile'],
+    Write: ['write_file', 'writefile']
+};
+
+const KIRO_TO_CC_TOOL_NAME = new Map(
+    Object.entries(CC_TO_KIRO_TOOL_MAPPING)
+        .filter(([, mapping]) => mapping.kiroTool)
+        .map(([ccName, mapping]) => [mapping.kiroTool, ccName])
+);
+
+export function normalizeToolName(toolName) {
+    if (!toolName) {
+        return toolName;
+    }
+
+    for (const [canonical, aliases] of Object.entries(TOOL_NAME_ALIASES)) {
+        if (aliases.includes(toolName)) {
+            return canonical;
+        }
+    }
+
+    return toolName;
+}
+
+export function mapToolNameToKiro(toolName) {
+    const normalized = normalizeToolName(toolName);
+    const mapping = CC_TO_KIRO_TOOL_MAPPING[normalized];
+    return mapping?.kiroTool || toolName;
+}
+
+export function mapToolNameToCC(toolName) {
+    if (!toolName) {
+        return toolName;
+    }
+    return KIRO_TO_CC_TOOL_NAME.get(toolName) || toolName;
+}
+
 export const KIRO_TOOL_SCHEMAS = {
     readFile: {
         type: 'object',
@@ -195,18 +233,16 @@ export function mapToolUseParams(toolName, input, verboseLogging = false) {
         return {};
     }
 
-    if (typeof input !== 'object') {
+    if (typeof input !== "object") {
         if (verboseLogging) {
             logger.debug(`ParamMap ${toolName}: input is not object (${typeof input}), wrapping in object`);
         }
         return { value: input };
     }
-
-    const mapping = CC_TO_KIRO_TOOL_MAPPING[toolName];
+    const normalizedToolName = normalizeToolName(toolName);
+    const mapping = CC_TO_KIRO_TOOL_MAPPING[normalizedToolName];
     if (!mapping) {
-        if (verboseLogging) {
-            logger.debug(`ParamMap ${toolName}: no mapping found, using original input`);
-        }
+        logger.warn(`ParamMap ${toolName}: no mapping found, using original input`);
         return input;
     }
 
@@ -216,10 +252,8 @@ export function mapToolUseParams(toolName, input, verboseLogging = false) {
         for (const [ccParam, kiroParam] of Object.entries(mapping.paramMap)) {
             if (input[ccParam] !== undefined) {
                 mappedInput[kiroParam] = input[ccParam];
-                if (verboseLogging || toolName === 'Task') {
-                    logger.debug(
-                        `ParamMap ${toolName}: mapped ${ccParam} → ${kiroParam} = ${JSON.stringify(input[ccParam])}`
-                    );
+                if (verboseLogging || toolName === "Task") {
+                    logger.debug(`ParamMap ${toolName}: mapped ${ccParam} → ${kiroParam} = ${JSON.stringify(input[ccParam])}`);
                 }
             }
         }
