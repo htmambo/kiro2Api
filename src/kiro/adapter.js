@@ -10,7 +10,6 @@ import { v4 as uuidv4 } from 'uuid';
 import * as path from 'path';
 import * as http from 'http';
 import * as https from 'https';
-import { MODEL_PROVIDER } from '../utils/common.js';
 import { KIRO_MODELS, KIRO_CONSTANTS } from "./constants.js";
 import { sanitizeMessageHistory, getContentText, sanitizeMessages } from './message-sanitizer.js';
 import { promises as fs } from 'fs';

@@ -8,7 +8,6 @@
 import { promises as fs } from 'fs';
 import * as path from 'path';
 import * as http from 'http'; // 用于 IncomingMessage 和 ServerResponse 类型
-import * as crypto from 'crypto'; // 用于 MD5 哈希
 import { KiroService } from '../kiro/adapter.js'; // KiroService 适配器
 import { generateContent, generateContentStream } from '../kiro/api-client.js';
 import { KiroStrategy } from '../kiro/strategy.js';
@@ -17,21 +16,9 @@ import os from 'os';
 import { createLogger } from '../lib/logger.js';
 import { convertData, getOpenAIStreamChunkStop } from './convert.js';
 import { getProtocolPrefix, MODEL_PROTOCOL_PREFIX } from './protocol.js';
+import { getRequestBody as getRequestBodyFromModule } from './request-body.js';
 
 const logger = createLogger('utils:common');
-const DEFAULT_MAX_BODY_BYTES = Number(process.env.REQUEST_MAX_BODY_BYTES) > 0
-    ? Number(process.env.REQUEST_MAX_BODY_BYTES)
-    : 10 * 1024 * 1024;
-
-/**
- * API 动作常量
- *
- * @type {Object}
- */
-export const API_ACTIONS = {
-    GENERATE_CONTENT: 'generateContent',
-    STREAM_GENERATE_CONTENT: 'streamGenerateContent',
-};
 
 /**
  * 模型提供商常量
@@ -119,42 +106,21 @@ export function formatExpiryTime(expiryTimestamp) {
     return `${pad(hours)}h ${pad(minutes)}m ${pad(seconds)}s`;
 }
 
+// ============================================================================
+// 请求体解析工具（从 request-body.js 模块 re-export）
+// ============================================================================
+
 /**
  * 读取并解析 HTTP 请求体
+ *
+ * 此函数已迁移到 `./request-body.js` 模块
+ * 此处保留 re-export 以保持向后兼容性
  *
  * @param {http.IncomingMessage} req - HTTP 请求对象
  * @returns {Promise<Object>} 解析后的 JSON 请求体
  * @throws {Error} 请求体不是合法 JSON 时抛出
  */
-export function getRequestBody(req) {
-    return new Promise((resolve, reject) => {
-        let body = '';
-        let receivedBytes = 0;
-        req.on('data', chunk => {
-            receivedBytes += chunk.length;
-            if (receivedBytes > DEFAULT_MAX_BODY_BYTES) {
-                const err = new Error('Request body too large');
-                err.status = 413;
-                req.destroy(err);
-                return;
-            }
-            body += chunk.toString();
-        });
-        req.on('end', () => {
-            if (!body) {
-                return resolve({});
-            }
-            try {
-                resolve(JSON.parse(body));
-            } catch (error) {
-                reject(new Error("Invalid JSON in request body."));
-            }
-        });
-        req.on('error', err => {
-            reject(err);
-        });
-    });
-}
+export const getRequestBody = getRequestBodyFromModule;
 
 /**
  * 根据 API key 检查请求是否授权
@@ -611,20 +577,6 @@ export async function handleContentGenerationRequest(req, res, service, endpoint
     throw lastError || new Error('All accounts/providers failed');
 }
 
-/**
- * 从请求中提取模型与流式标记
- *
- * @param {http.IncomingMessage} req - HTTP 请求对象
- * @param {Object} requestBody - 解析后的请求体
- * @param {string} fromProvider - 端点类型
- * @returns {{model: string, isStream: boolean}} 模型名称与流式标记
- */
-function _extractModelAndStreamInfo(req, requestBody, fromProvider) {
-    const model = requestBody.model;
-    const isStream = requestBody.stream === true;
-    return { model, isStream };
-}
-
 async function _applySystemPromptFromFile(config, requestBody, toProvider) {
     const strategy = new KiroStrategy();
     return strategy.applySystemPromptFromFile(config, requestBody);
@@ -714,18 +666,6 @@ export function extractSystemPromptFromRequestBody(requestBody, provider) {
 }
 
 /**
- * 生成对象的 MD5 哈希（先转为 JSON 字符串）
- *
- * @param {object} obj - 需要哈希的对象
- * @returns {string} MD5 哈希值
- */
-export function getMD5Hash(obj) {
-    const jsonString = JSON.stringify(obj);
-    return crypto.createHash('md5').update(jsonString).digest('hex');
-}
-
-
-/**
  * 创建符合 fromProvider 格式的错误响应（非流式）
  *
  * @param {Error} error - 错误对象
@@ -766,51 +706,5 @@ export function createErrorResponse(error, fromProvider) {
                     code: getErrorType(statusCode)
                 }
             };
-    }
-}
-
-/**
- * 创建符合 fromProvider 格式的流式错误响应
- *
- * @param {Error} error - 错误对象
- * @param {string} fromProvider - 客户端期望的提供商格式
- * @returns {string} 格式化的流式错误响应字符串
- */
-function createStreamErrorResponse(error, fromProvider) {
-    const protocolPrefix = getProtocolPrefix(fromProvider);
-    const statusCode = error.status || error.code || 500;
-    const errorMessage = error.message || "An error occurred during streaming.";
-    
-    // 根据 HTTP 状态码映射错误类型
-    const getErrorType = (code) => {
-        if (code === 401) return 'authentication_error';
-        if (code === 403) return 'permission_error';
-        if (code === 429) return 'rate_limit_error';
-        if (code >= 500) return 'server_error';
-        return 'invalid_request_error';
-    };
-    
-    switch (protocolPrefix) {
-        case 'claude':
-            // Claude 流式错误格式（SSE 事件与数据）
-            const claudeError = {
-                type: "error",
-                error: {
-                    type: getErrorType(statusCode),
-                    message: errorMessage
-                }
-            };
-            return `event: error\ndata: ${JSON.stringify(claudeError)}\n\n`;
-            
-        default:
-            // 默认
-            const defaultError = {
-                error: {
-                    message: errorMessage,
-                    type: getErrorType(statusCode),
-                    code: null
-                }
-            };
-            return `data: ${JSON.stringify(defaultError)}\n\n`;
     }
 }

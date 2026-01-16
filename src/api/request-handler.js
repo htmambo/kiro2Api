@@ -91,10 +91,11 @@ export function createRequestHandler(config, accountPoolManager) {
 
             // 提前剥离 provider 前缀，统一路由入口，避免后续处理分叉
             const pathSegments = path.split('/').filter(segment => segment.length > 0);
+            let isKiroOAuthRequest = false;
             if (pathSegments.length > 0) {
                 const firstSegment = pathSegments[0];
-                const isValidProvider = firstSegment === 'claude-kiro-oauth';
-                if (firstSegment && isValidProvider) {
+                isKiroOAuthRequest = firstSegment === MODEL_PROVIDER.KIRO_API;
+                if (firstSegment && isKiroOAuthRequest) {
                     pathSegments.shift();
                     path = '/' + pathSegments.join('/');
                     requestUrl.pathname = path;
@@ -208,7 +209,31 @@ export function createRequestHandler(config, accountPoolManager) {
             return true;
         }
 
-        currentConfig.MODEL_PROVIDER = 'claude-kiro-oauth';
+        // ============================================================================
+        // MODEL_PROVIDER 配置策略
+        // ============================================================================
+        // 仅在明确场景下设置 MODEL_PROVIDER，尊重用户配置
+        //
+        // 场景 1: Kiro OAuth 请求（路径以 /claude-kiro-oauth 开头）
+        //   - 若用户未配置 MODEL_PROVIDER，则自动设置为 KIRO_API
+        //   - 若用户已配置，则尊重用户配置
+        //   - 可通过 FORCE_KIRO_OAUTH_PROVIDER=true 强制覆盖（不推荐）
+        //
+        // 场景 2: 非 Kiro OAuth 请求
+        //   - 完全尊重用户配置，不做任何修改
+        // ============================================================================
+
+        const hasConfiguredProvider = typeof currentConfig.MODEL_PROVIDER === 'string'
+            && currentConfig.MODEL_PROVIDER.trim().length > 0;
+        const forceKiroOAuthProvider = currentConfig.FORCE_KIRO_OAUTH_PROVIDER === true;
+
+        if (isKiroOAuthRequest && (!hasConfiguredProvider || forceKiroOAuthProvider)) {
+            currentConfig.MODEL_PROVIDER = MODEL_PROVIDER.KIRO_API;
+
+            if (forceKiroOAuthProvider && hasConfiguredProvider) {
+                logger.warn('FORCE_KIRO_OAUTH_PROVIDER 已启用，强制覆盖用户配置的 MODEL_PROVIDER');
+            }
+        }
 
         // 获取或选择 API Service 实例
         let apiService;

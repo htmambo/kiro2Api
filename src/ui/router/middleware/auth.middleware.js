@@ -29,11 +29,13 @@ export async function checkAuth(req) {
 }
 
 /**
- * Token 验证函数（从 ui-manager.js 迁移）。
+ * Token 验证函数（统一实现）。
+ * 验证 token 是否有效且未过期。
+ *
  * @param {string} token - Token 字符串。
- * @returns {Promise<object | null>} Token 信息。
+ * @returns {Promise<object | null>} Token 信息，无效或过期返回 null。
  */
-async function verifyToken(token) {
+export async function verifyToken(token) {
     // 从 ui-manager.js 动态导入实现，避免循环依赖
     try {
         const { readTokenStore } = await import('../../../ui-manager.js');

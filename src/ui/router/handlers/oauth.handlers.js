@@ -113,7 +113,7 @@ export async function checkState({ req, res }) {
  */
 export async function manualImport({ req, res, currentConfig, accountPoolManager }) {
     try {
-        const { parseRequestBody } = await import('../../../ui-manager.js');
+        const { parseRequestBody } = await import('../../../utils/request-body.js');
         const { broadcastEvent } = await import('../../events.js');
         const axios = (await import('axios')).default;
 
@@ -401,7 +401,7 @@ export async function manualImport({ req, res, currentConfig, accountPoolManager
 export async function awsSsoStart({ req, res, currentConfig, accountPoolManager }) {
     let accountNumber; // 提升作用域，用于 catch 块清理 in-flight
     try {
-        const { parseRequestBody } = await import('../../../ui-manager.js');
+        const { parseRequestBody } = await import('../../../utils/request-body.js');
         const { broadcastEvent } = await import('../../events.js');
         const axios = (await import('axios')).default;
 

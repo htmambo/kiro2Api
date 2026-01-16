@@ -1,8 +1,7 @@
-import { existsSync, readFileSync, writeFileSync, statSync } from 'fs';
+import { existsSync } from 'fs';
 import { promises as fs } from 'fs';
 import path from 'path';
 import crypto from 'crypto';
-import { getRequestBody } from './utils/common.js';
 import { CONFIG } from './config/manager.js';
 import { serviceInstances, getServiceAdapter, initApiService, getAccountPoolManager } from './services/manager.js';
 import { serveStaticFiles } from './ui/static.js';
@@ -27,6 +26,124 @@ const USAGE_CACHE_FILE = './configs/usage-cache.json';
 const ACCOUNT_POOL_FILE = './configs/account_pool.json';
 export const DEFAULT_PROVIDER_TYPE_FOR_ACCOUNTS = DEFAULT_PROVIDER_TYPE;
 const logger = createLogger('ui:manager');
+
+// ============================================================================
+// UI 密码安全配置
+// ============================================================================
+
+/**
+ * 默认 UI 密码（仅用于开发/测试环境）
+ * @constant {string}
+ */
+const DEFAULT_UI_PASSWORD = 'admin';
+
+/**
+ * UI 密码最小长度要求
+ * @constant {number}
+ */
+const MIN_UI_PASSWORD_LENGTH = 8;
+
+/**
+ * 警告标志：避免重复输出警告
+ * @type {boolean}
+ */
+let hasWarnedDefaultPassword = false;
+let hasWarnedWeakPassword = false;
+
+/**
+ * 获取环境变量中的 UI 密码
+ * @returns {string} 密码字符串，若未配置则返回空字符串
+ */
+function getEnvUiPassword() {
+    if (typeof process.env.UI_PASSWORD !== 'string') return '';
+    return process.env.UI_PASSWORD.trim();
+}
+
+/**
+ * 检测并警告默认密码使用
+ * 仅警告一次，避免日志污染
+ */
+function warnDefaultPasswordOnce() {
+    if (hasWarnedDefaultPassword) return;
+    hasWarnedDefaultPassword = true;
+
+    logger.warn('━'.repeat(70));
+    logger.warn('⚠️  安全警告 ⚠️');
+    logger.warn('');
+    logger.warn('检测到 UI 使用默认密码 "admin"');
+    logger.warn('默认密码存在严重安全风险，容易被未授权访问');
+    logger.warn('');
+    logger.warn('建议操作：');
+    logger.warn('  1. 设置环境变量 UI_PASSWORD 为强密码（至少 8 位）');
+    logger.warn('  2. 或使用 scrypt 哈希格式存储密码');
+    logger.warn('');
+    logger.warn('示例：export UI_PASSWORD="your-strong-password-here"');
+    logger.warn('━'.repeat(70));
+}
+
+/**
+ * 检测并警告弱密码
+ * 仅警告一次，避免日志污染
+ * @param {string} password - 密码字符串
+ */
+function warnWeakPasswordOnce(password) {
+    if (hasWarnedWeakPassword) return;
+    hasWarnedWeakPassword = true;
+
+    logger.warn('━'.repeat(70));
+    logger.warn('⚠️  密码强度不足 ⚠️');
+    logger.warn('');
+    logger.warn(`当前 UI 密码长度仅为 ${password.length} 位，低于建议的 ${MIN_UI_PASSWORD_LENGTH} 位`);
+    logger.warn('弱密码容易被暴力破解，建议使用更强的密码');
+    logger.warn('');
+    logger.warn('建议：');
+    logger.warn('  • 使用至少 8 位密码');
+    logger.warn('  • 包含大小写字母、数字和特殊字符');
+    logger.warn('  • 避免使用常见单词或模式');
+    logger.warn('━'.repeat(70));
+}
+
+/**
+ * 启动时检查 UI 密码配置
+ * 在应用启动时执行，提前发现安全问题
+ */
+function checkUiPasswordOnStartup() {
+    const envPassword = getEnvUiPassword();
+    const isProduction = process.env.NODE_ENV === 'production';
+
+    // 检查是否使用默认密码
+    if (!envPassword || envPassword === DEFAULT_UI_PASSWORD) {
+        warnDefaultPasswordOnce();
+
+        // 生产环境强制要求配置密码
+        if (isProduction && !envPassword) {
+            logger.error('');
+            logger.error('🚨 生产环境安全要求 🚨');
+            logger.error('生产环境必须配置 UI_PASSWORD 环境变量');
+            logger.error('当前配置将导致无法登录管理界面');
+            logger.error('');
+            logger.error('请立即设置：export UI_PASSWORD="your-strong-password"');
+            logger.error('');
+        }
+    }
+
+    // 检查密码强度
+    if (envPassword && envPassword.length < MIN_UI_PASSWORD_LENGTH) {
+        warnWeakPasswordOnce(envPassword);
+
+        if (isProduction) {
+            logger.error('生产环境建议使用至少 8 位强密码');
+        }
+    }
+
+    // 输出安全提示
+    if (envPassword && envPassword !== DEFAULT_UI_PASSWORD && envPassword.length >= MIN_UI_PASSWORD_LENGTH) {
+        logger.info('✓ UI 密码已配置且符合安全建议');
+    }
+}
+
+// 执行启动时检查
+checkUiPasswordOnStartup();
 
 /**
  * 生成不缓存的响应头
@@ -200,22 +317,18 @@ export function getExpiryTime() {
 }
 
 /**
- * 验证简单token
+ * 验证简单token（委托给 auth.middleware 的统一实现）
+ *
+ * Token 验证逻辑已统一到 `auth.middleware.js` 模块
+ * 此处保留函数签名以维持向后兼容性
+ *
+ * @param {string} token - Token 字符串
+ * @returns {Promise<object|null>} Token 信息，无效或过期返回 null
  */
 async function verifyToken(token) {
-    const tokenStore = await readTokenStore();
-    const tokenInfo = tokenStore.tokens[token];
-    if (!tokenInfo) {
-        return null;
-    }
-    
-    // 检查是否过期
-    if (Date.now() > tokenInfo.expiryTime) {
-        await deleteToken(token);
-        return null;
-    }
-    
-    return tokenInfo;
+    // 动态导入避免循环依赖
+    const { verifyToken: authVerifyToken } = await import('./ui/router/middleware/auth.middleware.js');
+    return authVerifyToken(token);
 }
 
 /**
@@ -259,13 +372,34 @@ async function cleanupExpiredTokens() {
 }
 
 /**
- * 读取密码
+ * 读取 UI 登录密码
+ * @returns {Promise<string|null>} 密码字符串，不符合要求时返回 null
  */
 async function readPasswordFile() {
-    // 兼容旧的 pwd 文件方式
     try {
-        const password = process.env.UI_PASSWORD || 'admin';
-        return password.trim();
+        const envPassword = getEnvUiPassword();
+        const isProduction = process.env.NODE_ENV === 'production';
+
+        // 生产环境未配置密码时拒绝使用默认值
+        if (isProduction && !envPassword) {
+            logger.error('[UI] 生产环境未配置 UI_PASSWORD，拒绝使用默认密码');
+            return null;
+        }
+
+        // 生产环境拒绝使用默认密码（即使显式配置为 admin）
+        if (isProduction && envPassword === DEFAULT_UI_PASSWORD) {
+            logger.error('[UI] 生产环境禁止使用默认密码 "admin"，请设置强密码');
+            return null;
+        }
+
+        // 生产环境检查密码最小长度
+        if (isProduction && envPassword && envPassword.length < MIN_UI_PASSWORD_LENGTH) {
+            logger.error(`[UI] 生产环境要求密码至少 ${MIN_UI_PASSWORD_LENGTH} 位，当前密码长度不足`);
+            return null;
+        }
+
+        // 使用配置的密码或默认密码
+        return envPassword || DEFAULT_UI_PASSWORD;
     } catch (error) {
         logger.error('读取密码文件失败', error);
         return null;
@@ -274,11 +408,18 @@ async function readPasswordFile() {
 
 /**
  * 验证登录凭据
+ * @param {string} password - 用户输入的密码
+ * @returns {Promise<boolean>} 验证是否通过
  */
 export async function validateCredentials(password) {
     const storedPassword = await readPasswordFile();
     if (!storedPassword) return false;
     if (typeof password !== 'string') return false;
+
+    // 对于明文存储的密码，检查密码强度（仅警告，不拒绝登录以保持兼容性）
+    if (!storedPassword.startsWith('scrypt$') && storedPassword.length < MIN_UI_PASSWORD_LENGTH) {
+        warnWeakPasswordOnce(storedPassword);
+    }
 
     // 新格式：scrypt$<saltB64>$<hashB64>
     if (storedPassword.startsWith('scrypt$')) {
@@ -311,41 +452,18 @@ export async function validateCredentials(password) {
     }
 }
 
-/**
- * 解析请求体JSON
- */
-export function parseRequestBody(req) {
-    return new Promise((resolve, reject) => {
-        let body = '';
-        let receivedBytes = 0;
-        const maxBytes = Number(process.env.REQUEST_MAX_BODY_BYTES) > 0
-            ? Number(process.env.REQUEST_MAX_BODY_BYTES)
-            : 10 * 1024 * 1024;
-        req.on('data', chunk => {
-            receivedBytes += chunk.length;
-            if (receivedBytes > maxBytes) {
-                const err = new Error('请求体过大');
-                err.status = 413;
-                req.destroy(err);
-                return;
-            }
-            body += chunk.toString();
-        });
-        req.on('end', () => {
-            try {
-                if (!body.trim()) {
-                    resolve({});
-                } else {
-                    resolve(JSON.parse(body));
-                }
-            } catch (error) {
-                reject(new Error('无效的JSON格式'));
-            }
-        });
-        req.on('error', reject);
-    });
-}
+// ============================================================================
+// 请求体解析工具（从 request-body.js 模块 re-export）
+// ============================================================================
 
+/**
+ * 解析请求体 JSON
+ *
+ * 此函数已迁移到 `./utils/request-body.js` 模块
+ * 此处保留 re-export 以保持向后兼容性
+ * 同时解决循环依赖问题：system.handlers 不再依赖 ui-manager
+ */
+export { parseRequestBody } from './utils/request-body.js';
 
 // 定时清理过期token
 setInterval(cleanupExpiredTokens, 5 * 60 * 1000); // 每5分钟清理一次

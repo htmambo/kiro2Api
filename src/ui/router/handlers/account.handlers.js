@@ -67,7 +67,7 @@ export async function getAccounts({ res, accountPoolManager }) {
  * @returns {Promise<void>}
  */
 export async function addAccount({ req, res, accountPoolManager }) {
-    const { getRequestBody } = await import('../../../utils/common.js');
+    const { getRequestBody } = await import('../../../utils/request-body.js');
     const { broadcastEvent } = await import('../../events.js');
 
     try {
@@ -170,7 +170,7 @@ export async function toggleAccount({ res, accountPoolManager, match }) {
  * @returns {Promise<void>}
  */
 export async function batchDeleteAccounts({ req, res, accountPoolManager }) {
-    const { getRequestBody } = await import('../../../utils/common.js');
+    const { getRequestBody } = await import('../../../utils/request-body.js');
     const { broadcastEvent } = await import('../../events.js');
 
     try {
@@ -457,7 +457,7 @@ export async function generateAuthUrl({ res, currentConfig, accountPoolManager }
  * @returns {Promise<void>}
  */
 export async function cleanupDuplicates({ req, res, currentConfig, accountPoolManager }) {
-    const { parseRequestBody } = await import('../../../ui-manager.js');
+    const { parseRequestBody } = await import('../../../utils/request-body.js');
     const { findDuplicateUserId } = await import('../../../utils/account-utils.js');
     const { broadcastEvent } = await import('../../events.js');
 

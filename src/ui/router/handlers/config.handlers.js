@@ -7,7 +7,7 @@ import { existsSync, readFileSync, writeFileSync } from 'fs';
 import { promises as fs } from 'fs';
 import path from 'path';
 import { createLogger } from '../../../lib/logger.js';
-import { getRequestBody } from '../../../utils/common.js';
+import { getRequestBody } from '../../../utils/request-body.js';
 import { broadcastEvent } from '../../events.js';
 import crypto from 'node:crypto';
 

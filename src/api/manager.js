@@ -74,26 +74,17 @@ export function initializeAPIManagement(services) {
     };
 }
 
+// ============================================================================
+// 请求体解析工具（从 request-body.js 模块 re-export）
+// ============================================================================
+
 /**
  * 读取请求体的轻量工具
  *
- * 不使用更高层的 body parser 是为了降低依赖与开销，
- * 同时保持对原始流的控制，避免与不同运行环境的兼容性问题。
+ * 此函数已迁移到 `../utils/request-body.js` 模块
+ * 此处保留 re-export 以保持向后兼容性
  *
  * @param {http.IncomingMessage} req - HTTP 请求对象
  * @returns {Promise<string>} 请求体字符串
  */
-export function readRequestBody(req) {
-    return new Promise((resolve, reject) => {
-        let body = '';
-        req.on('data', chunk => {
-            body += chunk.toString();
-        });
-        req.on('end', () => {
-            resolve(body);
-        });
-        req.on('error', err => {
-            reject(err);
-        });
-    });
-}
+export { readRequestBody } from '../utils/request-body.js';

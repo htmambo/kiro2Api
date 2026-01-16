@@ -5,7 +5,7 @@
  */
 
 import { getNoCacheHeaders } from '../utils/response.js';
-import { parseRequestBody } from '../../../ui-manager.js';
+import { parseRequestBody } from '../../../utils/request-body.js';
 import { createLogger } from '../../../lib/logger.js';
 
 const logger = createLogger('ui:handlers:system');

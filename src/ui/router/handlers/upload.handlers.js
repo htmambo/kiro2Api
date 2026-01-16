@@ -363,7 +363,7 @@ export async function deleteConfig({ res, match }) {
  * @returns {Promise<void>}
  */
 export async function quickLink({ req, res, accountPoolManager }) {
-    const { getRequestBody } = await import('../../../utils/common.js');
+    const { getRequestBody } = await import('../../../utils/request-body.js');
 
     try {
         const body = await getRequestBody(req);
@@ -399,7 +399,7 @@ export async function quickLink({ req, res, accountPoolManager }) {
  * @returns {Promise<void>}
  */
 export async function bulkQuickLink({ req, res, accountPoolManager }) {
-    const { getRequestBody } = await import('../../../utils/common.js');
+    const { getRequestBody } = await import('../../../utils/request-body.js');
 
     try {
         const body = await getRequestBody(req);
@@ -679,8 +679,6 @@ async function scanConfigFiles(currentConfig, accountPoolManager) {
  */
 async function scanOAuthDirectory(dirPath, usedPaths, currentConfig) {
     const oauthFiles = [];
-    // const path = await import('path');
-    // const { promises: fs, existsSync } = await import('fs');
 
     try {
         const files = await fs.readdir(dirPath, { withFileTypes: true });

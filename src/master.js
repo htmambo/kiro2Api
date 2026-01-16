@@ -70,6 +70,15 @@ const config = {
     maxRestartAttempts: 10,
     restartDelay: 1000, // 重启延迟（毫秒）
     masterPort: parseInt(readEnvFileVar('MASTER_PORT') ?? process.env.MASTER_PORT, 10) || 3100, // 主进程管理端口（.env 优先）
+    // 安全配置：默认只监听本地回环地址，避免管理端点暴露到公网
+    // 可通过 MASTER_HOST 环境变量配置为其他地址（如 0.0.0.0）
+    masterHost: readEnvFileVar('MASTER_HOST') ?? process.env.MASTER_HOST ?? '127.0.0.1',
+    // 安全增强：API Token 验证
+    // 设置后要求所有 /master/* 端点携带 Authorization: Bearer <token> 头
+    masterApiToken: readEnvFileVar('MASTER_API_TOKEN') ?? process.env.MASTER_API_TOKEN,
+    // CORS 配置：默认不启用，仅在显式配置时开放
+    // 可设置为具体的 Origin（如 http://localhost:3000）或 * （不推荐）
+    masterCorsOrigin: readEnvFileVar('MASTER_CORS_ORIGIN') ?? process.env.MASTER_CORS_ORIGIN,
     args: process.argv.slice(2) // 传递给子进程的参数
 };
 
@@ -273,6 +282,25 @@ function getStatus() {
 }
 
 /**
+ * 验证 API Token
+ * @param {http.IncomingMessage} req - HTTP 请求对象
+ * @returns {boolean} 是否通过验证
+ */
+function verifyApiToken(req) {
+    if (!config.masterApiToken) {
+        // 未配置 Token，跳过验证
+        return true;
+    }
+
+    const authHeader = (req.headers.authorization || '').trim();
+    const providedToken = authHeader.startsWith('Bearer ')
+        ? authHeader.slice('Bearer '.length).trim()
+        : authHeader;
+
+    return providedToken === config.masterApiToken;
+}
+
+/**
  * 创建主进程管理 HTTP 服务器
  */
 function createMasterServer() {
@@ -281,15 +309,37 @@ function createMasterServer() {
         const path = url.pathname;
         const method = req.method;
 
-        // 设置 CORS 头
-        res.setHeader('Access-Control-Allow-Origin', '*');
-        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-        res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+        // 安全配置：仅在显式配置 MASTER_CORS_ORIGIN 时启用 CORS
+        if (config.masterCorsOrigin) {
+            res.setHeader('Access-Control-Allow-Origin', config.masterCorsOrigin);
+            res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+            res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+        }
 
+        // 处理 OPTIONS 预检请求
         if (method === 'OPTIONS') {
-            res.writeHead(204);
-            res.end();
+            if (config.masterCorsOrigin) {
+                res.writeHead(204);
+                res.end();
+            } else {
+                // 未配置 CORS，拒绝预检请求
+                res.writeHead(403, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'CORS not enabled' }));
+            }
             return;
+        }
+
+        // 安全增强：对所有 /master/* 端点进行 Token 验证
+        if (path.startsWith('/master/')) {
+            if (!verifyApiToken(req)) {
+                logger.warn(`Unauthorized access attempt to ${path} from ${req.socket.remoteAddress}`);
+                res.writeHead(401, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({
+                    error: 'Unauthorized',
+                    message: 'Valid API token required. Set MASTER_API_TOKEN environment variable.'
+                }));
+                return;
+            }
         }
 
         // 状态端点
@@ -347,14 +397,43 @@ function createMasterServer() {
         res.end(JSON.stringify({ error: 'Not Found' }));
     });
 
-    server.listen(config.masterPort, () => {
-        logger.info(`Management server listening on port ${config.masterPort}`);
+    server.listen(config.masterPort, config.masterHost, () => {
+        logger.info(`Management server listening on ${config.masterHost}:${config.masterPort}`);
+
+        // 安全检查：如果监听非本地地址但未配置 Token，输出警告
+        const isLocalHost = config.masterHost === 'localhost' ||
+                           config.masterHost.startsWith('127.') ||
+                           config.masterHost === '::1' ||
+                           config.masterHost.startsWith('::ffff:127.');
+        if (!isLocalHost && !config.masterApiToken) {
+            logger.warn('━'.repeat(60));
+            logger.warn('⚠️  SECURITY WARNING ⚠️');
+            logger.warn('Management server is listening on a non-local address without authentication!');
+            logger.warn(`Host: ${config.masterHost}:${config.masterPort}`);
+            logger.warn('This allows anyone on the network to control your application.');
+            logger.warn('');
+            logger.warn('To secure your management endpoints:');
+            logger.warn('1. Set MASTER_API_TOKEN environment variable, or');
+            logger.warn('2. Set MASTER_HOST=127.0.0.1 to restrict to local access only');
+            logger.warn('━'.repeat(60));
+        } else if (config.masterApiToken) {
+            logger.info('✓ Management endpoints are protected with API token');
+            logger.info('  Note: All /master/* endpoints (including /master/health) require authentication');
+        } else {
+            logger.info('✓ Management endpoints are restricted to localhost');
+        }
+
         logger.info(`Available endpoints:`);
         logger.info(`  GET  /master/status  - Get master and worker status`);
         logger.info(`  GET  /master/health  - Health check`);
         logger.info(`  POST /master/restart - Restart worker process`);
         logger.info(`  POST /master/stop    - Stop worker process`);
         logger.info(`  POST /master/start   - Start worker process`);
+
+        if (config.masterApiToken) {
+            logger.info('');
+            logger.info('Authentication required: Authorization: Bearer <token>');
+        }
     });
 
     return server;
