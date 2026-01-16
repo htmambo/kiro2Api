@@ -15,14 +15,12 @@ import { countMessageTokens, countTextTokens } from './utils/token-counter.js';
 import { executeWebSearch, formatSearchResults } from './search.js';
 import { streamApiReal } from './streaming.js';
 
-// 导入 API 客户端模块
+// 导入工具转换模块
 import {
-    generateContent,
-    generateContentStream,
-    estimateInputTokens,
-    buildClaudeResponse,
-    getUsageLimits
-} from './api-client.js';
+    convertToQTool,
+    convertToQToolWithMapping,
+    compressInputSchema as compressToolSchema
+} from './converters/tool-converter.js';
 
 // 导入公共摘要模块
 import {
@@ -41,7 +39,6 @@ import {
     CC_TO_KIRO_TOOL_MAPPING,
     KIRO_TOOL_SCHEMAS,
     mapToolUseParams,
-    reverseMapToolInput,
     normalizeToolName,
     mapToolNameToKiro,
     parseSingleToolCall,
@@ -290,207 +287,8 @@ export class KiroService {
     }
 
     /**
-     * Kiro 优化：工具格式转换（支持多种输入格式，统一输出 toolSpecification）
-     * 参考 Kiro 源码 extension.js:707778
-     * 支持 Kiro 原生等多种工具格式
-     *
-     * ⚠️ 重要：AWS CodeWhisperer API 只接受 toolSpecification 格式！
-     * Anthropic 的 builtin tool 格式（如 { type: "bash_20250305", name: "bash" }）
-     * 在 CodeWhisperer API 中会导致 400 Bad Request 错误。
-     */
-    convertToQTool(tool, compressInputSchema, maxDescLength) {
-        // 格式 0：Kiro 内置工具（Builtin Tools）- 直接传递，不转换
-        // 参考 Kiro 源码 extension.js:683316-683326
-        // 格式：{ type: "web_search_20250305", name: "web_search", max_uses: 8, ... }
-        // ⚠️ 严格按照Kiro官方支持的6个工具，不添加额外工具
-        const builtinTools = [
-            'web_search',
-            'bash',
-            'code_execution',
-            'computer',
-            'str_replace_editor',
-            'str_replace_based_edit_tool'
-        ];
-
-        // 完全按照Kiro官方逻辑：extension.js:683325
-        if (typeof tool === 'object' && tool !== null &&
-            'type' in tool && 'name' in tool &&
-            typeof tool.type === 'string' && typeof tool.name === 'string' &&
-            builtinTools.includes(tool.name)) {
-            if (this.verboseLogging) {
-                logger.info(`Detected builtin tool: ${tool.name}, passing through without conversion`);
-            }
-            return tool;  // 内置工具原样传递
-        }
-
-        // 格式 1：风格 { function: { name, description, parameters } }
-        if (tool.function && typeof tool.function === 'object') {
-            const schema = compressInputSchema(tool.function.parameters || {});
-            let desc = tool.function.description || "";
-            if (desc.length > maxDescLength) {
-                desc = desc.substring(0, maxDescLength).trim() + '...';
-            }
-
-            return {
-                toolSpecification: {
-                    name: tool.function.name,
-                    description: desc,
-                    inputSchema: { json: schema }
-                }
-            };
-        }
-
-        // 格式 2：Kiro 原生格式（已经是 toolSpecification）
-        if (tool.toolSpecification) {
-            // 压缩 description
-            if (tool.toolSpecification.description && tool.toolSpecification.description.length > maxDescLength) {
-                tool.toolSpecification.description = tool.toolSpecification.description.substring(0, maxDescLength).trim() + '...';
-            }
-            return tool;
-        }
-
-        // 格式 3：Anthropic/Claude 格式 { name, description, input_schema }
-        if (tool.name && 'description' in tool && (tool.input_schema || tool.schema)) {
-            let schema = tool.input_schema || tool.schema || {};
-
-            // 支持 Zod Schema（自动转换）
-            if (isZodSchema(schema)) {
-                logger.info('Converting Zod schema to JSON schema for tool:', { toolName: tool.name });
-                // 注意：需要安装 zod-to-json-schema 库才能完整支持
-                // 这里暂时保持原样，避免引入额外依赖
-            }
-
-            schema = compressInputSchema(schema);
-            let desc = tool.description || "";
-            if (desc.length > maxDescLength) {
-                desc = desc.substring(0, maxDescLength).trim() + '...';
-            }
-
-            return {
-                toolSpecification: {
-                    name: tool.name,
-                    description: desc,
-                    inputSchema: { json: schema }
-                }
-            };
-        }
-
-        // 格式 4：带 id 和 parameters { id, description, parameters }
-        if (tool.id && 'description' in tool && tool.parameters) {
-            let schema = tool.parameters;
-            if (isZodSchema(schema)) {
-                logger.info('Zod schema detected for tool:', { toolId: tool.id });
-            }
-
-            schema = compressInputSchema(schema);
-            let desc = tool.description || "";
-            if (desc.length > maxDescLength) {
-                desc = desc.substring(0, maxDescLength).trim() + '...';
-            }
-
-            return {
-                toolSpecification: {
-                    name: tool.id,
-                    description: desc,
-                    inputSchema: { json: schema }
-                }
-            };
-        }
-
-        // 格式 5：带 id 和 schema { id, description, schema }
-        if (tool.id && 'description' in tool && tool.schema) {
-            let schema = tool.schema;
-            if (isZodSchema(schema)) {
-                logger.info('Zod schema detected for tool:', { toolId: tool.id });
-            }
-
-            schema = compressInputSchema(schema);
-            let desc = tool.description || "";
-            if (desc.length > maxDescLength) {
-                desc = desc.substring(0, maxDescLength).trim() + '...';
-            }
-
-            return {
-                toolSpecification: {
-                    name: tool.id,
-                    description: desc,
-                    inputSchema: { json: schema }
-                }
-            };
-        }
-
-        // 无法识别的格式
-        logger.error('Invalid tool format:', { tool });
-        throw new Error('Invalid tool format. Supported: Anthropic, LangChain, Kiro native, or id+parameters/schema formats.');
-    }
-
-    /**
-     * Kiro 优化：使用映射表转换工具
-     * 优先使用 CC_TO_KIRO_TOOL_MAPPING 中的 Kiro 官方 schema
-     * 如果没有映射，则降级到原始的 convertToQTool
-     */
-    convertToQToolWithMapping(tool, compressInputSchema, maxDescLength) {
-        // 获取工具名（兼容多种格式）
-        let toolName = null;
-        let originalSchema = null;
-        let originalDesc = null;
-
-        if (tool.function?.name) {
-            toolName = tool.function.name;
-            originalSchema = tool.function.parameters;
-            originalDesc = tool.function.description;
-        } else if (tool.toolSpecification?.name) {
-            toolName = tool.toolSpecification.name;
-            originalSchema = tool.toolSpecification.inputSchema?.json;
-            originalDesc = tool.toolSpecification.description;
-        } else if (tool.name) {
-            toolName = tool.name;
-            originalSchema = tool.input_schema || tool.schema;
-            originalDesc = tool.description;
-        } else if (tool.id) {
-            toolName = tool.id;
-            originalSchema = tool.parameters || tool.schema;
-            originalDesc = tool.description;
-        }
-
-        const normalizedToolName = normalizeToolName(toolName);
-        // 检查是否有映射
-        const mapping = CC_TO_KIRO_TOOL_MAPPING[normalizedToolName];
-
-        if (mapping && mapping.kiroTool) {
-            // ⚠️ 关键修复：使用 CC 原始的 schema，不要用 Kiro 的 schema
-            // 因为 CC 会根据返回的 schema 验证参数，如果使用 Kiro schema，
-            // CC 会收到它不认识的参数（如 explanation, path），导致验证失败
-            // 参数映射只在 mapToolUseParams 中进行（发送给 Kiro 时）
-
-            // 压缩原始 schema
-            const compressedSchema = originalSchema ? compressInputSchema(originalSchema) : { type: 'object', properties: {} };
-
-            const desc = mapping.description || originalDesc || '';
-            const truncatedDesc = desc.length > maxDescLength
-                ? desc.substring(0, maxDescLength).trim() + '...'
-                : desc;
-
-            if (this.verboseLogging) {
-                logger.info(`Mapped tool: ${toolName} → ${mapping.kiroTool} (keeping original CC schema)`);
-            }
-
-            return {
-                toolSpecification: {
-                    name: mapping.kiroTool || toolName,
-                    description: truncatedDesc,
-                    inputSchema: { json: compressedSchema }
-                }
-            };
-        }
-
-        // 没有映射，使用原始的 convertToQTool 逻辑
-        return this.convertToQTool(tool, compressInputSchema, maxDescLength);
-    }
-
-    /**
      * Kiro 优化：提取消息元数据
-     * 参考 Kiro 源码 extension.js:707749
+     * 参�� Kiro 源码 extension.js:707749
      * 从消息的 additional_kwargs 中提取元数据（conversationId, continuationId, taskType）
      */
     extractMetadata(messages, key) {
@@ -1319,7 +1117,7 @@ ${conversationData}`;
             // 转换所有工具为 toolSpecification 格式（使用映射表和压缩）
             if (filteredTools.length > 0) {
                 toolsContext = {
-                    tools: filteredTools.map(tool => this.convertToQToolWithMapping(tool, compressInputSchema, DESCRIPTION_MAX_LENGTH))
+                    tools: filteredTools.map(tool => convertToQToolWithMapping(tool, compressInputSchema, DESCRIPTION_MAX_LENGTH))
                 };
                 if (this.verboseLogging) {
                     logger.info(`Processed ${filteredTools.length} tools (original: ${tools.length})`);
