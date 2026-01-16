@@ -153,7 +153,7 @@ function isTrustedProxy(remoteIp, trustedList = []) {
         if (entry.includes('/')) {
             // 检查是否为 IPv4 地址
             if (normalized.includes(':')) {
-                // IPv6 地址不支持 CIDR 匹配，跳过
+                // IPv6 地址不支持 CIDR 匹配：当前实现未包含 IPv6 CIDR 解析，为控制复杂度暂仅支持精确匹配
                 continue;
             }
 
@@ -257,12 +257,14 @@ export function isRateLimitWhitelisted(path, config) {
     const normalizedPath = path.toLowerCase();
 
     if (isDevViteWhitelistEnabled()) {
+        // 为什么：开发态资源请求频繁且与业务配额无关，先放行可避免影响热更新与本地调试体验
         const isDevVitePath = DEV_VITE_WHITELIST.some(entry => normalizedPath.startsWith(entry));
         if (isDevVitePath) {
             return true;
         }
     }
 
+    // 注意：上层调用方应在限流前先判断白名单，健康检查/静态资源不应消耗 API 配额
     return whitelist.some(entry => {
         if (!entry) return false;
 
@@ -311,6 +313,7 @@ export function checkRateLimit(req, config) {
     // 获取或创建记录
     const entry = records.get(bucketKey) || { timestamps: [], lastSeen: now };
 
+    // 为什么用滑动窗口：相比固定窗口更公平，避免边界突刺；代价是要保存并裁剪时间戳，存在一定内存与过滤开销
     // 移除窗口外的时间戳（滑动窗口）
     entry.timestamps = entry.timestamps.filter(ts => ts > now - windowMs);
     entry.lastSeen = now;
@@ -356,6 +359,7 @@ export function getRateLimiterStats() {
     let totalRequests = 0;
 
     for (const [, entry] of records) {
+        // 为什么只统计活跃记录：避免把已冷却的历史桶计入监控，统计更贴近当前压力，且与清理周期一致
         if (entry.lastSeen > now - CLEANUP_INTERVAL_MS) {
             activeRecords++;
             totalRequests += entry.timestamps.length;

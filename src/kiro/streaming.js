@@ -4,11 +4,17 @@
  * 包含事件解析、流式请求处理、错误重试等功能
  */
 
-import { v4 as uuidv4 } from 'uuid';
 import { initializeAuth } from './auth.js';
 import { KIRO_CONSTANTS } from './constants.js';
 import { createLogger } from '../lib/logger.js';
 import { getAdaptiveTimeout } from "./tools.js";
+import {
+    buildRequestData,
+    buildRequestHeaders,
+    getRequestUrl,
+    getRetryConfig,
+    isThinkingEnabled
+} from './request-utils.js';
 
 const logger = createLogger('streaming');
 
@@ -369,302 +375,411 @@ export function parseAwsEventStreamBuffer(buffer) {
  * @param {number} retryCount - 当前重试次数
  * @yields {Object} 流式事件 { type, content/data }
  */
-export async function* streamApiReal(service, method, model, body, isRetry = false, retryCount = 0) {
-    const callStartTime = Date.now();
+export async function* streamApiReal(
+  service,
+  method,
+  model,
+  body,
+  isRetry = false,
+  retryCount = 0
+) {
+  const callStartTime = Date.now();
 
-    // 确保服务已初始化
-    if (!service.isInitialized) {
-        await service.initialize();
-    }
+  // 确保服务已初始化
+  if (!service.isInitialized) await service.initialize();
+  const { maxRetries, baseDelay } = getRetryConfig(service);
 
-    const maxRetries = service.config.REQUEST_MAX_RETRIES || 3;
-    const baseDelay = service.config.REQUEST_BASE_DELAY || 1000;
+  // 检查是否启用 thinking（从 body 或配置中读取）
+  const enableThinking = isThinkingEnabled(body, service.config);
+  const { requestData, requestSizeKB, conversationState, contentPreview } =
+    await buildRequestData(service, model, body, enableThinking, {
+      logger,
+      logLabel: "streamApiReal",
+      logLevel: "warn",
+    });
 
-    // 检查是否启用 thinking（从 body 或配置中读取）
-    const enableThinking = body.thinking?.type === 'enabled' ||
-                         body.extended_thinking === true ||
-                         service.config.ENABLE_THINKING_BY_DEFAULT === true;
-
-    // 🔍 性能诊断：记录请求构建时间
-    const buildStartTime = Date.now();
-    const requestData = await service.buildCodewhispererRequest(
-        body.messages,
-        model,
-        body.tools,
-        body.system,
-        enableThinking
+  // ========================================
+  // 📤 流式请求日志
+  // ========================================
+  const requestStartTime = Date.now();
+  // 简洁模式：只显示关键信息
+  if (!service.verboseLogging) {
+    logger.info(`📤 STREAM [${model}] - ${new Date().toISOString()}`);
+  } else {
+    // 详细模式：显示所有信息
+    logger.info("=".repeat(60));
+    logger.info(
+      `📤 STREAM REQUEST [${model}]${
+        isRetry ? " (retry " + retryCount + ")" : ""
+      }`
     );
-    const buildDuration = Date.now() - buildStartTime;
-    if (buildDuration > 100) {
-        logger.debug(
-            `streamApiReal buildCodewhispererRequest took ${buildDuration}ms (messages: ${body.messages?.length || 0})`
+    logger.info("=".repeat(60));
+    logger.info(`Timestamp: ${new Date().toISOString()}`);
+    logger.info(
+      `URL: ${
+        model.startsWith("amazonq") ? service.amazonQUrl : service.baseUrl
+      }`
+    );
+    logger.info(
+      `Messages: ${(conversationState?.history?.length || 0) + 1} | Tools: ${
+        conversationState?.currentMessage?.userInputMessage
+          ?.userInputMessageContext?.tools?.length || 0
+      } | System: ${body.system ? "yes" : "no"}`
+    );
+    logger.info(
+      `Request Size: ${requestSizeKB} KB | Thinking: ${
+        enableThinking ? "enabled" : "disabled"
+      }`
+    );
+    if (conversationState?.conversationId) {
+      logger.info(`Conversation ID: ${conversationState.conversationId}`);
+    }
+    logger.info(`Message Preview: ${contentPreview}`);
+    logger.info("=".repeat(60));
+  }
+
+  const headers = buildRequestHeaders(service);
+  const requestUrl = getRequestUrl(service, model);
+
+  // 自适应超时：根据模型类型调整（慢模型 x3）
+  const adaptiveTimeout = getAdaptiveTimeout(
+    model,
+    KIRO_CONSTANTS.AXIOS_TIMEOUT
+  );
+
+  let stream = null;
+  let eventCount = 0; // 统计流式事件数量
+  let responseSize = 0; // 统计接收的字节数
+  let firstTokenTime = null; // 首字时间（TTFT - Time To First Token）
+
+  try {
+    const response = await service.axiosInstance.post(requestUrl, requestData, {
+      headers,
+      responseType: "stream",
+      timeout: adaptiveTimeout,
+      maxContentLength: Infinity,
+      maxBodyLength: Infinity,
+    });
+
+    stream = response.data;
+    let pendingBuffer = Buffer.alloc(0); // 待处理的缓冲区
+    let lastContentEvent = null; // 用于检测连续重复的 content 事件
+
+    for await (const chunk of stream) {
+      responseSize += chunk.length;
+
+      // 检查缓冲区大小限制，防止内存耗尽
+      const nextBufferSize = pendingBuffer.length + chunk.length;
+      if (nextBufferSize > MAX_BUFFER_SIZE) {
+        throw new Error(
+          `Pending buffer exceeded MAX_BUFFER_SIZE (${MAX_BUFFER_SIZE} bytes). ` +
+            `This may indicate a malformed response or protocol mismatch. ` +
+            `Current: pending=${pendingBuffer.length}, chunk=${chunk.length}, total=${nextBufferSize}. ` +
+            `You can increase the limit via KIRO_MAX_BUFFER_SIZE environment variable.`
         );
+      }
+
+      // 高效合并：只合并 pending + 新 chunk，而不是所有历史 chunk
+      pendingBuffer =
+        pendingBuffer.length > 0
+          ? Buffer.concat([pendingBuffer, chunk])
+          : chunk;
+
+      // 解析缓冲区中的事件
+      const { events, remaining } = parseAwsEventStreamBuffer(pendingBuffer);
+
+      // 更新 pending buffer 为未解析的部分
+      pendingBuffer = remaining;
+
+      // yield 所有事件，但过滤连续完全相同的 content 事件（Kiro API 有时会重复发送）
+      for (const event of events) {
+        eventCount++;
+
+        // 记录首字时间（TTFT）
+        if (
+          firstTokenTime === null &&
+          (event.type === "content" || event.type === "thinking")
+        ) {
+          firstTokenTime = Date.now() - requestStartTime;
+          logger.info(`⚡ TTFT: ${(firstTokenTime / 1000).toFixed(2)}s`);
+        }
+
+        if (event.type === "content" && event.data) {
+          // 检查是否与上一个 content 事件完全相同
+          if (lastContentEvent === event.data) {
+            // 跳过重复的内容
+            continue;
+          }
+          lastContentEvent = event.data;
+          yield { type: "content", content: event.data };
+        } else if (event.type === "thinking") {
+          // 转发 thinking 事件
+          yield { type: "thinking", data: event.data };
+        } else if (event.type === "toolUse") {
+          if (event.data) {
+            yield { type: "toolUse", toolUse: event.data };
+          }
+        } else if (event.type === "toolUseInput") {
+          if (event.data && event.data.input !== undefined) {
+            yield {
+              type: "toolUseInput",
+              input: event.data.input,
+              toolUseId: event.data.toolUseId,
+            };
+          }
+        } else if (event.type === "toolUseStop") {
+          if (event.data && event.data.stop !== undefined) {
+            yield {
+              type: "toolUseStop",
+              stop: event.data.stop,
+              toolUseId: event.data.toolUseId,
+            };
+          }
+        }
+      }
     }
 
     // ========================================
-    // 📤 流式请求日志
+    // 📥 流式响应日志
     // ========================================
-    const requestStartTime = Date.now();
-    const requestJson = JSON.stringify(requestData);
-    const requestSizeKB = (requestJson.length / 1024).toFixed(2);
-    const conversationState = requestData?.conversationState;
-
-    // 提取当前消息内容预览
-    const currentContent = conversationState?.currentMessage?.userInputMessage?.content || '';
-    const contentPreview = currentContent.length > 60
-        ? currentContent.substring(0, 60) + '...'
-        : currentContent;
+    const requestDuration = ((Date.now() - requestStartTime) / 1000).toFixed(2);
+    const responseSizeKB = (responseSize / 1024).toFixed(2);
 
     // 简洁模式：只显示关键信息
     if (!service.verboseLogging) {
-        logger.info(`📤 STREAM [${model}] - ${new Date().toISOString()}`);
+      logger.info(`📥 STREAM [Complete] [${requestDuration}s]`);
     } else {
-        // 详细模式：显示所有信息
-        logger.debug('\n' + '='.repeat(60));
-        logger.debug(`📤 STREAM REQUEST [${model}]${isRetry ? ' (retry ' + retryCount + ')' : ''}`);
-        logger.debug('='.repeat(60));
-        logger.debug(`Timestamp: ${new Date().toISOString()}`);
-        logger.debug(`URL: ${model.startsWith('amazonq') ? service.amazonQUrl : service.baseUrl}`);
-        logger.debug(
-            `Messages: ${(conversationState?.history?.length || 0) + 1} | Tools: ${conversationState?.currentMessage?.userInputMessage?.userInputMessageContext?.tools?.length || 0} | System: ${body.system ? 'yes' : 'no'}`
-        );
-        logger.debug(`Request Size: ${requestSizeKB} KB | Thinking: ${enableThinking ? 'enabled' : 'disabled'}`);
-        if (conversationState?.conversationId) {
-            logger.debug(`Conversation ID: ${conversationState.conversationId}`);
-        }
-        logger.debug(`Message Preview: ${contentPreview}`);
-        logger.debug('='.repeat(60));
+      // 详细模式：显示所有信息
+      logger.info("\n" + "=".repeat(60));
+      logger.info(`📥 STREAM RESPONSE [Complete] [${requestDuration}s]`);
+      logger.info("=".repeat(60));
+      logger.info(
+        `Total Events: ${eventCount} | Total Size: ${responseSizeKB} KB`
+      );
+      logger.info("=".repeat(60) + "\n");
+    }
+  } catch (error) {
+    // 确保出错时关闭流
+    if (stream && typeof stream.destroy === "function") {
+      stream.destroy();
     }
 
-    const token = service.accessToken;
-    const headers = {
-        'Authorization': `Bearer ${token}`,
-        'amz-sdk-invocation-id': `${uuidv4()}`,
-    };
+    // ⚠️ Socket 错误处理（流式 API）
+    const isSocketError =
+      !error.response &&
+      (error.code === "ECONNRESET" ||
+        error.code === "ETIMEDOUT" ||
+        error.code === "ENOTFOUND" ||
+        error.code === "UND_ERR_SOCKET" ||
+        error.code === "UND_ERR_CONNECT_TIMEOUT" ||
+        error.message?.includes("socket") ||
+        error.message?.includes("ECONNRESET"));
 
-    const requestUrl = model.startsWith('amazonq') ? service.amazonQUrl : service.baseUrl;
+    if (isSocketError && retryCount < maxRetries) {
+      logger.info(`Socket error detected: ${error.code || error.message}`);
+      logger.info(
+        `Resetting connection pool and retrying... (attempt ${
+          retryCount + 1
+        }/${maxRetries})`
+      );
 
-    // 自适应超时：根据模型类型调整（慢模型 x3）
-    const adaptiveTimeout = getAdaptiveTimeout(model, KIRO_CONSTANTS.AXIOS_TIMEOUT);
+      // 重置连接池
+      await service.resetConnectionPool();
 
-    // 使用流式请求专用超时配置
-    const streamTimeout = service.config?.TIMEOUT_STREAM_REQUEST ?? KIRO_CONSTANTS.TIMEOUT_STREAM_REQUEST;
+      // 短暂延迟后重试
+      await new Promise((resolve) => setTimeout(resolve, 1000));
 
-    let stream = null;
-    let eventCount = 0;  // 统计流式事件数量
-    let totalBytesReceived = 0;  // 统计接收的字节数
-    let firstTokenTime = null;  // 首字时间（TTFT - Time To First Token）
+      yield* streamApiReal(
+        service,
+        method,
+        model,
+        body,
+        isRetry,
+        retryCount + 1
+      );
+      return;
+    } else if (isSocketError) {
+      logger.error("Socket error after max retries:", {
+        error: error.code || error.message,
+      });
+      throw new Error(
+        `Stream connection failed: ${error.message}. Please check your network or try restarting the service.`
+      );
+    }
 
-    try {
-        const response = await service.axiosInstance.post(
-          requestUrl,
-          requestData,
-          {
-            headers,
-            responseType: "stream",
-            timeout: adaptiveTimeout,
-            maxContentLength: Infinity,
-            maxBodyLength: Infinity,
-          }
+    // 403 错误：Token 过期，刷新后重试
+    if (error.response?.status === 403 && !isRetry) {
+      logger.info(
+        "Received 403 in stream. Attempting token refresh and retrying..."
+      );
+      await initializeAuth(service, true);
+      yield* streamApiReal(service, method, model, body, true, retryCount);
+      return;
+    }
+
+    // 429 错误：速率限制，指数退避重试
+    if (error.response?.status === 429) {
+      if (retryCount < maxRetries) {
+        const delay = baseDelay * Math.pow(2, retryCount);
+        logger.warn(`Received 429 in stream. Retrying in ${delay}ms...`);
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        yield* streamApiReal(
+          service,
+          method,
+          model,
+          body,
+          isRetry,
+          retryCount + 1
         );
+        return;
+      } else {
+        // 429 重试次数用尽,包装成特殊错误类型
+        const rateLimitError = new Error("RATE_LIMIT_EXCEEDED");
+        rateLimitError.isRateLimitError = true; // 标记为限流错误
+        rateLimitError.retryable = true; // 标记为可重试(不应标记账号不健康)
+        throw rateLimitError;
+      }
+    }
 
-        stream = response.data;
-        let pendingBuffer = Buffer.alloc(0);  // 待处理的缓冲区
-        let lastContentEvent = null;  // 用于检测连续重复的 content 事件
+    // ⚠️ 400 错误：详细日志用于调试
+    if (error.response?.status === 400) {
+      logger.error("❌ 400 Bad Request Error in streaming");
 
-        for await (const chunk of stream) {
-            totalBytesReceived += chunk.length;
+      // 安全获取响应数据（可能是流对象）
+      let errorData = "Unable to read response data";
+      try {
+        if (typeof error.response.data === "string") {
+          errorData = error.response.data.substring(0, 500);
+        } else if (
+          error.response.data &&
+          typeof error.response.data.on === "function"
+        ) {
+          // 这是一个流，无法直接读取
+          errorData = "[Stream response - check statusText]";
+        } else if (error.response.data) {
+          errorData = JSON.stringify(error.response.data).substring(0, 500);
+        }
+      } catch (e) {
+        errorData = `[Error reading data: ${e.message}]`;
+      }
 
-            // 检查缓冲区大小限制，防止内存耗尽
-            const nextBufferSize = pendingBuffer.length + chunk.length;
-            if (nextBufferSize > MAX_BUFFER_SIZE) {
-                throw new Error(
-                    `Pending buffer exceeded MAX_BUFFER_SIZE (${MAX_BUFFER_SIZE} bytes). ` +
-                    `This may indicate a malformed response or protocol mismatch. ` +
-                    `Current: pending=${pendingBuffer.length}, chunk=${chunk.length}, total=${nextBufferSize}. ` +
-                    `You can increase the limit via KIRO_MAX_BUFFER_SIZE environment variable.`
+      logger.error("Error details:", {
+        status: error.response.status,
+        statusText: error.response.statusText,
+        data: errorData,
+        amznErrorType:
+          error.response.headers?.["x-amzn-errortype"] || "unknown",
+      });
+
+      // 打印请求体的关键信息
+      try {
+        const reqState = requestData?.conversationState;
+        logger.error("Request debug info:", {
+          historyLength: reqState?.history?.length || 0,
+          hasCurrentMessage: !!reqState?.currentMessage,
+          currentMsgType: reqState?.currentMessage?.userInputMessage
+            ? "userInputMessage"
+            : "unknown",
+          currentMsgContentLen:
+            reqState?.currentMessage?.userInputMessage?.content?.length || 0,
+          hasTools:
+            !!reqState?.currentMessage?.userInputMessage
+              ?.userInputMessageContext?.tools,
+          toolsCount:
+            reqState?.currentMessage?.userInputMessage?.userInputMessageContext
+              ?.tools?.length || 0,
+          hasToolResults:
+            !!reqState?.currentMessage?.userInputMessage
+              ?.userInputMessageContext?.toolResults,
+          toolResultsCount:
+            reqState?.currentMessage?.userInputMessage?.userInputMessageContext
+              ?.toolResults?.length || 0,
+        });
+
+        // ⚠️ 关键调试：打印 toolResults 结构
+        const toolResults =
+          reqState?.currentMessage?.userInputMessage?.userInputMessageContext
+            ?.toolResults;
+        if (toolResults && toolResults.length > 0) {
+          logger.error(
+            "ToolResults structure:",
+            JSON.stringify(
+              toolResults.map((tr) => ({
+                toolUseId: tr.toolUseId,
+                status: tr.status,
+                hasContent: !!tr.content,
+                contentType: Array.isArray(tr.content)
+                  ? "array"
+                  : typeof tr.content,
+                contentLength: tr.content
+                  ? Array.isArray(tr.content)
+                    ? tr.content.length
+                    : String(tr.content).length
+                  : 0,
+                // 新增：打印 content 详细结构
+                contentDetail: Array.isArray(tr.content)
+                  ? tr.content.map((c) => ({
+                      type: typeof c,
+                      hasText: !!c?.text,
+                      textLen: c?.text?.length || 0,
+                      textPreview: c?.text?.substring(0, 100) || "",
+                    }))
+                  : null,
+              })),
+              null,
+              2
+            )
+          );
+        }
+
+        // ⚠️ 关键调试：打印 history 中的 toolUses
+        if (reqState?.history) {
+          for (let idx = 0; idx < reqState.history.length; idx++) {
+            const h = reqState.history[idx];
+            if (h.userInputMessage) {
+              logger.error(
+                `History[${idx}] userInputMessage.content length:`,
+                h.userInputMessage.content?.length || 0
+              );
+            }
+            if (h.assistantResponseMessage) {
+              logger.error(
+                `History[${idx}] assistantResponseMessage.content length:`,
+                h.assistantResponseMessage.content?.length || 0
+              );
+              if (h.assistantResponseMessage.toolUses) {
+                // ⚠️ 增强调试：打印完整的 toolUse 结构，检查是否有 input 字段
+                logger.error(
+                  `History[${idx}] toolUses:`,
+                  JSON.stringify(
+                    h.assistantResponseMessage.toolUses.map((tu) => ({
+                      toolUseId: tu.toolUseId,
+                      name: tu.name,
+                      hasInput: tu.input !== undefined,
+                      inputType: typeof tu.input,
+                      inputKeys:
+                        tu.input && typeof tu.input === "object"
+                          ? Object.keys(tu.input)
+                          : null,
+                    }))
+                  )
                 );
+              }
             }
-
-            // 高效合并：只合并 pending + 新 chunk，而不是所有历史 chunk
-            pendingBuffer = pendingBuffer.length > 0
-                ? Buffer.concat([pendingBuffer, chunk])
-                : chunk;
-
-            // 解析缓冲区中的事件
-            const { events, remaining } = parseAwsEventStreamBuffer(pendingBuffer);
-
-            // 更新 pending buffer 为未解析的部分
-            pendingBuffer = remaining;
-
-            // yield 所有事件，但过滤连续完全相同的 content 事件（Kiro API 有时会重复发送）
-            for (const event of events) {
-                eventCount++;
-
-                // 记录首字时间（TTFT）
-                if (firstTokenTime === null && (event.type === 'content' || event.type === 'thinking')) {
-                    firstTokenTime = Date.now() - requestStartTime;
-                    logger.info(`⚡ TTFT: ${(firstTokenTime / 1000).toFixed(2)}s`);
-                }
-
-                if (event.type === 'content' && event.data) {
-                    // 检查是否与上一个 content 事件完全相同
-                    if (lastContentEvent === event.data) {
-                        // 跳过重复的内容
-                        continue;
-                    }
-                    lastContentEvent = event.data;
-                    yield { type: 'content', content: event.data };
-                } else if (event.type === 'thinking') {
-                    // 转发 thinking 事件
-                    yield { type: 'thinking', data: event.data };
-                } else if (event.type === 'toolUse') {
-                    if (event.data) {
-                        yield { type: 'toolUse', toolUse: event.data };
-                    }
-                } else if (event.type === 'toolUseInput') {
-                    if (event.data && event.data.input !== undefined) {
-                        yield { type: 'toolUseInput', input: event.data.input, toolUseId: event.data.toolUseId };
-                    }
-                } else if (event.type === 'toolUseStop') {
-                    if (event.data && event.data.stop !== undefined) {
-                        yield { type: 'toolUseStop', stop: event.data.stop, toolUseId: event.data.toolUseId };
-                    }
-                }
-            }
+          }
         }
-
-        // ========================================
-        // 📥 流式响应日志
-        // ========================================
-        const requestDuration = ((Date.now() - requestStartTime) / 1000).toFixed(2);
-        const totalSizeKB = (totalBytesReceived / 1024).toFixed(2);
-
-        // 简洁模式：只显示关键信息
-        if (!service.verboseLogging) {
-            logger.info(`📥 STREAM [Complete] [${requestDuration}s]`);
-        } else {
-            // 详细模式：显示所有信息
-            logger.debug('\n' + '='.repeat(60));
-            logger.debug(`📥 STREAM RESPONSE [Complete] [${requestDuration}s]`);
-            logger.debug('='.repeat(60));
-            logger.debug(`Total Events: ${eventCount} | Total Size: ${totalSizeKB} KB`);
-            logger.debug('='.repeat(60) + '\n');
-        }
-    } catch (error) {
-        // 确保出错时关闭流
-        if (stream && typeof stream.destroy === 'function') {
-            stream.destroy();
-        }
-
-        // ⚠️ Socket 错误处理（流式 API）
-        const isSocketError = !error.response && (
-            error.code === 'ECONNRESET' ||
-            error.code === 'ETIMEDOUT' ||
-            error.code === 'ENOTFOUND' ||
-            error.code === 'UND_ERR_SOCKET' ||
-            error.code === 'UND_ERR_CONNECT_TIMEOUT' ||
-            error.message?.includes('socket') ||
-            error.message?.includes('ECONNRESET')
-        );
-
-        if (isSocketError && retryCount < maxRetries) {
-            logger.warn(`Socket error detected: ${error.code || error.message}`);
-            logger.warn(
-                `Resetting connection pool and retrying... (attempt ${retryCount + 1}/${maxRetries})`
-            );
-
-            // 重置连接池
-            await service.resetConnectionPool();
-
-            // 短暂延迟后重试
-            await new Promise(resolve => setTimeout(resolve, 1000));
-
-            yield* streamApiReal(service, method, model, body, isRetry, retryCount + 1);
-            return;
-        } else if (isSocketError) {
-            logger.error('Socket error after max retries:', { error: error.code || error.message });
-            throw new Error(`Stream connection failed: ${error.message}. Please check your network or try restarting the service.`);
-        }
-
-        // 403 错误：Token 过期，刷新后重试
-        if (error.response?.status === 403 && !isRetry) {
-            logger.info('Received 403 in stream. Attempting token refresh and retrying...');
-            await initializeAuth(service, true);
-            yield* streamApiReal(service, method, model, body, true, retryCount);
-            return;
-        }
-
-        // 429 错误：速率限制，指数退避重试
-        if (error.response?.status === 429 && retryCount < maxRetries) {
-            const delay = baseDelay * Math.pow(2, retryCount);
-            logger.warn(`Received 429 in stream. Retrying in ${delay}ms...`);
-            await new Promise(resolve => setTimeout(resolve, delay));
-            yield* streamApiReal(service, method, model, body, isRetry, retryCount + 1);
-            return;
-        }
-
-        // ⚠️ 400 错误：详细日志用于调试
-        if (error.response?.status === 400) {
-            logger.error('❌ 400 Bad Request Error in streaming');
-
-            // 安全获取响应数据（可能是流对象）
-            let errorData = 'Unable to read response data';
-            try {
-                if (typeof error.response.data === 'string') {
-                    errorData = error.response.data.substring(0, 500);
-                } else if (error.response.data && typeof error.response.data.on === 'function') {
-                    // 这是一个流，无法直接读取
-                    errorData = '[Stream response - check statusText]';
-                } else if (error.response.data) {
-                    errorData = JSON.stringify(error.response.data).substring(0, 500);
-                }
-            } catch (e) {
-                errorData = `[Error reading data: ${e.message}]`;
-            }
-
-            logger.error('Error details:', {
-                status: error.response.status,
-                statusText: error.response.statusText,
-                data: errorData,
-                amznErrorType: error.response.headers?.['x-amzn-errortype'] || 'unknown'
-            });
-
-            // 打印请求体的关键信息
-            try {
-                const reqState = requestData?.conversationState;
-                logger.error('Request debug info:', {
-                    historyLength: reqState?.history?.length || 0,
-                    hasCurrentMessage: !!reqState?.currentMessage,
-                    currentMsgType: reqState?.currentMessage?.userInputMessage ? 'userInputMessage' : 'unknown',
-                    currentMsgContentLen: reqState?.currentMessage?.userInputMessage?.content?.length || 0,
-                    hasTools: !!(reqState?.currentMessage?.userInputMessage?.userInputMessageContext?.tools),
-                    toolsCount: reqState?.currentMessage?.userInputMessage?.userInputMessageContext?.tools?.length || 0,
-                    hasToolResults: !!(reqState?.currentMessage?.userInputMessage?.userInputMessageContext?.toolResults),
-                    toolResultsCount: reqState?.currentMessage?.userInputMessage?.userInputMessageContext?.toolResults?.length || 0,
-                });
-
-                // 打印 history 中每个消息的 content 长度
-                if (reqState?.history) {
-                    for (let idx = 0; idx < reqState.history.length; idx++) {
-                        const h = reqState.history[idx];
-                        if (h.userInputMessage) {
-                            logger.error(`History[${idx}] user.content len: ${h.userInputMessage.content?.length || 0}`);
-                        }
-                        if (h.assistantResponseMessage) {
-                            logger.error(
-                                `History[${idx}] assistant.content len: ${h.assistantResponseMessage.content?.length || 0}, hasToolUses: ${!!h.assistantResponseMessage.toolUses}`
-                            );
-                        }
-                    }
-                }
-            } catch (debugError) {
-                logger.error('Error printing debug info:', { error: debugError.message });
-            }
-        }
-
-        // 抛出错误供上层处理
-        yield { type: 'error', error: { message: error.message, status: error.response?.status } };
-        throw error;
+      } catch (debugError) {
+        logger.error("Error printing debug info:", {
+          error: debugError.message,
+        });
+      }
     }
+
+    // 抛出错误供上层处理
+    yield {
+      type: "error",
+      error: { message: error.message, status: error.response?.status },
+    };
+    throw error;
+  }
 }
