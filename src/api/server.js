@@ -104,25 +104,25 @@ async function startServer() {
             try {
                 const open = (await import('open')).default;
                 setTimeout(() => {
-                    open(`http://${CONFIG.HOST}:${CONFIG.SERVER_PORT}/login.html`)
+                    open(`http://${CONFIG.HOST}:${CONFIG.SERVER_PORT}/login`)
                         .then(() => {
                             logger.info('Opened login page in default browser');
                         })
                         .catch(err => {
-                            logger.info(`Please open manually: http://${CONFIG.HOST}:${CONFIG.SERVER_PORT}/login.html`);
+                            logger.info(`Please open manually: http://${CONFIG.HOST}:${CONFIG.SERVER_PORT}/login`);
                         });
                 }, 1000);
             } catch (err) {
-                logger.info(`Login page available at: http://${CONFIG.HOST}:${CONFIG.SERVER_PORT}/login.html`);
+                logger.info(`Login page available at: http://${CONFIG.HOST}:${CONFIG.SERVER_PORT}/login`);
             }
         } else {
-            logger.info(`Login page available at: http://${CONFIG.HOST}:${CONFIG.SERVER_PORT}/login.html`);
+            logger.info(`Login page available at: http://${CONFIG.HOST}:${CONFIG.SERVER_PORT}/login`);
         }
 
         // 特殊处理 xdg-open：在无桌面环境下会抛异常，避免误判为服务崩溃
         process.on('uncaughtException', (err) => {
             if (err.code === 'ENOENT' && err.syscall === 'spawn xdg-open') {
-                logger.info('Could not auto-open browser. Please visit http://' + CONFIG.HOST + ':' + CONFIG.SERVER_PORT + '/login.html manually');
+                logger.info('Could not auto-open browser. Please visit http://' + CONFIG.HOST + ':' + CONFIG.SERVER_PORT + '/login manually');
             } else {
                 logger.error('Uncaught Exception', err);
                 process.exit(1);
