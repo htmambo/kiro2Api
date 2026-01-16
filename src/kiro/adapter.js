@@ -18,8 +18,7 @@ import { streamApiReal } from './streaming.js';
 // 导入工具转换模块
 import {
     convertToQTool,
-    convertToQToolWithMapping,
-    compressInputSchema as compressToolSchema
+    convertToQToolWithMapping
 } from './converters/tool-converter.js';
 
 // 导入公共摘要模块

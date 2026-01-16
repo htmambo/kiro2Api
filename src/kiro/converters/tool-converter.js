@@ -19,7 +19,8 @@
  * - ../lib/logger.js: createLogger
  */
 
-import { CC_TO_KIRO_TOOL_MAPPING, normalizeToolName, isZodSchema } from '../tools.js';
+import { CC_TO_KIRO_TOOL_MAPPING, normalizeToolName } from '../tools.js';
+import { isZodSchema } from '../utils.js';
 import { createLogger } from '../lib/logger.js';
 
 const logger = createLogger('kiro:tool-converter');
@@ -117,10 +118,12 @@ export function convertToQTool(tool, compressInputSchemaFn = compressInputSchema
     // 参考 Kiro 源码 extension.js:683316-683326
     // 格式：{ type: "web_search_20250305", name: "web_search", max_uses: 8, ... }
     // ⚠️ 严格按照 Kiro 官方支持的 6 个工具，不添加额外工具
+    // ⚠️ 警告：内置工具格式会导致 AWS CodeWhisperer API 400 错误，应在调用前过滤
     if (typeof tool === 'object' && tool !== null &&
         'type' in tool && 'name' in tool &&
         typeof tool.type === 'string' && typeof tool.name === 'string' &&
         BUILTIN_TOOLS.includes(tool.name)) {
+        logger.warn(`⚠️ Builtin tool detected (${tool.name}): This format is not supported by AWS CodeWhisperer API and will cause 400 Bad Request. Please filter builtin tools before calling this function.`);
         if (logger.isDebugEnabled()) {
             logger.info(`Detected builtin tool: ${tool.name}, passing through without conversion`);
         }
@@ -282,12 +285,12 @@ export function convertToQToolWithMapping(tool, compressInputSchemaFn = compress
             : desc;
 
         if (logger.isDebugEnabled()) {
-            logger.info(`Mapped tool: ${toolName} → ${mapping.kiroTool} (keeping original CC schema)`);
+            logger.info(`Mapped tool: ${toolName} → ${mapping.kiroTool} (keeping original CC toolName)`);
         }
 
         return {
             toolSpecification: {
-                name: mapping.kiroTool || toolName,
+                name: toolName,  // ⚠️ 保留原始 CC 工具名，参数映射在 mapToolUseParams 中进行
                 description: truncatedDesc,
                 inputSchema: { json: compressedSchema }
             }
