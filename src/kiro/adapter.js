@@ -3,13 +3,13 @@ import { v4 as uuidv4 } from 'uuid';
 import * as path from 'path';
 import * as http from 'http';
 import * as https from 'https';
-import { countTokens } from '@anthropic-ai/tokenizer';
 import { MODEL_PROVIDER } from '../utils/common.js';
 import { KIRO_MODELS, KIRO_CONSTANTS } from "./constants.js";
 import { sanitizeMessageHistory, getContentText, sanitizeMessages } from './message-sanitizer.js';
 import { promises as fs } from 'fs';
 import {getMacAddressSha256, generateRandomUserAgentComponents, getOriginalMacAddressSha256} from './utils.js';
 import { createLogger } from '../lib/logger.js';
+import { countMessageTokens, countTextTokens } from './utils/token-counter.js';
 
 // 导入搜索模块
 import { executeWebSearch, formatSearchResults } from './search.js';
@@ -19,7 +19,6 @@ import { streamApiReal } from './streaming.js';
 import {
     generateContent,
     generateContentStream,
-    countTextTokens,
     estimateInputTokens,
     buildClaudeResponse,
     getUsageLimits
@@ -853,7 +852,7 @@ ${conversationData}`;
 
         // ⚠️ 关键修复：使用 getFullMessageTokens 计算完整 token 数（包括 tool_result）
         let totalTokens = tokensForCompletion + chatHistory.reduce((acc, message) => {
-            return acc + this.getFullMessageTokens(message, true);
+            return acc + countMessageTokens(message, true);
         }, 0);
 
         // 如果不超限，直接返回
@@ -865,15 +864,15 @@ ${conversationData}`;
         const longestMessages = [...chatHistory];
         longestMessages.sort((a, b) => {
             // 使用完整 token 计算进行排序
-            return this.getFullMessageTokens(b, true) - this.getFullMessageTokens(a, true);
+            return countMessageTokens(b, true) - countMessageTokens(a, true);
         });
 
         const longerThanOneThird = longestMessages.filter(message => {
-            return this.getFullMessageTokens(message, true) > contextLength / 3;
+            return countMessageTokens(message, true) > contextLength / 3;
         });
 
         for (const message of longerThanOneThird) {
-            const messageTokens = this.getFullMessageTokens(message, true);
+            const messageTokens = countMessageTokens(message, true);
             const deltaNeeded = totalTokens - contextLength;
             const distanceFromThird = messageTokens - contextLength / 3;
             const delta = Math.min(deltaNeeded, distanceFromThird);
@@ -894,7 +893,7 @@ ${conversationData}`;
                 }
                 if (hasToolResult) {
                     // 重新计算 token 并更新 totalTokens
-                    const newTokens = this.getFullMessageTokens(message, true);
+                    const newTokens = countMessageTokens(message, true);
                     totalTokens -= (messageTokens - newTokens);
                     if (totalTokens <= contextLength) {
                         return chatHistory;
@@ -927,7 +926,7 @@ ${conversationData}`;
         while (totalTokens > contextLength && i < chatHistory.length - 5) {
             const message = chatHistory[i];
             // ⚠️ 关键修复：使用完整 token 计算
-            const oldTokens = this.getFullMessageTokens(message, true);
+            const oldTokens = countMessageTokens(message, true);
             const summarized = this.summarizeMessage(message);  // 传入整个 message
             const newTokens = countTextTokens(getContentText({ content: summarized }), true);
 
@@ -944,7 +943,7 @@ ${conversationData}`;
         while (chatHistory.length > 5 && totalTokens > contextLength) {
             const message = chatHistory.shift();
             // ⚠️ 关键修复：使用完整 token 计算
-            totalTokens -= this.getFullMessageTokens(message, true);
+            totalTokens -= countMessageTokens(message, true);
         }
 
         if (totalTokens <= contextLength) {
@@ -964,7 +963,7 @@ ${conversationData}`;
             }
 
             // ⚠️ 关键修复：使用完整 token 计算
-            const oldTokens = this.getFullMessageTokens(message, true);
+            const oldTokens = countMessageTokens(message, true);
             const summarized = this.summarizeMessage(message);  // 传入整个 message
             const newTokens = countTextTokens(getContentText({ content: summarized }), true);
 
@@ -981,7 +980,7 @@ ${conversationData}`;
         while (totalTokens > contextLength && chatHistory.length > 1) {
             const message = chatHistory.shift();
             // ⚠️ 关键修复：使用完整 token 计算
-            totalTokens -= this.getFullMessageTokens(message, true);
+            totalTokens -= countMessageTokens(message, true);
         }
 
         if (totalTokens <= contextLength) {
@@ -992,7 +991,7 @@ ${conversationData}`;
         if (totalTokens > contextLength && chatHistory.length > 0) {
             const message = chatHistory[0];
             // ⚠️ 关键修复：使用完整 token 计算
-            const currentMessageTokens = this.getFullMessageTokens(message, true);
+            const currentMessageTokens = countMessageTokens(message, true);
 
             // ⚠️ FIX: 正确计算需要删除多少 tokens
             const tokensToRemove = totalTokens - contextLength;
@@ -1022,71 +1021,6 @@ ${conversationData}`;
         return chatHistory;
     }
 
-    /**
-     * 计算消息的完整 token 数（包括 tool_result, tool_use, thinking, 图片等）
-     * ⚠️ 关键修复：之前 getContentText 只提取 text 类型，导致其他内容被忽略
-     * 这会导致 token 估算严重低估，从而触发 CONTENT_LENGTH_EXCEEDS_THRESHOLD 错误
-     */
-    getFullMessageTokens(message, useFastEstimate = true) {
-        if (!message) return 0;
-
-        let allText = '';  // 收集所有文本内容
-        let imageCount = 0;
-
-        // 提取文本内容
-        const textContent = getContentText(message);
-        allText += textContent;
-
-        // ⚠️ 计算所有内容类型的 token 数
-        if (Array.isArray(message.content)) {
-            for (const part of message.content) {
-                if (part.type === 'tool_result') {
-                    // tool_result 的内容可能是字符串或数组
-                    if (typeof part.content === 'string') {
-                        allText += part.content;
-                    } else if (Array.isArray(part.content)) {
-                        const toolResultText = part.content
-                            .filter(c => c.type === 'text' && c.text)
-                            .map(c => c.text)
-                            .join('');
-                        allText += toolResultText;
-                        // 检查是否有图片
-                        imageCount += part.content.filter(c => c.type === 'image').length;
-                    }
-                    // JSON 结构开销（约 15 tokens）
-                    allText += '                ';  // 16 个空格代表结构开销
-                } else if (part.type === 'tool_use') {
-                    // tool_use 的 input 也需要计算
-                    if (part.input) {
-                        const inputStr = typeof part.input === 'string'
-                            ? part.input
-                            : JSON.stringify(part.input);
-                        allText += inputStr;
-                    }
-                    // tool_use 元数据（name, id 等）
-                    allText += (part.name || '') + (part.id || '') + '          ';  // 结构开销
-                } else if (part.type === 'thinking') {
-                    // ⚠️ 关键：thinking 内容也需要计算
-                    if (part.thinking) {
-                        allText += part.thinking;
-                    }
-                } else if (part.type === 'image') {
-                    // 图片 token 计数
-                    imageCount++;
-                }
-            }
-        }
-
-        // 图片 token 估算：每张图片约 1000-2000 tokens（根据分辨率）
-        const imageTokens = imageCount * 1500;
-
-        // ⚠️ 关键修复：使用 countTextTokens 正确处理中文
-        // 中文约 2.5 tokens/字，英文约 0.35 tokens/字符
-        const textTokens = countTextTokens(allText, useFastEstimate);
-
-        // JSON 格式开销（约 10%）
-        return Math.ceil(textTokens * 1.1) + imageTokens;
-    }
 
     /**
      * Build CodeWhisperer request
@@ -1128,7 +1062,7 @@ ${conversationData}`;
         // ⚠️ 关键修复：使用 getFullMessageTokens 计算完整 token 数（包括 tool_result）
         // 之前使用 getContentText 只计算 text 类型，导致 tool_result 被忽略，token 严重低估
         let currentTokens = messages.reduce((acc, message) => {
-            return acc + this.getFullMessageTokens(message, true);
+            return acc + countMessageTokens(message, true);
         }, 0);
 
         // 添加系统提示词的 token 数
@@ -1191,7 +1125,7 @@ ${conversationData}`;
 
             // 修剪后重新计算 token 数（使用完整 token 计算方法）
             const prunedTokens = messages.reduce((acc, message) => {
-                return acc + this.getFullMessageTokens(message, true);
+                return acc + countMessageTokens(message, true);
             }, 0);
             logger.debug(
                 `Auto-Pruning Completed: ${prunedTokens}/${contextLength} (${Math.round(prunedTokens/contextLength*100)}%)`

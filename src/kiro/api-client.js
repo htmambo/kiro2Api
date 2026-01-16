@@ -9,7 +9,7 @@ import axios from 'axios';
 import { v4 as uuidv4 } from 'uuid';
 import { countTokens } from '@anthropic-ai/tokenizer';
 import { streamApiReal } from './streaming.js';
-import { parseBracketToolCalls, deduplicateToolCalls } from './tools.js';
+import { parseBracketToolCalls, deduplicateToolCalls, mapToolNameToCC } from './tools.js';
 import { executeWebSearch, formatSearchResults } from './search.js';
 import { MODEL_MAPPING } from './adapter.js';
 import { refreshAccessTokenIfNeeded, initializeAuth } from './auth.js';
@@ -17,6 +17,7 @@ import { KIRO_CONSTANTS } from './constants.js';
 import { unescapeHTML } from './utils.js';
 import { createLogger } from '../lib/logger.js';
 import { getAdaptiveTimeout } from "./tools.js";
+import { countTextTokens } from './utils/token-counter.js';
 
 const logger = createLogger('kiro:api-client');
 
@@ -67,7 +68,7 @@ function parseEventStreamChunk(rawData) {
 
                         currentToolCall = {
                             toolUseId: tc.toolUseId,
-                            name: tc.name || 'unknown',
+                            name: mapToolNameToCC(tc.name || 'unknown'),
                             input: ''
                         };
                     }
@@ -739,7 +740,7 @@ export async function* generateContentStream(service, model, requestBody) {
                         // 创建新的 currentToolCall（设置 id/name）
                         currentToolCall = {
                             toolUseId: tc.toolUseId,
-                            name: tc.name || 'unknown',
+                            name: mapToolNameToCC(tc.name || 'unknown'),
                             input: ''
                         };
                     }
@@ -956,7 +957,7 @@ export async function* generateContentStream(service, model, requestBody) {
                     content_block: {
                         type: "tool_use",
                         id: tc.toolUseId || `tool_${uuidv4()}`,
-                        name: tc.name,
+                        name: mapToolNameToCC(tc.name),
                         input: {}
                     }
                 };
@@ -1031,33 +1032,6 @@ export async function* generateContentStream(service, model, requestBody) {
     }
 }
 
-
-/**
- * 计算文本的 token 数
- *
- * @param {string} text - 文本内容
- * @param {boolean} fast - 是否使用快速估算
- * @returns {number} token 数量
- */
-export function countTextTokens(text, fast = false) {
-    if (!text) return 0;
-
-    // 快速模式：使用字符估算
-    if (fast) {
-        // Claude tokenizer 实测：中文约 2.5 token/字，英文约 0.35 token/字符
-        const chineseCharCount = (text.match(/[\u4e00-\u9fff]/g) || []).length;
-        const totalLength = text.length;
-        const nonChineseLength = totalLength - chineseCharCount;
-        return Math.ceil(chineseCharCount * 2.5 + nonChineseLength * 0.35);
-    }
-
-    try {
-        return countTokens(text);
-    } catch (error) {
-        // Fallback to estimation if tokenizer fails
-        return Math.ceil((text || '').length / 4);
-    }
-}
 
 /**
  * 估算请求的输入 token 数
@@ -1219,7 +1193,7 @@ export function buildClaudeResponse(content, isStream = false, role = 'assistant
                     content_block: {
                         type: "tool_use",
                         id: tc.id,
-                        name: tc.function.name,
+                        name: mapToolNameToCC(tc.function.name),
                         input: {}
                     }
                 });
@@ -1284,7 +1258,7 @@ export function buildClaudeResponse(content, isStream = false, role = 'assistant
                 contentArray.push({
                     type: "tool_use",
                     id: tc.id,
-                    name: tc.function.name,
+                    name: mapToolNameToCC(tc.function.name),
                     input: inputObject
                 });
                 outputTokens += countTextTokens(JSON.stringify(inputObject));
