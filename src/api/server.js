@@ -1,3 +1,12 @@
+/**
+ * 统一 API 服务器启动入口
+ *
+ * 负责按固定顺序完成配置加载、服务初始化、UI 管理、API 管理与 HTTP 监听。
+ * 启动顺序不可随意调整，否则会导致配置未就绪、服务未注册或健康检查失效。
+ *
+ * @module server
+ */
+
 import * as http from 'http';
 import { initializeConfig, CONFIG } from '../config/manager.js';
 import { initApiService } from '../services/manager.js';
@@ -16,10 +25,22 @@ initLogger({ level: logLevel });
 
 const logger = createLogger('server');
 
+/**
+ * 判断 API Key 是否属于弱口令
+ *
+ * @param {string} value - 待检查的 API Key
+ * @returns {boolean} 是否为弱口令
+ */
 function isInsecureDefaultApiKey(value) {
     return value === '123456' || value === 'password' || value === 'admin';
 }
 
+/**
+ * 对敏感配置做日志脱敏，避免误泄露
+ *
+ * @param {*} value - 原始密钥（任意类型，会转为字符串）
+ * @returns {string} 脱敏后的字符串
+ */
 function maskSecret(value) {
     if (!value) return '(unset)';
     const str = String(value);
@@ -28,11 +49,20 @@ function maskSecret(value) {
 }
 
 // --- Server Initialization ---
+/**
+ * 启动服务器并初始化所有依赖模块
+ *
+ * 生产环境会严格校验弱密钥并在不安全时退出，以防配置疏漏被带入公网。
+ * 启动后可选自动打开浏览器用于提升本地体验，但必须容忍无 GUI 环境的失败场景。
+ *
+ * @returns {Promise<http.Server>} 服务器实例（便于测试）
+ */
 async function startServer() {
     // Initialize configuration
     await initializeConfig();
 
     // 生产环境禁止使用弱默认 API Key（可用 ALLOW_WEAK_API_KEY=true 覆盖）
+    // 为什么：默认/弱密钥一旦被部署到公网，风险极高，宁可启动失败也不要默默放过
     if (process.env.NODE_ENV === 'production' && isInsecureDefaultApiKey(CONFIG.REQUIRED_API_KEY)) {
         if (process.env.ALLOW_WEAK_API_KEY !== 'true') {
             logger.error('Refusing to start with insecure REQUIRED_API_KEY in production. Please set a strong REQUIRED_API_KEY.');
@@ -89,7 +119,7 @@ async function startServer() {
             logger.info(`Login page available at: http://${CONFIG.HOST}:${CONFIG.SERVER_PORT}/login.html`);
         }
 
-        // Suppress unhandled error events from open module
+        // 特殊处理 xdg-open：在无桌面环境下会抛异常，避免误判为服务崩溃
         process.on('uncaughtException', (err) => {
             if (err.code === 'ENOENT' && err.syscall === 'spawn xdg-open') {
                 logger.info('Could not auto-open browser. Please visit http://' + CONFIG.HOST + ':' + CONFIG.SERVER_PORT + '/login.html manually');
@@ -105,7 +135,7 @@ async function startServer() {
             // 每 CRON_NEAR_MINUTES 分钟执行一次心跳日志和令牌刷新
             setInterval(heartbeatAndRefreshToken, CONFIG.CRON_NEAR_MINUTES * 60 * 1000);
         }
-        // 服务器完全启动后,执行初始健康检查
+        // 服务器完全启动后才做健康检查，避免在服务未就绪时产生误报或竞争资源
         const accountPoolManager = getAccountPoolManager();
         if (accountPoolManager) {
             logger.info('Performing initial health checks for account pool...');

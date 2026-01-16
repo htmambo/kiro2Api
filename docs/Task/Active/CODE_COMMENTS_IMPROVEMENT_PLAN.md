@@ -90,12 +90,12 @@
 - [x] 4.4 生成注释现状评估报告（已保存至 docs/Analysis/CODE_COMMENTS_ASSESSMENT_REPORT.md）
 
 ### 阶段二：核心模块注释完善 🔄
-- [x] 4.5 完善 `api` 模块注释（对外接口）- 进行中
-  - [ ] rate-limiter.js
-  - [ ] server.js
-  - [ ] request-handler.js
-  - [ ] manager.js
-  - [ ] error-middleware.js
+- [x] 4.5 完善 `api` 模块注释（对外接口）✅
+  - [x] rate-limiter.js ✅
+  - [x] server.js ✅
+  - [x] request-handler.js ✅
+  - [x] manager.js ✅
+  - [x] error-middleware.js ✅
 - [ ] 4.6 完善 `services` 模块注释（业务服务）
 - [ ] 4.7 完善 `openai` 模块注释（OpenAI 集成）
 - [ ] 4.8 完善 `domain` 模块注释（领域模型）

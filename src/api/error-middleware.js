@@ -112,7 +112,7 @@ function buildErrorPayload(error, fromProvider) {
             baseResponse.error.suggestions = suggestions;
         }
 
-        // 开发环境：添加调试信息
+        // 为什么生产环境隐藏细节：避免错误堆栈或上游响应泄露敏感信息
         if (!IS_PRODUCTION) {
             if (error.stack) {
                 baseResponse.error.stack = error.stack;
@@ -157,7 +157,7 @@ function sendSSEError(res, payload, method, path) {
  * @param {string} path - 请求路径
  */
 function sendJSONError(res, payload, statusCode, method, path) {
-    // 检查 headers 是否已发送
+    // 检查 headers 是否已发送：避免重复写响应导致异常或污染已开始的流
     if (res.headersSent) {
         logger.warn(
             `Headers already sent for ${method} ${path}, ` +
@@ -209,7 +209,7 @@ export async function errorMiddleware(error, req, res, isStreaming = false) {
     // 提取状态码
     const statusCode = error.status || error.response?.status || 500;
 
-    // 获取客户端期望的提供商格式
+    // 获取客户端期望的提供商格式：保持错误响应与调用方协议一致，便于客户端解析
     const providerHeader = req?.headers?.['model-provider'] || req?.headers?.['Model-Provider'];
     const fromProvider = typeof providerHeader === 'string' ? providerHeader : 'claude';
 

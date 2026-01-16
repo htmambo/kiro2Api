@@ -1,3 +1,12 @@
+/**
+ * 统一请求入口与路由分流控制器
+ *
+ * 负责在同一链路中完成安全头、限流、静态资源、鉴权与 API 路由分发。
+ * 路由处理顺序非常关键：需要尽早拒绝无效请求、优先满足静态/开发代理，并确保鉴权发生在业务处理之前。
+ *
+ * @module request-handler
+ */
+
 import deepmerge from 'deepmerge';
 import { isAuthorized } from '../utils/common.js';
 import { handleUIApiRequests, serveStaticFiles } from '../ui-manager.js';
@@ -13,6 +22,12 @@ import { createLogger } from '../lib/logger.js';
 
 const logger = createLogger('api:request-handler');
 
+/**
+ * 在日志中清理 URL 中的敏感参数，避免泄露密钥
+ *
+ * @param {string} rawUrl - 原始请求 URL
+ * @returns {string} 已脱敏的 URL
+ */
 function sanitizeUrlForLogs(rawUrl) {
     if (!rawUrl) return 'unknown';
     try {
@@ -26,6 +41,11 @@ function sanitizeUrlForLogs(rawUrl) {
     }
 }
 
+/**
+ * 设置基础安全响应头，降低常见浏览器侧风险
+ *
+ * @param {http.ServerResponse} res - HTTP 响应对象
+ */
 function setBasicSecurityHeaders(res) {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
@@ -33,6 +53,12 @@ function setBasicSecurityHeaders(res) {
     res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
 }
 
+/**
+ * 判断是否为需要 API Key 保护的路径
+ *
+ * @param {string} pathname - 请求路径
+ * @returns {boolean} 是否需要鉴权
+ */
 function isApiKeyProtectedPath(pathname) {
     if (!pathname) return false;
     if (pathname.startsWith('/v1/')) return true;
@@ -40,16 +66,21 @@ function isApiKeyProtectedPath(pathname) {
     return false;
 }
 /**
- * Main request handler. It authenticates the request, determines the endpoint type,
- * and delegates to the appropriate specialized handler function.
- * @param {Object} config - The server configuration
- * @param {Object} accountPoolManager - Pool manager instance (provider/account)
- * @returns {Function} - The request handler function
+ * 主请求处理器，按固定顺序完成限流、静态资源、鉴权与 API 路由分发
+ *
+ * 处理顺序的原因：
+ * 1) 先做限流，避免无效请求消耗后续资源
+ * 2) 静态资源与开发代理优先返回，避免被鉴权或业务逻辑阻塞
+ * 3) 鉴权必须早于业务处理，防止未授权请求进入核心路径
+ *
+ * @param {Object} config - 服务器配置
+ * @param {Object} accountPoolManager - 账号池管理器
+ * @returns {Function} - 请求处理函数
  */
 export function createRequestHandler(config, accountPoolManager) {
     return async function requestHandler(req, res) {
         try {
-            // Deep copy the config for each request to allow dynamic modification
+            // 为什么深拷贝：请求级配置可能被动态修改，避免并发请求相互污染
             const currentConfig = deepmerge({}, config);
             const host = req.headers.host || 'localhost';
             const requestUrl = new URL(req.url, `http://${host}`);
@@ -58,7 +89,7 @@ export function createRequestHandler(config, accountPoolManager) {
 
             setBasicSecurityHeaders(res);
 
-            // Normalize provider prefix early (e.g. /claude-kiro-oauth/v1/messages)
+            // 提前剥离 provider 前缀，统一路由入口，避免后续处理分叉
             const pathSegments = path.split('/').filter(segment => segment.length > 0);
             if (pathSegments.length > 0) {
                 const firstSegment = pathSegments[0];
@@ -70,7 +101,7 @@ export function createRequestHandler(config, accountPoolManager) {
                 }
             }
 
-            // Check rate limit (before any heavy processing)
+            // 限流放在最早：优先拒绝高频请求，减少后续 IO/鉴权成本
             if (!isRateLimitWhitelisted(path, currentConfig)) {
                 const { allowed, retryAfterSeconds } = checkRateLimit(req, currentConfig);
                 if (!allowed) {
@@ -192,6 +223,7 @@ export function createRequestHandler(config, accountPoolManager) {
             const activeAccountPoolManager = accountPoolManager || getAccountPoolManager();
             if (activeAccountPoolManager && currentConfig.uuid) {
                 if (typeof activeAccountPoolManager.markAccountUnhealthy === 'function') {
+                    // 获取服务失败时标记不健康，避免同账号反复选中导致连续失败
                     activeAccountPoolManager.markAccountUnhealthy(currentConfig.uuid, error);
                 }
             }
