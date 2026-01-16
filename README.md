@@ -90,6 +90,7 @@ cd kiro2Api
 
 ```bash
 npm install
+npm --prefix frontend-vue install
 ```
 
 如果遇到 `better-sqlite3` 编译错误，可能需要安装构建工具：

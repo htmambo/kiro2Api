@@ -21,7 +21,7 @@ import { KIRO_CONSTANTS } from './constants.js';
 import { unescapeHTML } from './utils.js';
 import { createLogger } from '../lib/logger.js';
 import { getAdaptiveTimeout } from "./tools.js";
-import { estimateInputTokens } from './utils/token-counter.js';
+import { estimateInputTokens, countTextTokens } from "./utils/token-counter.js";
 
 const logger = createLogger('kiro:api-client');
 

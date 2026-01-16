@@ -264,7 +264,7 @@ async function cleanupExpiredTokens() {
 async function readPasswordFile() {
     // 兼容旧的 pwd 文件方式
     try {
-        const password = await fs.readFile('./pwd', 'utf8');
+        const password = process.env.UI_PASSWORD || 'admin';
         return password.trim();
     } catch (error) {
         logger.error('读取密码文件失败', error);

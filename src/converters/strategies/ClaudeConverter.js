@@ -153,6 +153,7 @@ export class ClaudeConverter extends BaseConverter {
                     if (firstPart.type === "tool_use") {
                         const funcName = firstPart.name || "";
                         const funcArgs = firstPart.input || {};
+                        logger.warn(`ClaudeConverter: assistant tool_use: ${funcName}, ${JSON.stringify(funcArgs)}`);
                         tempOpenAIMessages.push({
                             role: "assistant",
                             content: '',

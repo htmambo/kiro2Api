@@ -36,18 +36,13 @@ import {
 // 导入工具映射模块
 import {
     CC_TO_KIRO_TOOL_MAPPING,
-    KIRO_TOOL_SCHEMAS,
     mapToolUseParams,
     normalizeToolName,
-    mapToolNameToKiro,
-    parseSingleToolCall,
-    parseBracketToolCalls,
-    deduplicateToolCalls
+    mapToolNameToKiro
 } from './tools.js';
 
 // 导入工具函数模块
 import {
-    isZodSchema,
     detectImageFormat
 } from './utils.js';
 
@@ -77,7 +72,9 @@ const FULL_MODEL_MAPPING = {
     "claude-sonnet-4-5-20250929": "CLAUDE_SONNET_4_5_20250929_V1_0",
     // Sonnet 4.0 映射（AWS使用大写V1_0格式）
     "claude-sonnet-4-20250514": "CLAUDE_SONNET_4_20250514_V1_0",
-    "CLAUDE_SONNET_4_20250514_V1_0": "CLAUDE_SONNET_4_20250514_V1_0"
+    "CLAUDE_SONNET_4_20250514_V1_0": "CLAUDE_SONNET_4_20250514_V1_0",
+    // Sonnet 3.7 映射（AWS使用大写V1_0格式）
+    "claude-3-7-sonnet-20250219": "CLAUDE_3_7_SONNET_20250219_V1_0"
 };
 
 // 只保留 KIRO_MODELS 中存在的模型映射

@@ -124,9 +124,7 @@ export function convertToQTool(tool, compressInputSchemaFn = compressInputSchema
         typeof tool.type === 'string' && typeof tool.name === 'string' &&
         BUILTIN_TOOLS.includes(tool.name)) {
         logger.warn(`⚠️ Builtin tool detected (${tool.name}): This format is not supported by AWS CodeWhisperer API and will cause 400 Bad Request. Please filter builtin tools before calling this function.`);
-        if (logger.isDebugEnabled()) {
-            logger.info(`Detected builtin tool: ${tool.name}, passing through without conversion`);
-        }
+        logger.error(`Detected builtin tool: ${tool.name}, passing through without conversion`);
         return tool;  // 内置工具原样传递
     }
 
@@ -284,9 +282,7 @@ export function convertToQToolWithMapping(tool, compressInputSchemaFn = compress
             ? desc.substring(0, maxDescLength).trim() + '...'
             : desc;
 
-        if (logger.isDebugEnabled()) {
-            logger.info(`Mapped tool: ${toolName} → ${mapping.kiroTool} (keeping original CC toolName)`);
-        }
+        // logger.error(`Mapped tool: ${toolName} → ${mapping.kiroTool} (keeping original CC toolName)`);
 
         return {
             toolSpecification: {

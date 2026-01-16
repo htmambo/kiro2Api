@@ -21,7 +21,7 @@ const logger = createLogger('api:manager');
 export async function handleAPIRequests(method, path, req, res, currentConfig, apiService, poolManager, promptLogFilename) {
     // Route content generation requests
     if (method === 'POST') {
-        if (path === '/v1/messages') {
+        if (path === '/v1/messages' || path === '/v1/stream') {
             await handleContentGenerationRequest(req, res, apiService, ENDPOINT_TYPE.CLAUDE_MESSAGE, currentConfig, promptLogFilename, poolManager, currentConfig.uuid);
             return true;
         }
