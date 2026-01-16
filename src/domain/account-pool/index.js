@@ -1,3 +1,10 @@
+/**
+ * 账号池领域门面
+ *
+ * 统一 JSON 与 SQLite 账号池的访问方式，并对外输出领域事件。
+ *
+ * @module domain/account-pool
+ */
 import { EventEmitter } from 'node:events';
 import { v4 as uuidv4 } from 'uuid';
 import { createLogger } from '../../lib/logger.js';
@@ -6,6 +13,12 @@ import { sqliteDB } from '../../lib/sqlite-db.js';
 import { getAccountPoolManager as getJsonAccountPoolManager } from './json-store.js';
 import { SQLiteAccountPoolManager } from './sqlite-store.js';
 
+/**
+ * 账号池领域事件枚举
+ *
+ * @readonly
+ * @enum {string}
+ */
 export const ACCOUNT_POOL_DOMAIN_EVENTS = Object.freeze({
     ACCOUNT_ADDED: 'account_added',
     ACCOUNT_UPDATED: 'account_updated',
@@ -13,6 +26,12 @@ export const ACCOUNT_POOL_DOMAIN_EVENTS = Object.freeze({
     ACCOUNT_HEALTH_CHANGED: 'account_health_changed'
 });
 
+/**
+ * 规范化原因描述
+ *
+ * @param {string|Error|Object|null} reason - 原始原因
+ * @returns {string|null} 可读文本
+ */
 function normalizeReason(reason) {
     if (!reason) return null;
     if (typeof reason === 'string') return reason;
@@ -22,7 +41,20 @@ function normalizeReason(reason) {
     return String(reason);
 }
 
+/**
+ * 账号池门面
+ *
+ * 统一 JSON / SQLite 模式的账号池操作，并向上层发送领域事件。
+ */
 export class AccountPoolFacade extends EventEmitter {
+    /**
+     * 创建账号池门面
+     *
+     * @param {Object} [options={}] - 配置项
+     * @param {'json'|'sqlite'} [options.mode='json'] - 存储模式
+     * @param {Object} [options.manager] - 账号池管理器实例
+     * @param {Object} [options.config] - 全局配置
+     */
     constructor({ mode = 'json', manager, config } = {}) {
         super();
         this.mode = mode;
@@ -35,6 +67,9 @@ export class AccountPoolFacade extends EventEmitter {
      * 基于 services/manager.js 的现有初始化逻辑创建 Facade
      * - USE_SQLITE_POOL=true -> SQLiteAccountPoolManager，并将 config.accountPool.accounts 灌入 sqliteDB
      * - 否则 -> JSON 单例 getAccountPoolManager
+     *
+     * @param {Object} [config={}] - 全局配置
+     * @returns {Promise<AccountPoolFacade>} 创建后的门面实例
      */
     static async createFromConfig(config = {}) {
         const useSQLiteMode = config.USE_SQLITE_POOL === true;
@@ -75,6 +110,12 @@ export class AccountPoolFacade extends EventEmitter {
         return new AccountPoolFacade({ mode: 'json', manager, config });
     }
 
+    /**
+     * 发送领域事件
+     *
+     * @param {string} type - 事件类型
+     * @param {Object} payload - 事件数据
+     */
     _emitDomainEvent(type, payload) {
         try {
             this.emit(type, payload);
@@ -83,6 +124,12 @@ export class AccountPoolFacade extends EventEmitter {
         }
     }
 
+    /**
+     * 通过账号 ID 获取账号
+     *
+     * @param {string} accountId - 账号 UUID
+     * @returns {Object|null} 账号对象或 null
+     */
     _getAccountById(accountId) {
         if (!accountId) return null;
 
@@ -123,6 +170,12 @@ export class AccountPoolFacade extends EventEmitter {
         return null;
     }
 
+    /**
+     * 列出账号（支持过滤）
+     *
+     * @param {Object} [filters={}] - 过滤条件
+     * @returns {Array<Object>} 账号列表
+     */
     listAccounts(filters = {}) {
         let accounts = [];
 
@@ -191,6 +244,12 @@ export class AccountPoolFacade extends EventEmitter {
         return accounts;
     }
 
+    /**
+     * 添加账号
+     *
+     * @param {Object} accountData - 账号配置
+     * @returns {Object} 新建账号
+     */
     addAccount(accountData) {
         if (!accountData || typeof accountData !== 'object') {
             throw new Error('accountData must be an object');
@@ -223,6 +282,13 @@ export class AccountPoolFacade extends EventEmitter {
         return created;
     }
 
+    /**
+     * 更新账号
+     *
+     * @param {string} accountId - 账号 UUID
+     * @param {Object} updates - 更新内容
+     * @returns {Object|null} 更新后的账号或 null
+     */
     updateAccount(accountId, updates) {
         if (!accountId) throw new Error('accountId is required');
         if (!updates || typeof updates !== 'object') throw new Error('updates must be an object');
@@ -263,6 +329,12 @@ export class AccountPoolFacade extends EventEmitter {
         return updated;
     }
 
+    /**
+     * 删除账号
+     *
+     * @param {string} accountId - 账号 UUID
+     * @returns {boolean} 是否成功删除
+     */
     removeAccount(accountId) {
         if (!accountId) throw new Error('accountId is required');
 
@@ -271,6 +343,7 @@ export class AccountPoolFacade extends EventEmitter {
             const result = sqliteDB.deleteAccount(accountId);
             removed = Boolean(result && typeof result.changes === 'number' ? result.changes > 0 : result);
         } else {
+            // JSON 模式兼容旧 manager 的 removeAccount 接口
             removed = Boolean(this.manager.removeAccount(accountId));
         }
 
@@ -284,6 +357,13 @@ export class AccountPoolFacade extends EventEmitter {
         return removed;
     }
 
+    /**
+     * 标记账号为健康
+     *
+     * @param {string} accountId - 账号 UUID
+     * @param {Object} [options={}] - 额外选项
+     * @returns {boolean} 是否成功标记
+     */
     markHealthy(accountId, options = {}) {
         if (!accountId) throw new Error('accountId is required');
         const existing = this._getAccountById(accountId);
@@ -305,6 +385,13 @@ export class AccountPoolFacade extends EventEmitter {
         return true;
     }
 
+    /**
+     * 标记账号为不健康
+     *
+     * @param {string} accountId - 账号 UUID
+     * @param {string|Error|Object|null} [reason=null] - 错误原因
+     * @returns {boolean} 是否成功标记
+     */
     markUnhealthy(accountId, reason = null) {
         if (!accountId) throw new Error('accountId is required');
         const existing = this._getAccountById(accountId);

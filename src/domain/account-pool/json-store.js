@@ -1,3 +1,10 @@
+/**
+ * JSON 账号池存储
+ *
+ * 提供基于本地 JSON 文件的账号池管理能力与健康检查逻辑。
+ *
+ * @module domain/account-pool/json-store
+ */
 import * as fs from 'fs';
 import * as path from 'path';
 import { getServiceAdapter } from '../../services/manager.js';
@@ -6,12 +13,20 @@ import { createLogger } from '../../lib/logger.js';
 import { v4 as uuidv4 } from 'uuid';
 
 /**
- * Account Pool Manager - 单一账号池管理器（移除 providerType 概念）
+ * JSON 账号池管理器
+ *
+ * 单一账号池管理器（移除 providerType 概念）。
  */
 export class AccountPoolManager {
     // 默认健康检查模型配置（目前主要用于 Kiro OAuth）
     static DEFAULT_HEALTH_CHECK_MODEL = 'claude-sonnet-4-20250514';
 
+    /**
+     * 创建账号池管理器
+     *
+     * @param {Object} [accountPool={accounts: []}] - 账号池数据
+     * @param {Object} [options={}] - 配置项
+     */
     constructor(accountPool = { accounts: [] }, options = {}) {
         this.accountPool = accountPool && typeof accountPool === 'object'
             ? accountPool
@@ -45,6 +60,11 @@ export class AccountPoolManager {
         this._initializeAccountDefaults();
     }
 
+    /**
+     * 从文件加载账号池
+     *
+     * @returns {void}
+     */
     loadAccountPool() {
         const filePath = this.accountPoolFilePath;
         if (!filePath) {
@@ -60,6 +80,13 @@ export class AccountPoolManager {
             this.logger.error(`Failed to load account pool from ${filePath}: ${error.message}`);
         }
     }
+
+    /**
+     * 按日志级别输出
+     *
+     * @param {'verbose'|'debug'|'info'|'warn'|'error'} level - 日志级别
+     * @param {string} message - 日志内容
+     */
     _log(level, message) {
         const levels = { verbose: -1, debug: 0, info: 1, warn: 2, error: 3 };
         if (levels[level] >= levels[this.logLevel]) {
@@ -67,6 +94,11 @@ export class AccountPoolManager {
         }
     }
 
+    /**
+     * 初始化账号默认字段
+     *
+     * @returns {void}
+     */
     _initializeAccountDefaults() {
         for (const account of this.accountPool.accounts) {
             if (!account || typeof account !== 'object') continue;
@@ -87,7 +119,9 @@ export class AccountPoolManager {
 
     /**
      * 替换账号池数据（用于配置热更新 / 初始化延迟）
-     * @param {Object} accountPool - { accounts: [] }
+     *
+     * @param {Object} accountPool - 账号池数据（{ accounts: [] }）
+     * @returns {void}
      */
     setAccountPool(accountPool) {
         const nextPool = accountPool && typeof accountPool === 'object'
@@ -108,6 +142,11 @@ export class AccountPoolManager {
         return this.accountPool.accounts.find((acc) => acc && acc.uuid === uuid) || null;
     }
 
+    /**
+     * 防抖保存账号池到文件
+     *
+     * @returns {void}
+     */
     _debouncedSave() {
         if (this.saveTimer) {
             clearTimeout(this.saveTimer);

@@ -1,3 +1,10 @@
+/**
+ * AWS SSO 设备授权流程
+ *
+ * 负责启动设备授权、后台轮询 token、落盘凭据并可选入池。
+ *
+ * @module domain/oauth/flows/aws-sso-device
+ */
 import { EventEmitter } from 'node:events';
 import { createLogger } from '../../../lib/logger.js';
 import { startDeviceAuthorization, pollDeviceToken } from '../../../kiro/auth.js';
@@ -18,12 +25,25 @@ const KIRO_SSO_CONFIG = {
 };
 
 export class AwsSsoDeviceFlow extends EventEmitter {
+    /**
+     * 创建设备授权流程实例
+     *
+     * @param {Object} [options={}] - 依赖注入
+     * @param {Object} [options.tokenStore] - token 存储实现
+     * @param {Object|null} [options.accountPool] - 账号池门面（可选）
+     */
     constructor(options = {}) {
         super();
         this.tokenStore = options.tokenStore || defaultTokenStore;
         this.accountPool = options.accountPool || null; // 期望注入 AccountPoolFacade
     }
 
+    /**
+     * 发送领域事件并附加时间戳
+     *
+     * @param {string} type - 事件类型
+     * @param {Object} payload - 事件数据
+     */
     _emitDomainEvent(type, payload) {
         try {
             this.emit(type, {
@@ -40,6 +60,9 @@ export class AwsSsoDeviceFlow extends EventEmitter {
      * - 不依赖 ui-manager.js，不直接广播 UI 事件
      * - token 落盘通过 TokenStore
      * - 入池通过 AccountPoolFacade（若注入）
+     *
+     * @param {Object} currentConfig - 当前运行配置
+     * @returns {Promise<{authUrl: string, authInfo: Object}>} 授权信息
      */
     async start(currentConfig) {
         try {
@@ -65,10 +88,10 @@ export class AwsSsoDeviceFlow extends EventEmitter {
             logger.info('Starting automatic client registration...');
             logger.info(`Region: ${region}, Start URL: ${startUrl}`);
 
-            // Step 1: 自动注册 Client (调用 AWS SSO OIDC RegisterClient API)
+            // 第一步：自动注册 Client（调用 AWS SSO OIDC RegisterClient API）
             const registerClientUrl = `https://oidc.${region}.amazonaws.com/client/register`;
 
-            // 随机化 Client 配置，降低批量注册特征
+            // 随机化 Client 配置，降低批量注册的可识别特征
             const randomSuffix = Math.random().toString(36).substring(2, 8);
             const randomPort = 10000 + Math.floor(Math.random() * 50000);
             const clientNames = ['Kiro IDE', 'Kiro', 'Kiro Editor', 'Kiro Dev', 'AWS Kiro'];
@@ -107,7 +130,7 @@ export class AwsSsoDeviceFlow extends EventEmitter {
             kiroService.region = region;
             kiroService.authMethod = 'IdC';
 
-            // 初始化 axios 实例 (skipAuthCheck=true 因为设备授权前没有现有凭据)
+            // 初始化 axios 实例（skipAuthCheck=true 因为设备授权前没有现有凭据）
             await kiroService.initialize(true);
 
             logger.info('启动设备授权流程');
@@ -202,7 +225,7 @@ export class AwsSsoDeviceFlow extends EventEmitter {
                     verificationUriComplete: deviceAuthInfo.verificationUriComplete,
                     expiresIn: deviceAuthInfo.expiresIn,
                     interval: deviceAuthInfo.interval,
-                    instructions: '请在浏览器中打开此链接进行AWS SSO授权。授权完成后,系统会自动获取访问令牌并添加到提号池中。'
+                    instructions: '请在浏览器中打开此链接进行 AWS SSO 授权。授权完成后系统会自动获取访问令牌并添加到提号池中。'
                 }
             };
         } catch (error) {
