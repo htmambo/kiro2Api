@@ -3,7 +3,7 @@
 > 基于 AWS CodeWhisperer (Kiro) 的 Claude API 兼容代理服务
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
-[![Node.js](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen.svg)](https://nodejs.org/)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen.svg)](https://nodejs.org/)
 [![Code Size](https://img.shields.io/github/languages/code-size/htmambo/kiro2Api)](https://github.com/htmambo/kiro2Api)
 [![Documentation](https://img.shields.io/badge/docs-latest-green.svg)](docs/)
 
@@ -71,11 +71,13 @@
 
 ### 环境要求
 
-- **Node.js** >= 18.0.0
-- **npm** >= 9.0.0
+- **Node.js** >= 20.0.0（推荐使用 [nvm](https://github.com/nvm-sh/nvm) 管理 Node.js 版本）
+- **npm** >= 10.0.0
 - (可选) **PM2** - 进程管理
 - (可选) **Redis** - 缓存服务
 - (可选) **nginx** - 反向代理
+
+> **注意**：项目依赖 `better-sqlite3@12.5.0`、`next@16.1.1` 和 `undici@7.12.0`，这些包要求 Node.js >= 20.x。如果你使用的是 Node.js 18.x，请先升级到 20.x 版本。
 
 ### 安装步骤
 
