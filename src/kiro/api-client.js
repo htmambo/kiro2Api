@@ -7,9 +7,13 @@
 
 import axios from 'axios';
 import { v4 as uuidv4 } from 'uuid';
-import { countTokens } from '@anthropic-ai/tokenizer';
 import { streamApiReal } from './streaming.js';
-import { parseBracketToolCalls, deduplicateToolCalls, mapToolNameToCC } from './tools.js';
+import {
+  reverseMapToolInput,
+  parseBracketToolCalls,
+  deduplicateToolCalls,
+  mapToolNameToCC,
+} from "./tools.js";
 import { executeWebSearch, formatSearchResults } from './search.js';
 import { MODEL_MAPPING } from './adapter.js';
 import { refreshAccessTokenIfNeeded, initializeAuth } from './auth.js';
@@ -17,7 +21,7 @@ import { KIRO_CONSTANTS } from './constants.js';
 import { unescapeHTML } from './utils.js';
 import { createLogger } from '../lib/logger.js';
 import { getAdaptiveTimeout } from "./tools.js";
-import { countTextTokens } from './utils/token-counter.js';
+import { estimateInputTokens } from './utils/token-counter.js';
 
 const logger = createLogger('kiro:api-client');
 
@@ -962,7 +966,7 @@ export async function* generateContentStream(service, model, requestBody) {
                     }
                 };
 
-                const reversedInput = service.reverseMapToolInput(tc.name, toolInput);
+                const reversedInput = reverseMapToolInput(tc.name, toolInput);
                 const inputJson = JSON.stringify(reversedInput);
 
                 yield {
@@ -1032,70 +1036,6 @@ export async function* generateContentStream(service, model, requestBody) {
     }
 }
 
-
-/**
- * 估算请求的输入 token 数
- *
- * @param {Object} requestBody - 请求体
- * @param {boolean} fast - 是否使用快速估算
- * @returns {number} 估算的 token 数
- */
-export function estimateInputTokens(requestBody, fast = true) {
-    let totalTokens = 0;
-
-    // 计算系统提示词 tokens
-    if (requestBody.system) {
-        const systemText = typeof requestBody.system === 'string'
-            ? requestBody.system
-            : JSON.stringify(requestBody.system);
-        totalTokens += countTextTokens(systemText, fast);
-    }
-
-    // 计算消息 tokens
-    if (requestBody.messages && Array.isArray(requestBody.messages)) {
-        for (const message of requestBody.messages) {
-            if (typeof message.content === 'string') {
-                totalTokens += countTextTokens(message.content, fast);
-            } else if (Array.isArray(message.content)) {
-                for (const part of message.content) {
-                    if (part.type === 'text' && part.text) {
-                        totalTokens += countTextTokens(part.text, fast);
-                    } else if (part.type === 'tool_result' && part.content) {
-                        const toolResultText = typeof part.content === 'string'
-                            ? part.content
-                            : JSON.stringify(part.content);
-                        totalTokens += countTextTokens(toolResultText, fast);
-                    } else if (part.type === 'tool_use' && part.input) {
-                        totalTokens += countTextTokens(JSON.stringify(part.input), fast);
-                    } else if (part.type === 'image') {
-                        totalTokens += 1500; // 图片约 1500 tokens
-                    }
-                }
-            }
-        }
-    }
-
-    // 计算工具定义 tokens
-    if (requestBody.tools && Array.isArray(requestBody.tools)) {
-        if (fast) {
-            let toolTokens = 0;
-            for (const tool of requestBody.tools) {
-                toolTokens += 80; // 基础元数据
-                if (tool.description) {
-                    toolTokens += countTextTokens(tool.description, true);
-                }
-                if (tool.input_schema?.properties) {
-                    toolTokens += Object.keys(tool.input_schema.properties).length * 50;
-                }
-            }
-            totalTokens += toolTokens;
-        } else {
-            totalTokens += countTextTokens(JSON.stringify(requestBody.tools), false);
-        }
-    }
-
-    return totalTokens;
-}
 
 /**
  * 构建 Claude 兼容的响应对象

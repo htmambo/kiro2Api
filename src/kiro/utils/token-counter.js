@@ -84,7 +84,7 @@ export function countMessageTokens(message, useFastEstimate = true) {
     if (Array.isArray(message.content)) {
         for (const part of message.content) {
             if (part.type === 'tool_result') {
-                // tool_result 的内容可能是字符串或数组
+                // tool_result 的内容可能是字符串、数组或对象
                 if (typeof part.content === 'string') {
                     allText += part.content;
                 } else if (Array.isArray(part.content)) {
@@ -95,6 +95,9 @@ export function countMessageTokens(message, useFastEstimate = true) {
                     allText += toolResultText;
                     // 检查是否有图片
                     imageCount += part.content.filter(c => c.type === 'image').length;
+                } else if (typeof part.content === 'object' && part.content !== null) {
+                    // 对象类型：序列化为 JSON 字符串
+                    allText += JSON.stringify(part.content);
                 }
                 // JSON 结构开销（约 15 tokens）
                 allText += '                ';  // 16 个空格代表结构开销
@@ -143,16 +146,45 @@ export function estimateInputTokens(requestBody, fast = true) {
 
     let totalTokens = 0;
 
-    // 计算消息的 token 数
+    // 计算系统提示词 tokens
+    if (requestBody.system) {
+        const systemText = typeof requestBody.system === 'string'
+            ? requestBody.system
+            : JSON.stringify(requestBody.system);
+        totalTokens += countTextTokens(systemText, fast);
+    }
+
+    // 计算消息 tokens
     if (requestBody.messages && Array.isArray(requestBody.messages)) {
         for (const message of requestBody.messages) {
             totalTokens += countMessageTokens(message, fast);
         }
     }
 
-    // 计算系统提示词的 token 数
-    if (requestBody.system) {
-        totalTokens += countTextTokens(requestBody.system, fast);
+    // 计算工具定义 tokens
+    if (requestBody.tools && Array.isArray(requestBody.tools)) {
+        if (fast) {
+            // 快速模式：使用简单估算
+            let toolTokens = 0;
+            for (const tool of requestBody.tools) {
+                toolTokens += 80; // 基础元数据
+
+                // 支持多种工具格式
+                const desc = tool.description || tool.function?.description || '';
+                if (desc) {
+                    toolTokens += countTextTokens(desc, true);
+                }
+
+                const schema = tool.input_schema || tool.function?.parameters || tool.parameters;
+                if (schema?.properties) {
+                    toolTokens += Object.keys(schema.properties).length * 50;
+                }
+            }
+            totalTokens += toolTokens;
+        } else {
+            // 精确模式：直接 JSON 序列化
+            totalTokens += countTextTokens(JSON.stringify(requestBody.tools), false);
+        }
     }
 
     return totalTokens;
