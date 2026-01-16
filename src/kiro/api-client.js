@@ -8,13 +8,7 @@
 import axios from 'axios';
 import { v4 as uuidv4 } from 'uuid';
 import { streamApiReal } from './streaming.js';
-import {
-  buildRequestData,
-  buildRequestHeaders,
-  getRequestUrl,
-  getRetryConfig,
-  isThinkingEnabled
-} from './request-utils.js';
+import { executeKiroRequest } from './request-executor.js';
 import {
   reverseMapToolInput,
   parseBracketToolCalls,
@@ -27,7 +21,6 @@ import { refreshAccessTokenIfNeeded, initializeAuth } from './auth.js';
 import { KIRO_CONSTANTS } from './constants.js';
 import { unescapeHTML } from './utils.js';
 import { createLogger } from '../lib/logger.js';
-import { getAdaptiveTimeout } from "./tools.js";
 import { estimateInputTokens, countTextTokens } from "./utils/token-counter.js";
 
 const logger = createLogger('kiro:api-client');
@@ -139,69 +132,134 @@ export async function callApi(
   isRetry = false,
   retryCount = 0
 ) {
-  // 确保服务已初始化
-  if (!service.isInitialized) await service.initialize();
-  const { maxRetries, baseDelay } = getRetryConfig(service);
-
-  // 检查是否启用 thinking（从 body 或配置中读取）
-  const enableThinking = isThinkingEnabled(body, service.config);
-  const { requestData, requestSizeKB, conversationState, contentPreview } =
-    await buildRequestData(service, model, body, enableThinking, {
-      logger,
-      logLevel: "warn",
+  const logBadRequest = (error, requestData) => {
+    logger.error("❌ 400 Bad Request Error - Request format issue detected");
+    const errorData = JSON.stringify(error.response.data).substring(0, 500);
+    logger.error("Error details:", {
+      status: error.response.status,
+      statusText: error.response.statusText,
+      data: errorData,
+      headers: error.response.headers,
     });
 
-  // ========================================
-  // 📤 请求日志
-  // ========================================
-  const requestStartTime = Date.now();
-  // 简洁模式：只显示关键信息
-  if (!service.verboseLogging) {
-    logger.info(`📤 REQUEST [${model}] - ${new Date().toISOString()}`);
-  } else {
-    // 详细模式：显示所有信息
-    logger.info("=".repeat(60));
-    logger.info(
-      `📤 REQUEST [${model}]${isRetry ? " (retry " + retryCount + ")" : ""}`
-    );
-    logger.info("=".repeat(60));
-    logger.info(`Timestamp: ${new Date().toISOString()}`);
-    logger.info(
-      `URL: ${
-        model.startsWith("amazonq") ? service.amazonQUrl : service.baseUrl
-      }`
-    );
-    logger.info(
-      `Messages: ${(conversationState?.history?.length || 0) + 1} | Tools: ${
-        conversationState?.currentMessage?.userInputMessage
-          ?.userInputMessageContext?.tools?.length || 0
-      } | System: ${body.system ? "yes" : "no"}`
-    );
-    logger.info(
-      `Request Size: ${requestSizeKB} KB | Thinking: ${
-        enableThinking ? "enabled" : "disabled"
-      }`
-    );
-    if (conversationState?.conversationId) {
-      logger.info(`Conversation ID: ${conversationState.conversationId}`);
+    // 打印请求体的关键信息
+    try {
+      const reqState = requestData?.conversationState;
+      logger.error("Request debug info:", {
+        historyLength: reqState?.history?.length || 0,
+        hasCurrentMessage: !!reqState?.currentMessage,
+        currentMsgType: reqState?.currentMessage?.userInputMessage
+          ? "userInputMessage"
+          : "unknown",
+        currentMsgContentLen:
+          reqState?.currentMessage?.userInputMessage?.content?.length || 0,
+        hasTools:
+          !!reqState?.currentMessage?.userInputMessage
+            ?.userInputMessageContext?.tools,
+        toolsCount:
+          reqState?.currentMessage?.userInputMessage?.userInputMessageContext
+            ?.tools?.length || 0,
+        hasToolResults:
+          !!reqState?.currentMessage?.userInputMessage
+            ?.userInputMessageContext?.toolResults,
+        toolResultsCount:
+          reqState?.currentMessage?.userInputMessage?.userInputMessageContext
+            ?.toolResults?.length || 0,
+      });
+
+      // ⚠️ 关键调试：打印 toolResults 结构
+      const toolResults =
+        reqState?.currentMessage?.userInputMessage?.userInputMessageContext
+          ?.toolResults;
+      if (toolResults && toolResults.length > 0) {
+        logger.error(
+          "ToolResults structure:",
+          JSON.stringify(
+            toolResults.map((tr) => ({
+              toolUseId: tr.toolUseId,
+              status: tr.status,
+              hasContent: !!tr.content,
+              contentType: Array.isArray(tr.content) ? "array" : typeof tr.content,
+              contentLength: tr.content
+                ? Array.isArray(tr.content)
+                  ? tr.content.length
+                  : String(tr.content).length
+                : 0,
+              // 新增：打印 content 详细结构
+              contentDetail: Array.isArray(tr.content)
+                ? tr.content.map((c) => ({
+                    type: typeof c,
+                    hasText: !!c?.text,
+                    textLen: c?.text?.length || 0,
+                    textPreview: c?.text?.substring(0, 100) || "",
+                  }))
+                : null,
+            })),
+            null,
+            2
+          )
+        );
+      }
+
+      // ⚠️ 关键调试：打印 history 中的 toolUses
+      if (reqState?.history) {
+        for (let idx = 0; idx < reqState.history.length; idx++) {
+          const h = reqState.history[idx];
+          if (h.userInputMessage) {
+            logger.error(
+              `History[${idx}] userInputMessage.content length:`,
+              h.userInputMessage.content?.length || 0
+            );
+          }
+          if (h.assistantResponseMessage) {
+            logger.error(
+              `History[${idx}] assistantResponseMessage.content length:`,
+              h.assistantResponseMessage.content?.length || 0
+            );
+            if (h.assistantResponseMessage.toolUses) {
+              // ⚠️ 增强调试：打印完整的 toolUse 结构，检查是否有 input 字段
+              logger.error(
+                `History[${idx}] toolUses:`,
+                JSON.stringify(
+                  h.assistantResponseMessage.toolUses.map((tu) => ({
+                    toolUseId: tu.toolUseId,
+                    name: tu.name,
+                    hasInput: tu.input !== undefined,
+                    inputType: typeof tu.input,
+                    inputKeys:
+                      tu.input && typeof tu.input === "object"
+                        ? Object.keys(tu.input)
+                        : null,
+                  }))
+                )
+              );
+            }
+          }
+        }
+      }
+    } catch (debugError) {
+      logger.error("Error printing debug info:", {
+        error: debugError.message,
+      });
     }
-    logger.info(`Message Preview: ${contentPreview}`);
-    logger.info("=".repeat(60));
-  }
-
-  const headers = buildRequestHeaders(service);
-  const requestUrl = getRequestUrl(service, model);
-
-  // 自适应超时：根据模型类型调整（慢模型 x3）
-  const adaptiveTimeout = getAdaptiveTimeout(
-    model,
-    KIRO_CONSTANTS.AXIOS_TIMEOUT
-  );
+  };
 
   try {
-    const response = await service.axiosInstance.post(requestUrl, requestData, {
-      headers,
-      timeout: adaptiveTimeout, // 使用自适应超时
+    const { response, requestStartTime } = await executeKiroRequest({
+      service,
+      model,
+      body,
+      isRetry,
+      retryCount,
+      logger,
+      compactLabel: "REQUEST",
+      detailLabel: "REQUEST",
+      compactLevel: "info",
+      detailLevel: "info",
+      buildLogLevel: "warn",
+      retryOn5xx: true,
+      wrapRateLimitError: true,
+      onBadRequest: logBadRequest,
     });
 
     // ========================================
@@ -229,213 +287,6 @@ export async function callApi(
 
     return response;
   } catch (error) {
-    // ⚠️ Socket 错误处理（UND_ERR_SOCKET, ECONNRESET 等）
-    // 这些错误通常是连接池中的连接失效导致的
-    const isSocketError =
-      !error.response &&
-      (error.code === "ECONNRESET" ||
-        error.code === "ETIMEDOUT" ||
-        error.code === "ENOTFOUND" ||
-        error.code === "UND_ERR_SOCKET" ||
-        error.code === "UND_ERR_CONNECT_TIMEOUT" ||
-        error.message?.includes("socket") ||
-        error.message?.includes("ECONNRESET"));
-
-    if (isSocketError && retryCount < maxRetries) {
-      logger.info(`Socket error detected: ${error.code || error.message}`);
-      logger.info(
-        `Resetting connection pool and retrying... (attempt ${
-          retryCount + 1
-        }/${maxRetries})`
-      );
-
-      // 重置连接池
-      await service.resetConnectionPool();
-
-      // 短暂延迟后重试
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-
-      return callApi(service, method, model, body, isRetry, retryCount + 1);
-    } else if (isSocketError) {
-      logger.error("Socket error after max retries:", {
-        error: error.code || error.message,
-      });
-      throw new Error(
-        `Connection failed: ${error.message}. Please check your network or try restarting the service.`
-      );
-    }
-
-    // 403 错误处理
-    if (error.response?.status === 403 && !isRetry) {
-      logger.info("Received 403. Attempting token refresh and retrying...");
-      try {
-        await initializeAuth(service, true); // Force refresh token
-        return callApi(service, method, model, body, true, retryCount);
-      } catch (refreshError) {
-        logger.error(
-          "Token refresh failed during 403 retry:",
-          refreshError.message
-        );
-        throw refreshError;
-      }
-    }
-
-    // 429 限流错误处理(暂时性错误,不应标记为不健康)
-    if (error.response?.status === 429) {
-      if (retryCount < maxRetries) {
-        const delay = baseDelay * Math.pow(2, retryCount);
-        logger.warn(
-          `Received 429 (Rate Limit). Retrying in ${delay}ms... (attempt ${
-            retryCount + 1
-          }/${maxRetries})`
-        );
-        await new Promise((resolve) => setTimeout(resolve, delay));
-        return callApi(service, method, model, body, isRetry, retryCount + 1);
-      } else {
-        // 429 重试次数用尽,包装成特殊错误类型
-        const rateLimitError = new Error("RATE_LIMIT_EXCEEDED");
-        rateLimitError.isRateLimitError = true; // 标记为限流错误
-        rateLimitError.retryable = true; // 标记为可重试(不应标记账号不健康)
-        throw rateLimitError;
-      }
-    }
-
-    // 400 错误详细日志(帮助调试请求格式问题)
-    if (error.response?.status === 400) {
-      logger.error("❌ 400 Bad Request Error - Request format issue detected");
-      let errorData = JSON.stringify(error.response.data).substring(0, 500);
-      logger.error("Error details:", {
-        status: error.response.status,
-        statusText: error.response.statusText,
-        data: errorData,
-        headers: error.response.headers,
-      });
-
-      // 打印请求体的关键信息
-      try {
-        const reqState = requestData?.conversationState;
-        logger.error("Request debug info:", {
-          historyLength: reqState?.history?.length || 0,
-          hasCurrentMessage: !!reqState?.currentMessage,
-          currentMsgType: reqState?.currentMessage?.userInputMessage
-            ? "userInputMessage"
-            : "unknown",
-          currentMsgContentLen:
-            reqState?.currentMessage?.userInputMessage?.content?.length || 0,
-          hasTools:
-            !!reqState?.currentMessage?.userInputMessage
-              ?.userInputMessageContext?.tools,
-          toolsCount:
-            reqState?.currentMessage?.userInputMessage?.userInputMessageContext
-              ?.tools?.length || 0,
-          hasToolResults:
-            !!reqState?.currentMessage?.userInputMessage
-              ?.userInputMessageContext?.toolResults,
-          toolResultsCount:
-            reqState?.currentMessage?.userInputMessage?.userInputMessageContext
-              ?.toolResults?.length || 0,
-        });
-
-        // ⚠️ 关键调试：打印 toolResults 结构
-        const toolResults =
-          reqState?.currentMessage?.userInputMessage?.userInputMessageContext
-            ?.toolResults;
-        if (toolResults && toolResults.length > 0) {
-          logger.error(
-            "ToolResults structure:",
-            JSON.stringify(
-              toolResults.map((tr) => ({
-                toolUseId: tr.toolUseId,
-                status: tr.status,
-                hasContent: !!tr.content,
-                contentType: Array.isArray(tr.content)
-                  ? "array"
-                  : typeof tr.content,
-                contentLength: tr.content
-                  ? Array.isArray(tr.content)
-                    ? tr.content.length
-                    : String(tr.content).length
-                  : 0,
-                // 新增：打印 content 详细结构
-                contentDetail: Array.isArray(tr.content)
-                  ? tr.content.map((c) => ({
-                      type: typeof c,
-                      hasText: !!c?.text,
-                      textLen: c?.text?.length || 0,
-                      textPreview: c?.text?.substring(0, 100) || "",
-                    }))
-                  : null,
-              })),
-              null,
-              2
-            )
-          );
-        }
-
-        // ⚠️ 关键调试：打印 history 中的 toolUses
-        if (reqState?.history) {
-          for (let idx = 0; idx < reqState.history.length; idx++) {
-            const h = reqState.history[idx];
-            if (h.userInputMessage) {
-              logger.error(
-                `History[${idx}] userInputMessage.content length:`,
-                h.userInputMessage.content?.length || 0
-              );
-            }
-            if (h.assistantResponseMessage) {
-              logger.error(
-                `History[${idx}] assistantResponseMessage.content length:`,
-                h.assistantResponseMessage.content?.length || 0
-              );
-              if (h.assistantResponseMessage.toolUses) {
-                // ⚠️ 增强调试：打印完整的 toolUse 结构，检查是否有 input 字段
-                logger.error(
-                  `History[${idx}] toolUses:`,
-                  JSON.stringify(
-                    h.assistantResponseMessage.toolUses.map((tu) => ({
-                      toolUseId: tu.toolUseId,
-                      name: tu.name,
-                      hasInput: tu.input !== undefined,
-                      inputType: typeof tu.input,
-                      inputKeys:
-                        tu.input && typeof tu.input === "object"
-                          ? Object.keys(tu.input)
-                          : null,
-                    }))
-                  )
-                );
-              }
-            }
-          }
-        }
-      } catch (debugError) {
-        logger.error("Error printing debug info:", {
-          error: debugError.message,
-        });
-      }
-      // 400 错误是请求格式问题,属于致命错误,直接抛出(会被health check捕获)
-      throw error;
-    }
-
-    // 5xx 服务器错误处理(可重试)
-    if (
-      error.response?.status >= 500 &&
-      error.response?.status < 600 &&
-      retryCount < maxRetries
-    ) {
-      const delay = baseDelay * Math.pow(2, retryCount);
-      logger.info(
-        `Received ${
-          error.response.status
-        } server error. Retrying in ${delay}ms... (attempt ${
-          retryCount + 1
-        }/${maxRetries})`
-      );
-      await new Promise((resolve) => setTimeout(resolve, delay));
-      return callApi(service, method, model, body, isRetry, retryCount + 1);
-    }
-
-    // 其他错误
     logger.error("API call failed:", error.message);
     if (error.response) {
       logger.error("Response status:", error.response.status);
