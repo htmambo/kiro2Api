@@ -1,3 +1,10 @@
+/**
+ * Kiro 认证模块
+ *
+ * 负责加载/保存凭据、刷新访问令牌，并处理设备授权流程。
+ *
+ * @module kiro/auth
+ */
 import { promises as fs } from 'fs';
 import * as path from 'path';
 import { createLogger } from '../lib/logger.js';
@@ -8,6 +15,12 @@ const logger = createLogger('Kiro Auth');
 const KIRO_AUTH_TOKEN_FILE = 'kiro-auth-token.json';
 const refreshTokenDebounceMap = new Map();
 
+/**
+ * 从文件加载凭据
+ *
+ * @param {string} filePath - 凭据文件路径
+ * @returns {Promise<Object|null>} 凭据对象或 null
+ */
 export async function loadCredentialsFromFile(filePath) {
     try {
         const fileContent = await fs.readFile(filePath, 'utf8');
@@ -24,6 +37,13 @@ export async function loadCredentialsFromFile(filePath) {
     }
 }
 
+/**
+ * 将凭据保存到文件（合并更新）
+ *
+ * @param {string} filePath - 凭据文件路径
+ * @param {Object} newData - 新凭据数据
+ * @returns {Promise<void>}
+ */
 export async function saveCredentialsToFile(filePath, newData) {
     try {
         let existingData = {};
@@ -45,6 +65,13 @@ export async function saveCredentialsToFile(filePath, newData) {
     }
 }
 
+/**
+ * 初始化认证信息（加载凭据并在必要时刷新）
+ *
+ * @param {Object} service - KiroService 实例
+ * @param {boolean} [forceRefresh=false] - 是否强制刷新
+ * @returns {Promise<void>}
+ */
 export async function initializeAuth(service, forceRefresh = false) {
     if (service.accessToken && !forceRefresh) {
         logger.debug('Access token already available and not forced refresh.');
@@ -100,6 +127,12 @@ export async function initializeAuth(service, forceRefresh = false) {
     }
 }
 
+/**
+ * 在需要时刷新访问令牌（带去抖与重试）
+ *
+ * @param {Object} service - KiroService 实例
+ * @returns {Promise<void>}
+ */
 export async function refreshAccessTokenIfNeeded(service) {
     if (!service.refreshToken) {
         throw new Error('No refresh token available');
@@ -145,6 +178,12 @@ export async function refreshAccessTokenIfNeeded(service) {
     }
 }
 
+/**
+ * 执行刷新令牌请求
+ *
+ * @param {Object} service - KiroService 实例
+ * @returns {Promise<void>}
+ */
 export async function doRefreshToken(service) {
     if (!service.refreshToken) {
         throw new Error('No refresh token available to refresh access token.');
@@ -214,6 +253,13 @@ export async function doRefreshToken(service) {
     }
 }
 
+/**
+ * 启动设备授权流程
+ *
+ * @param {Object} service - KiroService 实例
+ * @param {string} startUrl - AWS SSO 起始 URL
+ * @returns {Promise<Object>} 设备授权信息
+ */
 export async function startDeviceAuthorization(service, startUrl) {
     if (!service.clientId || !service.clientSecret) {
         throw new Error('Missing clientId or clientSecret. Cannot start device authorization.');
@@ -262,6 +308,15 @@ export async function startDeviceAuthorization(service, startUrl) {
     }
 }
 
+/**
+ * 轮询设备授权的 token
+ *
+ * @param {Object} service - KiroService 实例
+ * @param {string} deviceCode - 设备码
+ * @param {number} [interval=5] - 轮询间隔（秒）
+ * @param {number} [expiresIn=300] - 设备码过期时间（秒）
+ * @returns {Promise<Object>} 获取到的 token 信息
+ */
 export async function pollDeviceToken(service, deviceCode, interval = 5, expiresIn = 300) {
     if (!service.clientId || !service.clientSecret) {
         throw new Error('Missing clientId or clientSecret. Cannot poll for token.');
@@ -362,6 +417,13 @@ export async function pollDeviceToken(service, deviceCode, interval = 5, expires
     return poll();
 }
 
+/**
+ * 启动设备授权并后台轮询 token
+ *
+ * @param {Object} service - KiroService 实例
+ * @param {string} startUrl - AWS SSO 起始 URL
+ * @returns {Promise<Object>} 设备授权信息
+ */
 export async function initiateDeviceAuthorization(service, startUrl) {
     const deviceAuthInfo = await startDeviceAuthorization(service, startUrl);
 

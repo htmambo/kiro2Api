@@ -8,6 +8,8 @@
  * 依赖：
  * - @anthropic-ai/tokenizer: Claude 官方 tokenizer 库
  * - ./message-sanitizer: getContentText 工具函数
+ *
+ * @module kiro/utils/token-counter
  */
 
 import { countTokens as tokenizerCountTokens } from '@anthropic-ai/tokenizer';
@@ -42,7 +44,7 @@ export function countTextTokens(text, fast = false) {
     try {
         return tokenizerCountTokens(text);
     } catch (error) {
-        // Fallback to estimation if tokenizer fails
+        // tokenizer 失败时回退到估算
         return Math.ceil((text || '').length / 4);
     }
 }

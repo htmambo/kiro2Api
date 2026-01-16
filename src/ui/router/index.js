@@ -1,7 +1,7 @@
 /**
- * 路由器主入口
- *
- * 负责创建和配置路由器实例，注册所有路由模块
+ * 路由器主入口。
+ * 负责创建和配置路由器实例，并注册所有路由模块。
+ * @module ui/router
  */
 
 import { Router } from './Router.js';
@@ -13,8 +13,8 @@ import { setupOAuthRoutes } from './routes/oauth.routes.js';
 import { setupUploadRoutes } from './routes/upload.routes.js';
 
 /**
- * 创建并配置路由器实例
- * @returns {Router} 配置好的路由器实例
+ * 创建并配置路由器实例。
+ * @returns {Router} 配置好的路由器实例。
  */
 export function createRouter() {
     const router = new Router();

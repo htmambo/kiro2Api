@@ -1,13 +1,14 @@
 /**
- * 系统路由配置
+ * 系统路由配置。
+ * @module ui/router/routes/system
  */
 
 import * as systemHandlers from '../handlers/system.handlers.js';
 
 /**
- * 设置系统相关路由
- *
- * @param {Router} router - 路由器实例
+ * 设置系统相关路由。
+ * @param {import('../Router.js').Router} router - 路由器实例。
+ * @returns {void}
  */
 export function setupSystemRoutes(router) {
     // 登录 - 无需认证
@@ -50,7 +51,7 @@ export function setupSystemRoutes(router) {
         }
     });
 
-    // 获取日志 - 无需认证
+    // 获取日志 - 需要认证
     router.addRoute('GET', '/api/logs', systemHandlers.getLogs, {
         auth: true,
         description: '获取系统运行日志',
@@ -60,7 +61,7 @@ export function setupSystemRoutes(router) {
         }
     });
 
-    // 清空日志 - 无需认证
+    // 清空日志 - 需要认证
     router.addRoute('DELETE', '/api/logs', systemHandlers.clearLogs, {
         auth: true,
         description: '清空系统日志缓冲区',

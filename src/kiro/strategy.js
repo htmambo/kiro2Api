@@ -1,3 +1,10 @@
+/**
+ * Kiro 策略模块
+ *
+ * 提供与 Kiro/Claude 请求与响应格式匹配的解析与系统提示处理逻辑。
+ *
+ * @module kiro/strategy
+ */
 import { extractSystemPromptFromRequestBody } from '../utils/common.js';
 import { createLogger } from '../lib/logger.js';
 import { KIRO_MODELS } from '../kiro/constants.js';
@@ -5,9 +12,17 @@ import { KIRO_MODELS } from '../kiro/constants.js';
 const logger = createLogger('kiro:strategy');
 
 /**
- * Claude provider strategy implementation.
+ * Kiro/Claude 策略实现
+ *
+ * 负责从响应中提取文本，并处理系统提示词的注入逻辑。
  */
 class KiroStrategy {
+    /**
+     * 提取响应中的文本内容
+     *
+     * @param {Object} response - 响应数据
+     * @returns {string} 提取到的文本
+     */
     extractResponseText(response) {
         if (response.type === 'content_block_delta' && response.delta ) {
             if(response.delta.type === 'text_delta' ){
@@ -28,6 +43,12 @@ class KiroStrategy {
         return '';
     }
 
+    /**
+     * 提取请求中的用户提示文本
+     *
+     * @param {Object} requestBody - 请求体
+     * @returns {string} 用户提示文本
+     */
     extractPromptText(requestBody) {
         if (requestBody.messages && requestBody.messages.length > 0) {
             const lastMessage = requestBody.messages[requestBody.messages.length - 1];
@@ -39,6 +60,13 @@ class KiroStrategy {
         return '';
     }
 
+    /**
+     * 从文件内容注入系统提示词
+     *
+     * @param {Object} config - 配置对象
+     * @param {Object} requestBody - 请求体
+     * @returns {Promise<Object>} 更新后的请求体
+     */
     async applySystemPromptFromFile(config, requestBody) {
         if (!config.SYSTEM_PROMPT_FILE_PATH) {
             return requestBody;

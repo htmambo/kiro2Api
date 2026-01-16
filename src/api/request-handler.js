@@ -112,7 +112,7 @@ export function createRequestHandler(config, accountPoolManager) {
                 }
             }
 
-        // Handle CORS preflight requests
+        // 处理 CORS 预检请求
         if (method === 'OPTIONS') {
             res.setHeader('Access-Control-Allow-Origin', '*');
             res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
@@ -122,7 +122,7 @@ export function createRequestHandler(config, accountPoolManager) {
             return;
         }
 
-        // Serve static files for UI (除了登录页面需要认证)
+        // 提供 UI 静态资源（登录页面无需认证）
         if (shouldProxyToVitePath(path)) {
             const proxied = await proxyViteRequest(req, res);
             if (proxied) return;
@@ -147,7 +147,7 @@ export function createRequestHandler(config, accountPoolManager) {
             if (served) return;
         }
 
-        // API-key protected endpoints should be authenticated before any handler consumes the request
+        // 需要 API Key 的路由必须先鉴权
         if (isApiKeyProtectedPath(path)) {
             if (!isAuthorized(req, requestUrl, currentConfig.REQUIRED_API_KEY)) {
                 res.writeHead(401, { 'Content-Type': 'application/json' });
@@ -162,7 +162,6 @@ export function createRequestHandler(config, accountPoolManager) {
         logger.info(`\n${new Date().toLocaleString()}`);
         logger.info(`Received request: ${req.method} http://${host}${sanitizeUrlForLogs(req.url)}`);
 
-        // Health check endpoint
         if (method === 'GET' && path === '/health') {
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
@@ -173,7 +172,6 @@ export function createRequestHandler(config, accountPoolManager) {
             return true;
         }
 
-        // Pool status and cache stats endpoint
         if (method === 'GET' && path === '/stats') {
             try {
                 const { getAccountPoolManager } = await import('../domain/account-pool/json-store.js');
@@ -200,7 +198,6 @@ export function createRequestHandler(config, accountPoolManager) {
             }
         }
 
-        // Ignore count_tokens requests
         if (path.includes('/count_tokens')) {
             logger.info(`Ignoring count_tokens request: ${path}`);
             res.writeHead(200, { 'Content-Type': 'application/json' });

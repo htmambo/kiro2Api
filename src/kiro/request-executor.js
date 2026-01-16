@@ -1,3 +1,10 @@
+/**
+ * Kiro 请求执行器
+ *
+ * 负责构建请求、发送请求、处理重试与错误包装。
+ *
+ * @module kiro/request-executor
+ */
 import { initializeAuth } from './auth.js';
 import { KIRO_CONSTANTS } from './constants.js';
 import { getAdaptiveTimeout } from './tools.js';
@@ -73,6 +80,29 @@ function logRequestDetails({
     logger[detailLevel]('='.repeat(60));
 }
 
+/**
+ * 执行 Kiro 请求并处理重试逻辑
+ *
+ * @param {Object} params - 参数集合
+ * @param {Object} params.service - KiroService 实例
+ * @param {string} params.model - 模型名称
+ * @param {Object} params.body - 请求体
+ * @param {boolean} [params.isRetry=false] - 是否为重试
+ * @param {number} [params.retryCount=0] - 当前重试次数
+ * @param {Object} [params.logger] - 日志实例
+ * @param {string} [params.compactLabel='REQUEST'] - 简洁日志标签
+ * @param {string} [params.detailLabel='REQUEST'] - 详细日志标签
+ * @param {string} [params.compactLevel='info'] - 简洁日志级别
+ * @param {string} [params.detailLevel='info'] - 详细日志级别
+ * @param {string} [params.buildLogLevel='warn'] - 构建请求日志级别
+ * @param {string} [params.buildLogLabel=''] - 构建请求日志标签
+ * @param {Object} [params.axiosConfig={}] - Axios 额外配置
+ * @param {boolean} [params.retryOn5xx=false] - 是否对 5xx 重试
+ * @param {string} [params.socketErrorPrefix='Connection failed'] - Socket 错误前缀
+ * @param {boolean} [params.wrapRateLimitError=false] - 是否包装限流错误
+ * @param {Function} [params.onBadRequest] - 400 错误回调
+ * @returns {Promise<Object>} 请求结果与上下文
+ */
 export async function executeKiroRequest({
     service,
     model,

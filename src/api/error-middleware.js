@@ -131,7 +131,7 @@ function buildErrorPayload(error, fromProvider) {
 
 /**
  * 发送 SSE 格式的错误事件
- * @param {Response} res - 响应对象
+ * @param {import('http').ServerResponse} res - 响应对象
  * @param {Object} payload - 错误负载
  * @param {string} method - 请求方法
  * @param {string} path - 请求路径
@@ -150,7 +150,7 @@ function sendSSEError(res, payload, method, path) {
 
 /**
  * 发送 JSON 格式的错误响应
- * @param {Response} res - 响应对象
+ * @param {import('http').ServerResponse} res - 响应对象
  * @param {Object} payload - 错误负载
  * @param {number} statusCode - HTTP 状态码
  * @param {string} method - 请求方法

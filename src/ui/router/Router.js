@@ -1,13 +1,16 @@
 /**
- * Router 类 - 路由器核心实现
- *
+ * Router 类 - 路由器核心实现。
  * 功能特性：
  * - 支持静态路径和正则路径匹配
  * - 支持路由元数据（认证、描述等）
  * - 自动提取路径参数
  * - 提供路由信息查询接口
+ * @module ui/router/Router
  */
 
+/**
+ * 路由器核心类，负责路由注册与匹配。
+ */
 export class Router {
     constructor() {
         this.routes = [];
@@ -15,15 +18,15 @@ export class Router {
     }
 
     /**
-     * 注册路由
-     * @param {string} method - HTTP 方法（GET、POST、DELETE 等）
-     * @param {string|RegExp} path - 路由路径（支持字符串或正则表达式）
-     * @param {Function} handler - 处理函数
-     * @param {Object} options - 路由选项
-     * @param {boolean} options.auth - 是否需要认证（默认 true）
-     * @param {string} options.description - 路由描述
-     * @param {Object} options.metadata - 额外的元数据
-     * @returns {Router} 返回自身，支持链式调用
+     * 注册路由。
+     * @param {string} method - HTTP 方法（GET、POST、DELETE 等）。
+     * @param {string|RegExp} path - 路由路径（支持字符串或正则表达式）。
+     * @param {Function} handler - 处理函数。
+     * @param {object} options - 路由选项。
+     * @param {boolean} options.auth - 是否需要认证（默认 true）。
+     * @param {string} options.description - 路由描述。
+     * @param {object} options.metadata - 额外的元数据。
+     * @returns {Router} 返回自身，支持链式调用。
      */
     addRoute(method, path, handler, options = {}) {
         // 标准化路径（去除尾部斜杠）
@@ -44,9 +47,9 @@ export class Router {
     }
 
     /**
-     * 注册全局中间件
-     * @param {Function} middleware - 中间件函数
-     * @returns {Router} 返回自身，支持链式调用
+     * 注册全局中间件。
+     * @param {Function} middleware - 中间件函数。
+     * @returns {Router} 返回自身，支持链式调用。
      */
     use(middleware) {
         this.middlewares.push(middleware);
@@ -54,13 +57,10 @@ export class Router {
     }
 
     /**
-     * 匹配路由
-     * @param {string} method - HTTP 方法
-     * @param {string} path - 请求路径
-     * @returns {Object|null} 匹配结果
-     *   - route: 路由配置对象
-     *   - match: 正则匹配结果（仅正则路由）
-     *   - params: 路径参数对象
+     * 匹配路由。
+     * @param {string} method - HTTP 方法。
+     * @param {string} path - 请求路径。
+     * @returns {object | null} 匹配结果。
      */
     match(method, path) {
         // 标准化请求路径
@@ -95,9 +95,9 @@ export class Router {
     }
 
     /**
-     * 从正则匹配结果中提取参数
-     * @param {Array} match - 正则匹配结果
-     * @returns {Object} 参数对象
+     * 从正则匹配结果中提取参数。
+     * @param {Array<string>} match - 正则匹配结果。
+     * @returns {object} 参数对象。
      */
     extractParams(match) {
         const params = {};
@@ -109,8 +109,8 @@ export class Router {
     }
 
     /**
-     * 获取所有路由信息（用于文档生成）
-     * @returns {Array} 路由列表
+     * 获取所有路由信息（用于文档生成）。
+     * @returns {Array<object>} 路由列表。
      */
     getRoutes() {
         return this.routes.map(route => ({
@@ -123,9 +123,9 @@ export class Router {
     }
 
     /**
-     * 根据方法获取路由
-     * @param {string} method - HTTP 方法
-     * @returns {Array} 路由列表
+     * 根据方法获取路由。
+     * @param {string} method - HTTP 方法。
+     * @returns {Array<object>} 路由列表。
      */
     getRoutesByMethod(method) {
         return this.routes.filter(route =>
@@ -134,13 +134,14 @@ export class Router {
     }
 
     /**
-     * 生成路由文档（Markdown 格式）
-     * @returns {string} Markdown 格式的路由文档
+     * 生成路由文档（Markdown 格式）。
+     * @returns {string} Markdown 格式的路由文档。
      */
     generateMarkdownDoc() {
         let doc = '# API 路由文档\n\n';
         doc += `生成时间: ${new Date().toISOString()}\n\n`;
 
+        // 按第一级路径分组，方便阅读
         const grouped = {};
         for (const route of this.routes) {
             const prefix = route.path.split('/')[1] || 'other';
@@ -170,7 +171,8 @@ export class Router {
     }
 
     /**
-     * 清空所有路由（主要用于测试）
+     * 清空所有路由（主要用于测试）。
+     * @returns {void}
      */
     clear() {
         this.routes = [];

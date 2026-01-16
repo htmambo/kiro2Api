@@ -1,13 +1,14 @@
 /**
- * 配置路由配置
+ * 配置路由配置。
+ * @module ui/router/routes/config
  */
 
 import * as configHandlers from '../handlers/config.handlers.js';
 
 /**
- * 设置配置管理路由
- *
- * @param {Router} router - 路由器实例
+ * 设置配置管理路由。
+ * @param {import('../Router.js').Router} router - 路由器实例。
+ * @returns {void}
  */
 export function setupConfigRoutes(router) {
     // 获取配置

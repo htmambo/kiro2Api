@@ -4,6 +4,8 @@
  * 提供统一的错误日志记录功能：
  * - 开发环境：记录详细的错误信息（堆栈、响应数据等）
  * - 生产环境：记录结构化日志，过滤敏感信息
+ *
+ * @module utils/error-logger
  */
 
 import { createLogger } from '../lib/logger.js';
@@ -13,6 +15,7 @@ const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 
 /**
  * 清理 URL 中的敏感信息（如 API key）
+ *
  * @param {string} url - 原始 URL
  * @returns {string} 清理后的 URL
  */

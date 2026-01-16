@@ -1,19 +1,19 @@
 /**
- * 认证中间件
- * 检查请求是否包含有效的认证 token
+ * 认证中间件。
+ * 检查请求是否包含有效的认证 token，并处理未授权响应。
+ * @module ui/router/middleware/auth
  */
 
 import { createLogger } from '../../../lib/logger.js';
 
 const logger = createLogger('ui:middleware:auth');
 
-// 从 ui-manager.js 导入 token 验证函数
-// 这些函数需要在迁移时保持兼容
+// 从 ui-manager.js 动态导入 token 验证函数，兼容旧实现
 
 /**
- * 检查 token 验证
- * @param {IncomingMessage} req - 请求对象
- * @returns {Promise<boolean>} 是否认证成功
+ * 检查请求中的 token 是否有效。
+ * @param {import('http').IncomingMessage} req - 请求对象。
+ * @returns {Promise<boolean>} 是否认证成功。
  */
 export async function checkAuth(req) {
     const authHeader = req.headers.authorization;
@@ -29,13 +29,12 @@ export async function checkAuth(req) {
 }
 
 /**
- * Token 验证函数（从 ui-manager.js 迁移）
- * @param {string} token - Token 字符串
- * @returns {Promise<Object|null>} Token 信息
+ * Token 验证函数（从 ui-manager.js 迁移）。
+ * @param {string} token - Token 字符串。
+ * @returns {Promise<object | null>} Token 信息。
  */
 async function verifyToken(token) {
-    // 从 ui-manager.js 导入的实现
-    // 这里需要确保从正确的位置导入
+    // 从 ui-manager.js 动态导入实现，避免循环依赖
     try {
         const { readTokenStore } = await import('../../../ui-manager.js');
         const tokenStore = await readTokenStore();
@@ -45,7 +44,7 @@ async function verifyToken(token) {
             return null;
         }
 
-        // 检查是否过期
+        // 检查是否过期，过期则删除
         if (Date.now() > tokenInfo.expiryTime) {
             await deleteToken(token);
             return null;
@@ -59,8 +58,9 @@ async function verifyToken(token) {
 }
 
 /**
- * 删除 token
- * @param {string} token - Token 字符串
+ * 删除 token。
+ * @param {string} token - Token 字符串。
+ * @returns {Promise<void>}
  */
 async function deleteToken(token) {
     try {
@@ -77,12 +77,10 @@ async function deleteToken(token) {
 }
 
 /**
- * 认证中间件（用于路由器集成）
- * 返回一个异步函数，可以在路由匹配后调用
- *
- * @param {IncomingMessage} req - 请求对象
- * @param {ServerResponse} res - 响应对象
- * @returns {Promise<boolean>} 是否认证成功
+ * 认证中间件（用于路由器集成）。
+ * @param {import('http').IncomingMessage} req - 请求对象。
+ * @param {import('http').ServerResponse} res - 响应对象。
+ * @returns {Promise<boolean>} 是否认证成功。
  */
 export async function requireAuth(req, res) {
     const isAuth = await checkAuth(req);
@@ -95,7 +93,12 @@ export async function requireAuth(req, res) {
     return true;
 }
 
-// 重新导出 sendUnauthorized 用于内部使用
+/**
+ * 返回未授权响应。
+ * @param {import('http').ServerResponse} res - 响应对象。
+ * @param {string} [message='未授权访问，请先登录'] - 提示消息。
+ * @returns {void}
+ */
 function sendUnauthorized(res, message = '未授权访问，请先登录') {
     res.writeHead(401, {
         'Content-Type': 'application/json',

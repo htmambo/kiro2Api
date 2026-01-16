@@ -1,6 +1,9 @@
 /**
- * OpenAI转换器
- * 处理OpenAI协议与其他协议之间的转换
+ * OpenAI 转换器
+ *
+ * 处理 OpenAI 协议与其他协议之间的转换。
+ *
+ * @module converters/strategies/OpenAIConverter
  */
 import { v4 as uuidv4 } from 'uuid';
 import { BaseConverter } from '../BaseConverter.js';
@@ -36,16 +39,24 @@ import { createLogger } from "../../lib/logger.js";
 const logger = createLogger({ module: "OpenAIConverter" });
 
 /**
- * OpenAI转换器类
- * 实现OpenAI协议到其他协议的转换
+ * OpenAI 转换器类
+ *
+ * 实现 OpenAI 协议到其他协议的转换。
  */
 export class OpenAIConverter extends BaseConverter {
+    /**
+     * 创建 OpenAI 转换器
+     */
     constructor() {
         super('openai');
     }
 
     /**
      * 转换请求
+     *
+     * @param {Object} data - 请求数据
+     * @param {string} targetProtocol - 目标协议
+     * @returns {Object} 转换后的请求
      */
     convertRequest(data, targetProtocol) {
         switch (targetProtocol) {
@@ -62,9 +73,14 @@ export class OpenAIConverter extends BaseConverter {
 
     /**
      * 转换响应
+     *
+     * @param {Object} data - 响应数据
+     * @param {string} targetProtocol - 目标协议
+     * @param {string} model - 模型名称
+     * @returns {Object} 转换后的响应
      */
     convertResponse(data, targetProtocol, model) {
-        // OpenAI作为源格式时，通常不需要转换响应
+        // OpenAI 作为源格式时，通常不需要转换响应
         // 因为其他协议会转换到OpenAI格式
         switch (targetProtocol) {
             case MODEL_PROTOCOL_PREFIX.CLAUDE:
@@ -80,6 +96,11 @@ export class OpenAIConverter extends BaseConverter {
 
     /**
      * 转换流式响应块
+     *
+     * @param {Object} chunk - 流式响应块
+     * @param {string} targetProtocol - 目标协议
+     * @param {string} model - 模型名称
+     * @returns {Object} 转换后的流式响应块
      */
     convertStreamChunk(chunk, targetProtocol, model) {
         switch (targetProtocol) {
@@ -96,6 +117,10 @@ export class OpenAIConverter extends BaseConverter {
 
     /**
      * 转换模型列表
+     *
+     * @param {Object} data - 模型列表数据
+     * @param {string} targetProtocol - 目标协议
+     * @returns {Object} 转换后的模型列表
      */
     convertModelList(data, targetProtocol) {
         switch (targetProtocol) {
@@ -109,7 +134,10 @@ export class OpenAIConverter extends BaseConverter {
     }
 
     /**
-     * Ensure display_name field exists in OpenAI model list
+     * 确保 OpenAI 模型列表包含 display_name 字段
+     *
+     * @param {Object} openaiModels - OpenAI 模型列表
+     * @returns {Object} 补齐后的模型列表
      */
     ensureDisplayName(openaiModels) {
         if (!openaiModels || !openaiModels.data) {
@@ -130,7 +158,10 @@ export class OpenAIConverter extends BaseConverter {
     // =========================================================================
 
     /**
-     * OpenAI请求 -> Claude请求
+     * OpenAI 请求 -> Claude 请求
+     *
+     * @param {Object} openaiRequest - OpenAI 请求
+     * @returns {Object} Claude 请求
      */
     toClaudeRequest(openaiRequest) {
         const messages = openaiRequest.messages || [];
@@ -151,7 +182,7 @@ export class OpenAIConverter extends BaseConverter {
                 });
                 claudeMessages.push({ role: 'user', content: content });
             } else if (message.role === 'assistant' && (message.tool_calls?.length || message.function_calls?.length)) {
-                // 助手工具调用消息 - 支持tool_calls和function_calls
+                // 助手工具调用消息 - 支持 tool_calls 和 function_calls
                 const calls = message.tool_calls || message.function_calls || [];
                 const toolUseBlocks = calls.map(tc => ({
                     type: 'tool_use',
@@ -273,7 +304,11 @@ export class OpenAIConverter extends BaseConverter {
     }
 
     /**
-     * OpenAI响应 -> Claude响应
+     * OpenAI 响应 -> Claude 响应
+     *
+     * @param {Object} openaiResponse - OpenAI 响应
+     * @param {string} model - 模型名称
+     * @returns {Object} Claude 响应
      */
     toClaudeResponse(openaiResponse, model) {
         if (!openaiResponse || !openaiResponse.choices || openaiResponse.choices.length === 0) {
@@ -295,7 +330,7 @@ export class OpenAIConverter extends BaseConverter {
         const choice = openaiResponse.choices[0];
         const contentList = [];
 
-        // 处理工具调用 - 支持tool_calls和function_calls
+        // 处理工具调用 - 支持 tool_calls 和 function_calls
         const toolCalls = choice.message?.tool_calls || choice.message?.function_calls || [];
         for (const toolCall of toolCalls.filter(tc => tc && typeof tc === 'object')) {
             if (toolCall.function) {
@@ -316,7 +351,7 @@ export class OpenAIConverter extends BaseConverter {
             }
         }
 
-        // 处理reasoning_content（推理内容）
+        // 处理 reasoning_content（推理内容）
         const reasoningContent = choice.message?.reasoning_content || "";
         if (reasoningContent) {
             contentList.push({
@@ -361,10 +396,14 @@ export class OpenAIConverter extends BaseConverter {
     }
 
     /**
-     * OpenAI流式响应 -> Claude流式响应
+     * OpenAI 流式响应 -> Claude 流式响应
      *
-     * 这个方法实现了与 ClaudeConverter.toOpenAIStreamChunk 相反的转换逻辑
-     * 将 OpenAI 的流式 chunk 转换为 Claude 的流式事件
+     * 这个方法实现了与 ClaudeConverter.toOpenAIStreamChunk 相反的转换逻辑，
+     * 将 OpenAI 的流式 chunk 转换为 Claude 的流式事件。
+     *
+     * @param {Object} openaiChunk - OpenAI 流式块
+     * @param {string} model - 模型名称
+     * @returns {Object|Array|null} Claude 流式事件
      */
     toClaudeStreamChunk(openaiChunk, model) {
         if (!openaiChunk) return null;
@@ -518,7 +557,10 @@ export class OpenAIConverter extends BaseConverter {
     }
 
     /**
-     * OpenAI模型列表 -> Claude模型列表
+     * OpenAI 模型列表 -> Claude 模型列表
+     *
+     * @param {Object} openaiModels - OpenAI 模型列表
+     * @returns {Object} Claude 模型列表
      */
     toClaudeModelList(openaiModels) {
         return {
@@ -531,6 +573,9 @@ export class OpenAIConverter extends BaseConverter {
 
     /**
      * 将 OpenAI 模型列表转换为 Gemini 模型列表
+     *
+     * @param {Object} openaiModels - OpenAI 模型列表
+     * @returns {Object} Gemini 模型列表
      */
     toGeminiModelList(openaiModels) {
         const models = openaiModels.data || [];
@@ -548,7 +593,10 @@ export class OpenAIConverter extends BaseConverter {
     }
 
     /**
-     * 构建Claude工具选择
+     * 构建 Claude 工具选择
+     *
+     * @param {Object|string} toolChoice - 工具选择配置
+     * @returns {Object|undefined} Claude 工具选择配置
      */
     buildClaudeToolChoice(toolChoice) {
         if (typeof toolChoice === 'string') {
@@ -565,10 +613,13 @@ export class OpenAIConverter extends BaseConverter {
     // OpenAI -> Gemini 转换
     // =========================================================================
 
-    // Gemini Openai thought signature constant
+    // Gemini OpenAI 思考签名常量
     static GEMINI_OPENAI_THOUGHT_SIGNATURE = "skip_thought_signature_validator";
     /**
-     * OpenAI请求 -> Gemini请求
+     * OpenAI 请求 -> Gemini 请求
+     *
+     * @param {Object} openaiRequest - OpenAI 请求
+     * @returns {Object} Gemini 请求
      */
     toGeminiRequest(openaiRequest) {
         const messages = openaiRequest.messages || [];
@@ -603,7 +654,7 @@ export class OpenAIConverter extends BaseConverter {
             const content = message.content;
 
             if (role === 'system') {
-                // system -> system_instruction
+                // system -> system_instruction（系统指令）
                 if (messages.length > 1) {
                     if (typeof content === 'string') {
                         systemInstruction = {
@@ -643,7 +694,7 @@ export class OpenAIConverter extends BaseConverter {
                     }
                 }
             } else if (role === 'user') {
-                // user -> user content
+                // user -> 用户内容
                 const node = { role: 'user', parts: [] };
                 if (typeof content === 'string') {
                     node.parts.push({ text: content });
@@ -745,7 +796,7 @@ export class OpenAIConverter extends BaseConverter {
                     processedMessages.push(node);
                 }
             } else if (role === 'assistant') {
-                // assistant -> model content
+                // assistant -> model 内容
                 const node = { role: 'model', parts: [] };
                 
                 // 处理文本内容
@@ -1027,6 +1078,12 @@ export class OpenAIConverter extends BaseConverter {
     /**
      * 检查模型是否支持 thinking
      */
+    /**
+     * 判断模型是否支持 thinking
+     *
+     * @param {string} model - 模型名称
+     * @returns {boolean} 是否支持 thinking
+     */
     modelSupportsThinking(model) {
         if (!model) return false;
         const m = model.toLowerCase();
@@ -1035,6 +1092,12 @@ export class OpenAIConverter extends BaseConverter {
 
     /**
      * 检查是否是 Gemini 3 模型
+     */
+    /**
+     * 判断是否为 Gemini 3 系列模型
+     *
+     * @param {string} model - 模型名称
+     * @returns {boolean} 是否为 Gemini 3
      */
     isGemini3Model(model) {
         if (!model) return false;
@@ -1045,6 +1108,12 @@ export class OpenAIConverter extends BaseConverter {
     /**
      * 检查模型是否使用 thinking levels（而不是 budget）
      */
+    /**
+     * 判断模型是否使用 thinking level 配置
+     *
+     * @param {string} model - 模型名称
+     * @returns {boolean} 是否使用 thinking level
+     */
     modelUsesThinkingLevels(model) {
         if (!model) return false;
         // Gemini 3 模型使用 levels，其他使用 budget
@@ -1053,6 +1122,13 @@ export class OpenAIConverter extends BaseConverter {
 
     /**
      * 验证 Gemini 3 thinking level
+     */
+    /**
+     * 校验 Gemini 3 的 thinking level 合法性
+     *
+     * @param {string} model - 模型名称
+     * @param {string} effort - 推理等级
+     * @returns {string} 校验后的推理等级
      */
     validateGemini3ThinkingLevel(model, effort) {
         const validLevels = ['low', 'medium', 'high'];
@@ -1064,6 +1140,12 @@ export class OpenAIConverter extends BaseConverter {
 
     /**
      * 将 reasoning_effort 转换为 Gemini thinkingConfig
+     */
+    /**
+     * 将 reasoning_effort 映射为 Gemini 的 thinking 参数
+     *
+     * @param {string} effort - 推理等级
+     * @returns {Object} Gemini thinking 配置
      */
     applyReasoningEffortToGemini(effort) {
         const effortToBudget = {
@@ -1081,6 +1163,11 @@ export class OpenAIConverter extends BaseConverter {
     /**
      * 获取默认安全设置
      */
+    /**
+     * 获取默认安全设置
+     *
+     * @returns {Array} 默认安全设置
+     */
     getDefaultSafetySettings() {
         return [
             { category: "HARM_CATEGORY_HARASSMENT", threshold: "OFF" },
@@ -1093,6 +1180,12 @@ export class OpenAIConverter extends BaseConverter {
 
     /**
      * 处理OpenAI内容到Gemini parts
+     */
+    /**
+     * 将 OpenAI content 转换为 Gemini parts
+     *
+     * @param {string|Array} content - OpenAI 内容
+     * @returns {Array} Gemini parts
      */
     processOpenAIContentToGeminiParts(content) {
         if (!content) return [];
@@ -1132,6 +1225,12 @@ export class OpenAIConverter extends BaseConverter {
     /**
      * 构建Gemini工具配置
      */
+    /**
+     * 构建 Gemini 工具配置
+     *
+     * @param {Object|string} toolChoice - 工具选择配置
+     * @returns {Object} Gemini 工具配置
+     */
     buildGeminiToolConfig(toolChoice) {
         if (typeof toolChoice === 'string' && ['none', 'auto'].includes(toolChoice)) {
             return { functionCallingConfig: { mode: toolChoice.toUpperCase() } };
@@ -1145,6 +1244,13 @@ export class OpenAIConverter extends BaseConverter {
     /**
      * 构建Gemini生成配置
      */
+    /**
+     * 构建 Gemini 生成配置
+     *
+     * @param {Object} config - 生成配置
+     * @param {string} model - 模型名称
+     * @returns {Object} Gemini 生成配置
+     */
     buildGeminiGenerationConfig({ temperature, max_tokens, top_p, stop, tools, response_format }, model) {
         const config = {};
         config.temperature = checkAndAssignOrDefault(temperature, GEMINI_DEFAULT_TEMPERATURE);
@@ -1152,7 +1258,7 @@ export class OpenAIConverter extends BaseConverter {
         config.topP = checkAndAssignOrDefault(top_p, GEMINI_DEFAULT_TOP_P);
         if (stop !== undefined) config.stopSequences = Array.isArray(stop) ? stop : [stop];
 
-        // Handle response_format
+        // 处理 response_format
         if (response_format) {
             if (response_format.type === 'json_object') {
                 config.responseMimeType = 'application/json';
@@ -1164,8 +1270,8 @@ export class OpenAIConverter extends BaseConverter {
             }
         }
 
-        // Gemini 2.5 and thinking models require responseModalities: ["TEXT"]
-        // But this parameter cannot be added when using tools (causes 400 error)
+        // Gemini 2.5 和 thinking 模型要求 responseModalities: ["TEXT"]
+        // 但在使用 tools 时不能加该参数（会导致 400 错误）
         const hasTools = tools && Array.isArray(tools) && tools.length > 0;
         if (!hasTools && model && (model.includes('2.5') || model.includes('thinking') || model.includes('2.0-flash-thinking'))) {
             logger.info(`[OpenAI->Gemini] Adding responseModalities: ["TEXT"] for model: ${model}`);
@@ -1178,6 +1284,13 @@ export class OpenAIConverter extends BaseConverter {
     }
     /**
      * 将OpenAI响应转换为Gemini响应格式
+     */
+    /**
+     * OpenAI 响应 -> Gemini 响应
+     *
+     * @param {Object} openaiResponse - OpenAI 响应
+     * @param {string} model - 模型名称
+     * @returns {Object} Gemini 响应
      */
     toGeminiResponse(openaiResponse, model) {
         if (!openaiResponse || !openaiResponse.choices || !openaiResponse.choices[0]) {
@@ -1245,6 +1358,13 @@ export class OpenAIConverter extends BaseConverter {
 
     /**
      * 将OpenAI流式响应块转换为Gemini流式响应格式
+     */
+    /**
+     * OpenAI 流式块 -> Gemini 流式块
+     *
+     * @param {Object} openaiChunk - OpenAI 流式块
+     * @param {string} model - 模型名称
+     * @returns {Object|null} Gemini 流式块
      */
     toGeminiStreamChunk(openaiChunk, model) {
         if (!openaiChunk || !openaiChunk.choices || !openaiChunk.choices[0]) {
@@ -1330,6 +1450,12 @@ export class OpenAIConverter extends BaseConverter {
     /**
      * 将OpenAI请求转换为OpenAI Responses格式
      */
+    /**
+     * OpenAI 请求 -> OpenAI Responses 请求
+     *
+     * @param {Object} openaiRequest - OpenAI 请求
+     * @returns {Object} OpenAI Responses 请求
+     */
     toOpenAIResponsesRequest(openaiRequest) {
         const responsesRequest = {
             model: openaiRequest.model,
@@ -1368,6 +1494,13 @@ export class OpenAIConverter extends BaseConverter {
 
     /**
      * 将OpenAI响应转换为OpenAI Responses格式
+     */
+    /**
+     * OpenAI 响应 -> OpenAI Responses 响应
+     *
+     * @param {Object} openaiResponse - OpenAI 响应
+     * @param {string} model - 模型名称
+     * @returns {Object} OpenAI Responses 响应
      */
     toOpenAIResponsesResponse(openaiResponse, model) {
         if (!openaiResponse || !openaiResponse.choices || !openaiResponse.choices[0]) {
@@ -1441,6 +1574,14 @@ export class OpenAIConverter extends BaseConverter {
     /**
      * 将OpenAI流式响应转换为OpenAI Responses流式格式
      * 参考 ClaudeConverter.toOpenAIResponsesStreamChunk 的实现逻辑
+     */
+    /**
+     * OpenAI 流式块 -> OpenAI Responses 流式块
+     *
+     * @param {Object} openaiChunk - OpenAI 流式块
+     * @param {string} model - 模型名称
+     * @param {string|null} [requestId=null] - 请求 ID
+     * @returns {Object|null} OpenAI Responses 流式块
      */
     toOpenAIResponsesStreamChunk(openaiChunk, model, requestId = null) {
         if (!openaiChunk || !openaiChunk.choices || !openaiChunk.choices[0]) {

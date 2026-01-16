@@ -1,15 +1,30 @@
 /**
  * Kiro API 常量定义模块
- * 包含所有 Kiro API 相关的常量配置
+ *
+ * 包含所有 Kiro API 相关的常量配置。
+ *
+ * @module kiro/constants
  */
 
-// Kiro IDE 版本号（用于 User-Agent 等）
+/**
+ * Kiro IDE 版本号（用于 User-Agent 等）
+ *
+ * @type {string}
+ */
 export const KIRO_IDE_VERSION = '0.7.45';
 
-// 默认账号类型
+/**
+ * 默认账号类型
+ *
+ * @type {string}
+ */
 export const DEFAULT_PROVIDER_TYPE = 'claude-kiro-oauth';
 
-// 支持的 Kiro 模型列表
+/**
+ * 支持的 Kiro 模型列表
+ *
+ * @type {Array<string>}
+ */
 export const KIRO_MODELS = [
     'claude-opus-4-5',
     'claude-opus-4-5-20251101',
@@ -20,6 +35,11 @@ export const KIRO_MODELS = [
     'claude-3-7-sonnet-20250219'
 ];
 
+/**
+ * Kiro 常量集合
+ *
+ * @type {Object}
+ */
 export const KIRO_CONSTANTS = {
   REFRESH_URL: "https://prod.{{region}}.auth.desktop.kiro.dev/refreshToken",
   REFRESH_IDC_URL: "https://oidc.{{region}}.amazonaws.com/token",

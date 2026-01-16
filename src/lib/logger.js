@@ -1,10 +1,15 @@
 /**
  * 结构化日志模块
- * 提供统一的日志接口和格式化输出
+ *
+ * 提供统一的日志接口和格式化输出。
+ *
+ * @module lib/logger
  */
 
 /**
  * 日志级别枚举
+ *
+ * @type {Object}
  */
 export const LogLevel = {
     VERBOSE: 'verbose',
@@ -16,6 +21,8 @@ export const LogLevel = {
 
 /**
  * 日志级别优先级
+ *
+ * @type {Object}
  */
 const LOG_LEVEL_PRIORITY = {
     [LogLevel.VERBOSE]: -1,
@@ -27,21 +34,30 @@ const LOG_LEVEL_PRIORITY = {
 
 /**
  * 日志级别颜色（ANSI 颜色码）
+ *
+ * @type {Object}
  */
 const LOG_LEVEL_COLORS = {
-    [LogLevel.VERBOSE]: '\x1b[90m', // Gray
-    [LogLevel.DEBUG]: '\x1b[36m',   // Cyan
-    [LogLevel.INFO]: '\x1b[32m',    // Green
-    [LogLevel.WARN]: '\x1b[33m',    // Yellow
-    [LogLevel.ERROR]: '\x1b[31m',   // Red
+    [LogLevel.VERBOSE]: '\x1b[90m', // 灰色
+    [LogLevel.DEBUG]: '\x1b[36m',   // 青色
+    [LogLevel.INFO]: '\x1b[32m',    // 绿色
+    [LogLevel.WARN]: '\x1b[33m',    // 黄色
+    [LogLevel.ERROR]: '\x1b[31m',   // 红色
 };
 
 const RESET_COLOR = '\x1b[0m';
 
 /**
  * Logger 类
+ *
+ * 提供带上下文与级别控制的结构化日志输出。
  */
 class Logger {
+    /**
+     * 创建 Logger 实例
+     *
+     * @param {Object} [options={}] - 配置项
+     */
     constructor(options = {}) {
         this.level = options.level || LogLevel.INFO;
         this.enableColors = options.enableColors !== false;
@@ -51,8 +67,9 @@ class Logger {
 
     /**
      * 检查是否应该输出该级别的日志
+     *
      * @param {string} level - 日志级别
-     * @returns {boolean}
+     * @returns {boolean} 是否输出
      */
     shouldLog(level) {
         return LOG_LEVEL_PRIORITY[level] >= LOG_LEVEL_PRIORITY[this.level];
@@ -60,7 +77,8 @@ class Logger {
 
     /**
      * 格式化时间戳
-     * @returns {string}
+     *
+     * @returns {string} 时间戳字符串
      */
     formatTimestamp() {
         const now = new Date();
@@ -76,10 +94,11 @@ class Logger {
 
     /**
      * 格式化日志消息
+     *
      * @param {string} level - 日志级别
      * @param {string} message - 日志消息
      * @param {Object} meta - 元数据
-     * @returns {string}
+     * @returns {string} 格式化后的日志
      */
     formatMessage(level, message, meta = {}) {
         const parts = [];
@@ -115,6 +134,7 @@ class Logger {
 
     /**
      * 通用日志方法
+     *
      * @param {string} level - 日志级别
      * @param {string} message - 日志消息
      * @param {Object} meta - 元数据
@@ -144,6 +164,7 @@ class Logger {
 
     /**
      * Verbose 级别日志
+     *
      * @param {string} message - 日志消息
      * @param {Object} meta - 元数据
      */
@@ -153,6 +174,7 @@ class Logger {
 
     /**
      * Debug 级别日志
+     *
      * @param {string} message - 日志消息
      * @param {Object} meta - 元数据
      */
@@ -162,6 +184,7 @@ class Logger {
 
     /**
      * Info 级别日志
+     *
      * @param {string} message - 日志消息
      * @param {Object} meta - 元数据
      */
@@ -171,6 +194,7 @@ class Logger {
 
     /**
      * Warn 级别日志
+     *
      * @param {string} message - 日志消息
      * @param {Object} meta - 元数据
      */
@@ -180,6 +204,7 @@ class Logger {
 
     /**
      * Error 级别日志
+     *
      * @param {string} message - 日志消息
      * @param {Object|Error} metaOrError - 元数据或错误对象
      */
@@ -201,8 +226,9 @@ class Logger {
 
     /**
      * 创建子 Logger（带新的上下文）
+     *
      * @param {string} context - 新的上下文名称
-     * @returns {Logger}
+     * @returns {Logger} 子 Logger
      */
     child(context) {
         return new Logger({
@@ -223,8 +249,9 @@ let defaultLogger = null;
 
 /**
  * 初始化默认 Logger
+ *
  * @param {Object} options - Logger 配置选项
- * @returns {Logger}
+ * @returns {Logger} Logger 实例
  */
 export function initLogger(options = {}) {
     defaultLogger = new Logger(options);
@@ -233,7 +260,8 @@ export function initLogger(options = {}) {
 
 /**
  * 获取默认 Logger 实例
- * @returns {Logger}
+ *
+ * @returns {Logger} Logger 实例
  */
 export function getLogger() {
     if (!defaultLogger) {
@@ -244,8 +272,9 @@ export function getLogger() {
 
 /**
  * 创建带上下文的 Logger
+ *
  * @param {string} context - 上下文名称
- * @returns {Logger}
+ * @returns {Logger} Logger 实例
  */
 export function createLogger(context) {
     return getLogger().child(context);

@@ -1,6 +1,9 @@
 /**
- * Gemini转换器
- * 处理Gemini（Google）协议与其他协议之间的转换
+ * Gemini 转换器
+ *
+ * 处理 Gemini（Google）协议与其他协议之间的转换。
+ *
+ * @module converters/strategies/GeminiConverter
  */
 
 import { v4 as uuidv4 } from 'uuid';
@@ -29,16 +32,24 @@ import { createLogger } from '../../lib/logger.js';
 const logger = createLogger('GeminiConverter');
 
 /**
- * Gemini转换器类
- * 实现Gemini协议到其他协议的转换
+ * Gemini 转换器类
+ *
+ * 实现 Gemini 协议到其他协议的转换。
  */
 export class GeminiConverter extends BaseConverter {
+    /**
+     * 创建 Gemini 转换器
+     */
     constructor() {
         super('gemini');
     }
 
     /**
      * 转换请求
+     *
+     * @param {Object} data - 请求数据
+     * @param {string} targetProtocol - 目标协议
+     * @returns {Object} 转换后的请求
      */
     convertRequest(data, targetProtocol) {
         switch (targetProtocol) {
@@ -55,6 +66,11 @@ export class GeminiConverter extends BaseConverter {
 
     /**
      * 转换响应
+     *
+     * @param {Object} data - 响应数据
+     * @param {string} targetProtocol - 目标协议
+     * @param {string} model - 模型名称
+     * @returns {Object} 转换后的响应
      */
     convertResponse(data, targetProtocol, model) {
         switch (targetProtocol) {
@@ -71,6 +87,11 @@ export class GeminiConverter extends BaseConverter {
 
     /**
      * 转换流式响应块
+     *
+     * @param {Object} chunk - 流式响应块
+     * @param {string} targetProtocol - 目标协议
+     * @param {string} model - 模型名称
+     * @returns {Object} 转换后的流式响应块
      */
     convertStreamChunk(chunk, targetProtocol, model) {
         switch (targetProtocol) {
@@ -87,6 +108,10 @@ export class GeminiConverter extends BaseConverter {
 
     /**
      * 转换模型列表
+     *
+     * @param {Object} data - 模型列表数据
+     * @param {string} targetProtocol - 目标协议
+     * @returns {Object} 转换后的模型列表
      */
     convertModelList(data, targetProtocol) {
         switch (targetProtocol) {
@@ -104,7 +129,10 @@ export class GeminiConverter extends BaseConverter {
     // =========================================================================
 
     /**
-     * Gemini请求 -> OpenAI请求
+     * Gemini 请求 -> OpenAI 请求
+     *
+     * @param {Object} geminiRequest - Gemini 请求
+     * @returns {Object} OpenAI 请求
      */
     toOpenAIRequest(geminiRequest) {
         const openaiRequest = {
@@ -146,7 +174,11 @@ export class GeminiConverter extends BaseConverter {
     }
 
     /**
-     * Gemini响应 -> OpenAI响应
+     * Gemini 响应 -> OpenAI 响应
+     *
+     * @param {Object} geminiResponse - Gemini 响应
+     * @param {string} model - 模型名称
+     * @returns {Object} OpenAI 响应
      */
     toOpenAIResponse(geminiResponse, model) {
         const content = this.processGeminiResponseContent(geminiResponse);
@@ -191,7 +223,11 @@ export class GeminiConverter extends BaseConverter {
     }
 
     /**
-     * Gemini流式响应 -> OpenAI流式响应
+     * Gemini 流式响应 -> OpenAI 流式响应
+     *
+     * @param {Object} geminiChunk - Gemini 流式块
+     * @param {string} model - 模型名称
+     * @returns {Object|null} OpenAI 流式块
      */
     toOpenAIStreamChunk(geminiChunk, model) {
         if (!geminiChunk) return null;
@@ -222,7 +258,7 @@ export class GeminiConverter extends BaseConverter {
                         }
                     });
                 }
-                // thoughtSignature is ignored (internal Gemini data)
+                // thoughtSignature 被忽略（Gemini 内部数据）
             }
         }
 
@@ -244,7 +280,7 @@ export class GeminiConverter extends BaseConverter {
         if (content) delta.content = content;
         if (toolCalls.length > 0) delta.tool_calls = toolCalls;
 
-        // Don't return empty delta chunks
+        // 不返回空的 delta 块
         if (Object.keys(delta).length === 0 && !finishReason) {
             return null;
         }
@@ -286,7 +322,10 @@ export class GeminiConverter extends BaseConverter {
     }
 
     /**
-     * Gemini模型列表 -> OpenAI模型列表
+     * Gemini 模型列表 -> OpenAI 模型列表
+     *
+     * @param {Object} geminiModels - Gemini 模型列表
+     * @returns {Object} OpenAI 模型列表
      */
     toOpenAIModelList(geminiModels) {
         return {
@@ -305,7 +344,10 @@ export class GeminiConverter extends BaseConverter {
     }
 
     /**
-     * 处理Gemini parts到OpenAI内容
+     * 处理 Gemini parts 到 OpenAI 内容
+     *
+     * @param {Array} parts - Gemini parts
+     * @returns {Array|string} OpenAI 内容
      */
     processGeminiPartsToOpenAIContent(parts) {
         if (!parts || !Array.isArray(parts)) return '';
@@ -360,7 +402,10 @@ export class GeminiConverter extends BaseConverter {
     }
 
     /**
-     * 处理Gemini响应内容
+     * 处理 Gemini 响应内容
+     *
+     * @param {Object} geminiResponse - Gemini 响应
+     * @returns {string} 文本内容
      */
     processGeminiResponseContent(geminiResponse) {
         if (!geminiResponse || !geminiResponse.candidates) return '';
@@ -385,7 +430,10 @@ export class GeminiConverter extends BaseConverter {
     // =========================================================================
 
     /**
-     * Gemini请求 -> Claude请求
+     * Gemini 请求 -> Claude 请求
+     *
+     * @param {Object} geminiRequest - Gemini 请求
+     * @returns {Object} Claude 请求
      */
     toClaudeRequest(geminiRequest) {
         const claudeRequest = {
@@ -437,7 +485,11 @@ export class GeminiConverter extends BaseConverter {
     }
 
     /**
-     * Gemini响应 -> Claude响应
+     * Gemini 响应 -> Claude 响应
+     *
+     * @param {Object} geminiResponse - Gemini 响应
+     * @param {string} model - 模型名称
+     * @returns {Object} Claude 响应
      */
     toClaudeResponse(geminiResponse, model) {
         if (!geminiResponse || !geminiResponse.candidates || geminiResponse.candidates.length === 0) {
@@ -501,7 +553,11 @@ export class GeminiConverter extends BaseConverter {
     }
 
     /**
-     * Gemini流式响应 -> Claude流式响应
+     * Gemini 流式响应 -> Claude 流式响应
+     *
+     * @param {Object} geminiChunk - Gemini 流式块
+     * @param {string} model - 模型名称
+     * @returns {Object|null} Claude 流式块
      */
     toClaudeStreamChunk(geminiChunk, model) {
         if (!geminiChunk) return null;
@@ -575,7 +631,10 @@ export class GeminiConverter extends BaseConverter {
     }
 
     /**
-     * Gemini模型列表 -> Claude模型列表
+     * Gemini 模型列表 -> Claude 模型列表
+     *
+     * @param {Object} geminiModels - Gemini 模型列表
+     * @returns {Object} Claude 模型列表
      */
     toClaudeModelList(geminiModels) {
         return {
@@ -587,7 +646,10 @@ export class GeminiConverter extends BaseConverter {
     }
 
     /**
-     * 处理Gemini parts到Claude内容
+     * 处理 Gemini parts 到 Claude 内容
+     *
+     * @param {Array} parts - Gemini parts
+     * @returns {Array} Claude 内容
      */
     processGeminiPartsToClaudeContent(parts) {
         if (!parts || !Array.isArray(parts)) return [];
@@ -637,7 +699,10 @@ export class GeminiConverter extends BaseConverter {
     }
 
     /**
-     * 处理Gemini响应到Claude内容
+     * 处理 Gemini 响应到 Claude 内容
+     *
+     * @param {Object} geminiResponse - Gemini 响应
+     * @returns {Array} Claude 内容
      */
     processGeminiResponseToClaudeContent(geminiResponse) {
         if (!geminiResponse || !geminiResponse.candidates || geminiResponse.candidates.length === 0) return [];
@@ -691,7 +756,10 @@ export class GeminiConverter extends BaseConverter {
     // =========================================================================
 
     /**
-     * Gemini请求 -> OpenAI Responses请求
+     * Gemini 请求 -> OpenAI Responses 请求
+     *
+     * @param {Object} geminiRequest - Gemini 请求
+     * @returns {Object} OpenAI Responses 请求
      */
     toOpenAIResponsesRequest(geminiRequest) {
         const responsesRequest = {
@@ -730,7 +798,11 @@ export class GeminiConverter extends BaseConverter {
     }
 
     /**
-     * Gemini响应 -> OpenAI Responses响应
+     * Gemini 响应 -> OpenAI Responses 响应
+     *
+     * @param {Object} geminiResponse - Gemini 响应
+     * @param {string} model - 模型名称
+     * @returns {Object} OpenAI Responses 响应
      */
     toOpenAIResponsesResponse(geminiResponse, model) {
         const content = this.processGeminiResponseContent(geminiResponse);
@@ -796,7 +868,12 @@ export class GeminiConverter extends BaseConverter {
     }
 
     /**
-     * Gemini流式响应 -> OpenAI Responses流式响应
+     * Gemini 流式响应 -> OpenAI Responses 流式响应
+     *
+     * @param {Object} geminiChunk - Gemini 流式块
+     * @param {string} model - 模型名称
+     * @param {string|null} [requestId=null] - 请求 ID
+     * @returns {Object|null} OpenAI Responses 流式块
      */
     toOpenAIResponsesStreamChunk(geminiChunk, model, requestId = null) {
         if (!geminiChunk) return [];

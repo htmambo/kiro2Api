@@ -1,5 +1,12 @@
 /**
- * 获取所有账号列表
+ * 账号相关 Handler 实现。
+ * @module ui/router/handlers/account
+ */
+
+/**
+ * 获取所有账号列表。
+ * @param {{ res: import('http').ServerResponse, accountPoolManager: object }} ctx - 请求上下文。
+ * @returns {Promise<void>}
  */
 export async function getAccounts({ res, accountPoolManager }) {
     const { parseErrorMessage } = await import('../../../ui-manager.js');
@@ -21,6 +28,7 @@ export async function getAccounts({ res, accountPoolManager }) {
             account.errorStatus = { status: '正常', message: '', statusType: 'ok' };
         }
 
+        // 根据状态分类账号池类型
         if (account.isDisabled) {
             account.poolType = 'disabled';
             bannedCount++;
@@ -54,7 +62,9 @@ export async function getAccounts({ res, accountPoolManager }) {
 }
 
 /**
- * 添加新账号
+ * 添加新账号。
+ * @param {{ req: import('http').IncomingMessage, res: import('http').ServerResponse, accountPoolManager: object }} ctx - 请求上下文。
+ * @returns {Promise<void>}
  */
 export async function addAccount({ req, res, accountPoolManager }) {
     const { getRequestBody } = await import('../../../utils/common.js');
@@ -88,7 +98,9 @@ export async function addAccount({ req, res, accountPoolManager }) {
 }
 
 /**
- * 删除账号
+ * 删除账号。
+ * @param {{ res: import('http').ServerResponse, accountPoolManager: object, match: Array<string> }} ctx - 请求上下文。
+ * @returns {Promise<void>}
  */
 export async function deleteAccount({ res, accountPoolManager, match }) {
     const { broadcastEvent } = await import('../../events.js');
@@ -119,7 +131,9 @@ export async function deleteAccount({ res, accountPoolManager, match }) {
 }
 
 /**
- * 切换账号状态
+ * 切换账号状态。
+ * @param {{ res: import('http').ServerResponse, accountPoolManager: object, match: Array<string> }} ctx - 请求上下文。
+ * @returns {Promise<void>}
  */
 export async function toggleAccount({ res, accountPoolManager, match }) {
     const { broadcastEvent } = await import('../../events.js');
@@ -151,7 +165,9 @@ export async function toggleAccount({ res, accountPoolManager, match }) {
 }
 
 /**
- * 批量删除账号
+ * 批量删除账号。
+ * @param {{ req: import('http').IncomingMessage, res: import('http').ServerResponse, accountPoolManager: object }} ctx - 请求上下文。
+ * @returns {Promise<void>}
  */
 export async function batchDeleteAccounts({ req, res, accountPoolManager }) {
     const { getRequestBody } = await import('../../../utils/common.js');
@@ -196,7 +212,9 @@ export async function batchDeleteAccounts({ req, res, accountPoolManager }) {
 }
 
 /**
- * 重置所有账号健康状态
+ * 重置所有账号健康状态。
+ * @param {{ res: import('http').ServerResponse, accountPoolManager: object }} ctx - 请求上下文。
+ * @returns {Promise<void>}
  */
 export async function resetAllHealth({ res, accountPoolManager }) {
     try {
@@ -212,7 +230,9 @@ export async function resetAllHealth({ res, accountPoolManager }) {
 }
 
 /**
- * 重置单个账号健康状态
+ * 重置单个账号健康状态。
+ * @param {{ res: import('http').ServerResponse, accountPoolManager: object, match: Array<string> }} ctx - 请求上下文。
+ * @returns {Promise<void>}
  */
 export async function resetAccountHealth({ res, accountPoolManager, match }) {
     const { broadcastEvent } = await import('../../events.js');
@@ -223,7 +243,7 @@ export async function resetAccountHealth({ res, accountPoolManager, match }) {
         const result = accountPoolManager.markAccountHealthy(accountUuid);
         const resetCount = result ? 1 : 0;
 
-        if(result) {
+        if (result) {
             broadcastEvent('config_update', {
                 action: 'reset_health',
                 resetCount,
@@ -243,7 +263,9 @@ export async function resetAccountHealth({ res, accountPoolManager, match }) {
 }
 
 /**
- * 批量健康检查
+ * 批量健康检查。
+ * @param {{ res: import('http').ServerResponse, accountPoolManager: object }} ctx - 请求上下文。
+ * @returns {Promise<void>}
  */
 export async function healthCheckAll({ res, accountPoolManager }) {
     try {
@@ -296,7 +318,9 @@ export async function healthCheckAll({ res, accountPoolManager }) {
 }
 
 /**
- * 单个账号健康检查
+ * 单个账号健康检查。
+ * @param {{ res: import('http').ServerResponse, currentConfig: object, accountPoolManager: object, match: Array<string> }} ctx - 请求上下文。
+ * @returns {Promise<void>}
  */
 export async function healthCheckAccount({ res, currentConfig, accountPoolManager, match }) {
     const uuid = decodeURIComponent(match[1]);
@@ -337,7 +361,9 @@ export async function healthCheckAccount({ res, currentConfig, accountPoolManage
 }
 
 /**
- * 测试账号
+ * 测试账号。
+ * @param {{ res: import('http').ServerResponse, currentConfig: object, accountPoolManager: object, match: Array<string> }} ctx - 请求上下文。
+ * @returns {Promise<void>}
  */
 export async function testAccount({ res, currentConfig, accountPoolManager, match }) {
     const { getServiceAdapter } = await import('../../../services/manager.js');
@@ -370,7 +396,9 @@ export async function testAccount({ res, currentConfig, accountPoolManager, matc
 }
 
 /**
- * 生成 OAuth 授权 URL
+ * 生成 OAuth 授权 URL。
+ * @param {{ res: import('http').ServerResponse, currentConfig: object, accountPoolManager: object }} ctx - 请求上下文。
+ * @returns {Promise<void>}
  */
 export async function generateAuthUrl({ res, currentConfig, accountPoolManager }) {
     const { broadcastEvent } = await import('../../events.js');
@@ -424,7 +452,9 @@ export async function generateAuthUrl({ res, currentConfig, accountPoolManager }
 }
 
 /**
- * 清理重复账号
+ * 清理重复账号。
+ * @param {{ req: import('http').IncomingMessage, res: import('http').ServerResponse, currentConfig: object, accountPoolManager: object }} ctx - 请求上下文。
+ * @returns {Promise<void>}
  */
 export async function cleanupDuplicates({ req, res, currentConfig, accountPoolManager }) {
     const { parseRequestBody } = await import('../../../ui-manager.js');

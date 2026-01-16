@@ -1,13 +1,14 @@
 /**
- * 账号路由配置
+ * 账号路由配置。
+ * @module ui/router/routes/account
  */
 
 import * as accountHandlers from '../handlers/account.handlers.js';
 
 /**
- * 设置账号管理路由
- *
- * @param {Router} router - 路由器实例
+ * 设置账号管理路由。
+ * @param {import('../Router.js').Router} router - 路由器实例。
+ * @returns {void}
  */
 export function setupAccountRoutes(router) {
     // 获取账号列表

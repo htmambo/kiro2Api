@@ -1,6 +1,9 @@
 /**
- * Ollama转换器
- * 处理Ollama协议与其他协议之间的转换
+ * Ollama 转换器
+ *
+ * 处理 Ollama 协议与其他协议之间的转换。
+ *
+ * @module converters/strategies/OllamaConverter
  */
 
 import { v4 as uuidv4 } from 'uuid';
@@ -83,16 +86,24 @@ const logger = createLogger('OllamaConverter');
 
 
 /**
- * Ollama转换器类
- * 实现Ollama协议到其他协议的转换
+ * Ollama 转换器类
+ *
+ * 实现 Ollama 协议到其他协议的转换。
  */
 export class OllamaConverter extends BaseConverter {
+    /**
+     * 创建 Ollama 转换器
+     */
     constructor() {
         super('ollama');
     }
 
     /**
-     * 转换请求 - Ollama -> 其他协议
+     * 转换请求（Ollama -> 其他协议）
+     *
+     * @param {Object} data - 请求数据
+     * @param {string} targetProtocol - 目标协议
+     * @returns {Object} 转换后的请求
      */
     convertRequest(data, targetProtocol) {
         switch (targetProtocol) {
@@ -106,21 +117,36 @@ export class OllamaConverter extends BaseConverter {
     }
 
     /**
-     * 转换响应 - 其他协议 -> Ollama
+     * 转换响应（其他协议 -> Ollama）
+     *
+     * @param {Object} data - 响应数据
+     * @param {string} sourceProtocol - 源协议
+     * @param {string} model - 模型名称
+     * @returns {Object} 转换后的响应
      */
     convertResponse(data, sourceProtocol, model) {
         return this.toOllamaChatResponse(data, model);
     }
 
     /**
-     * 转换流式响应块 - 其他协议 -> Ollama
+     * 转换流式响应块（其他协议 -> Ollama）
+     *
+     * @param {Object} chunk - 流式响应块
+     * @param {string} sourceProtocol - 源协议
+     * @param {string} model - 模型名称
+     * @param {boolean} [isDone=false] - 是否结束
+     * @returns {Object} 转换后的流式响应块
      */
     convertStreamChunk(chunk, sourceProtocol, model, isDone = false) {
         return this.toOllamaStreamChunk(chunk, model, isDone);
     }
 
     /**
-     * 转换模型列表 - 其他协议 -> Ollama
+     * 转换模型列表（其他协议 -> Ollama）
+     *
+     * @param {Object} data - 模型列表数据
+     * @param {string} sourceProtocol - 源协议
+     * @returns {Object} 转换后的模型列表
      */
     convertModelList(data, sourceProtocol) {
         return this.toOllamaTags(data, sourceProtocol);
@@ -131,7 +157,10 @@ export class OllamaConverter extends BaseConverter {
     // =========================================================================
 
     /**
-     * Ollama请求 -> OpenAI请求
+     * Ollama 请求 -> OpenAI 请求
+     *
+     * @param {Object} ollamaRequest - Ollama 请求
+     * @returns {Object} OpenAI 请求
      */
     toOpenAIRequest(ollamaRequest) {
         const openaiRequest = {
@@ -140,7 +169,7 @@ export class OllamaConverter extends BaseConverter {
             stream: ollamaRequest.stream !== undefined ? ollamaRequest.stream : false
         };
 
-        // Map Ollama messages to OpenAI format
+        // 将 Ollama messages 映射为 OpenAI 格式
         if (ollamaRequest.messages && Array.isArray(ollamaRequest.messages)) {
             openaiRequest.messages = ollamaRequest.messages.map(msg => ({
                 role: msg.role || 'user',
@@ -148,7 +177,7 @@ export class OllamaConverter extends BaseConverter {
             }));
         }
 
-        // Map Ollama options to OpenAI parameters
+        // 将 Ollama options 映射为 OpenAI 参数
         if (ollamaRequest.options) {
             const opts = ollamaRequest.options;
             if (opts.temperature !== undefined) openaiRequest.temperature = opts.temperature;
@@ -158,7 +187,7 @@ export class OllamaConverter extends BaseConverter {
             if (opts.stop !== undefined) openaiRequest.stop = opts.stop;
         }
 
-        // Handle system prompt
+        // 处理 system prompt
         if (ollamaRequest.system) {
             openaiRequest.messages.unshift({
                 role: 'system',
@@ -166,14 +195,14 @@ export class OllamaConverter extends BaseConverter {
             });
         }
 
-        // Handle template/prompt for generate endpoint
+        // 处理 generate 接口的 template/prompt
         if (ollamaRequest.prompt) {
             openaiRequest.messages = [{
                 role: 'user',
                 content: ollamaRequest.prompt
             }];
             
-            // Add system prompt if provided
+            // 如果有 system prompt，则插入系统消息
             if (ollamaRequest.system) {
                 openaiRequest.messages.unshift({
                     role: 'system',
@@ -190,7 +219,11 @@ export class OllamaConverter extends BaseConverter {
     // =========================================================================
 
     /**
-     * OpenAI/Claude/Gemini响应 -> Ollama chat响应
+     * OpenAI/Claude/Gemini 响应 -> Ollama chat 响应
+     *
+     * @param {Object} response - 源响应
+     * @param {string} model - 模型名称
+     * @returns {Object} Ollama chat 响应
      */
     toOllamaChatResponse(response, model) {
         const ollamaResponse = {
@@ -199,7 +232,7 @@ export class OllamaConverter extends BaseConverter {
             done: true
         };
 
-        // Handle OpenAI format (choices array)
+        // 处理 OpenAI 格式（choices 数组）
         if (response.choices && response.choices.length > 0) {
             const choice = response.choices[0];
             ollamaResponse.message = {
@@ -207,12 +240,12 @@ export class OllamaConverter extends BaseConverter {
                 content: choice.message?.content || ''
             };
 
-            // Map finish reason
+            // 映射结束原因
             if (choice.finish_reason) {
                 ollamaResponse.done_reason = choice.finish_reason === 'stop' ? 'stop' : choice.finish_reason;
             }
         }
-        // Handle Claude format (content array)
+        // 处理 Claude 格式（content 数组）
         else if (response.content && Array.isArray(response.content)) {
             let textContent = '';
             response.content.forEach(block => {
@@ -230,7 +263,7 @@ export class OllamaConverter extends BaseConverter {
                 ollamaResponse.done_reason = response.stop_reason === 'end_turn' ? 'stop' : response.stop_reason;
             }
         }
-        // Handle Gemini format (candidates array)
+        // 处理 Gemini 格式（candidates 数组）
         else if (response.candidates && response.candidates.length > 0) {
             const candidate = response.candidates[0];
             let textContent = '';
@@ -251,7 +284,7 @@ export class OllamaConverter extends BaseConverter {
             }
         }
 
-        // Add usage statistics if available
+        // 如果有 usage，则补充统计信息
         const usage = response.usage || response.usageMetadata;
         if (usage) {
             ollamaResponse.prompt_eval_count = usage.prompt_tokens || usage.input_tokens || usage.promptTokenCount || 0;
@@ -266,7 +299,11 @@ export class OllamaConverter extends BaseConverter {
     }
 
     /**
-     * OpenAI/Claude/Gemini generate响应 -> Ollama generate响应
+     * OpenAI/Claude/Gemini generate 响应 -> Ollama generate 响应
+     *
+     * @param {Object} response - 源响应
+     * @param {string} model - 模型名称
+     * @returns {Object} Ollama generate 响应
      */
     toOllamaGenerateResponse(response, model) {
         const ollamaResponse = {
@@ -275,7 +312,7 @@ export class OllamaConverter extends BaseConverter {
             done: true
         };
 
-        // Handle OpenAI format
+        // 处理 OpenAI 格式
         if (response.choices && response.choices.length > 0) {
             const choice = response.choices[0];
             ollamaResponse.response = choice.message?.content || choice.text || '';
@@ -284,7 +321,7 @@ export class OllamaConverter extends BaseConverter {
                 ollamaResponse.done_reason = choice.finish_reason === 'stop' ? 'stop' : choice.finish_reason;
             }
         }
-        // Handle Claude format
+        // 处理 Claude 格式
         else if (response.content && Array.isArray(response.content)) {
             let textContent = '';
             response.content.forEach(block => {
@@ -298,7 +335,7 @@ export class OllamaConverter extends BaseConverter {
                 ollamaResponse.done_reason = response.stop_reason === 'end_turn' ? 'stop' : response.stop_reason;
             }
         }
-        // Handle Gemini format
+        // 处理 Gemini 格式
         else if (response.candidates && response.candidates.length > 0) {
             const candidate = response.candidates[0];
             let textContent = '';
@@ -315,7 +352,7 @@ export class OllamaConverter extends BaseConverter {
             }
         }
 
-        // Add usage statistics
+        // 补充 usage 统计信息
         const genUsage = response.usage || response.usageMetadata;
         if (genUsage) {
             ollamaResponse.prompt_eval_count = genUsage.prompt_tokens || genUsage.input_tokens || genUsage.promptTokenCount || 0;
@@ -330,7 +367,12 @@ export class OllamaConverter extends BaseConverter {
     }
 
     /**
-     * OpenAI/Claude/Gemini流式块 -> Ollama流式块
+     * OpenAI/Claude/Gemini 流式块 -> Ollama 流式块
+     *
+     * @param {Object} chunk - 流式块
+     * @param {string} model - 模型名称
+     * @param {boolean} [isDone=false] - 是否结束
+     * @returns {Object} Ollama 流式块
      */
     toOllamaStreamChunk(chunk, model, isDone = false) {
         const ollamaChunk = {
@@ -339,7 +381,7 @@ export class OllamaConverter extends BaseConverter {
             done: isDone
         };
 
-        // Handle Claude SSE format
+        // 处理 Claude SSE 格式
         if (chunk.type) {
             if (chunk.type === 'content_block_delta' && chunk.delta) {
                 ollamaChunk.message = {
@@ -360,7 +402,7 @@ export class OllamaConverter extends BaseConverter {
                 };
             }
         }
-        // Handle Gemini format
+        // 处理 Gemini 格式
         else if (!isDone && chunk.candidates && chunk.candidates.length > 0) {
             const candidate = chunk.candidates[0];
             let content = '';
@@ -375,7 +417,7 @@ export class OllamaConverter extends BaseConverter {
                 content: content
             };
         }
-        // Handle OpenAI format
+        // 处理 OpenAI 格式
         else if (!isDone && chunk.choices && chunk.choices.length > 0) {
             const delta = chunk.choices[0].delta;
             ollamaChunk.message = {
@@ -383,7 +425,7 @@ export class OllamaConverter extends BaseConverter {
                 content: delta.content || ''
             };
         } 
-        // Handle final chunk
+        // 处理结束块
         else if (isDone) {
             ollamaChunk.message = {
                 role: 'assistant',
@@ -396,7 +438,12 @@ export class OllamaConverter extends BaseConverter {
     }
 
     /**
-     * OpenAI/Claude/Gemini流式块 -> Ollama generate流式块
+     * OpenAI/Claude/Gemini 流式块 -> Ollama generate 流式块
+     *
+     * @param {Object} chunk - 流式块
+     * @param {string} model - 模型名称
+     * @param {boolean} [isDone=false] - 是否结束
+     * @returns {Object} Ollama generate 流式块
      */
     toOllamaGenerateStreamChunk(chunk, model, isDone = false) {
         const ollamaChunk = {
@@ -405,7 +452,7 @@ export class OllamaConverter extends BaseConverter {
             done: isDone
         };
 
-        // Handle Claude SSE format
+        // 处理 Claude SSE 格式
         if (chunk.type) {
             if (chunk.type === 'content_block_delta' && chunk.delta) {
                 ollamaChunk.response = chunk.delta.text || '';
@@ -417,12 +464,12 @@ export class OllamaConverter extends BaseConverter {
                 ollamaChunk.response = '';
             }
         }
-        // Handle OpenAI format
+        // 处理 OpenAI 格式
         else if (!isDone && chunk.choices && chunk.choices.length > 0) {
             const delta = chunk.choices[0].delta;
             ollamaChunk.response = delta.content || '';
         }
-        // Handle final chunk
+        // 处理结束块
         else if (isDone) {
             ollamaChunk.response = '';
             ollamaChunk.done_reason = 'stop';
@@ -432,44 +479,48 @@ export class OllamaConverter extends BaseConverter {
     }
 
     /**
-     * OpenAI/Claude/Gemini模型列表 -> Ollama tags
+     * OpenAI/Claude/Gemini 模型列表 -> Ollama tags
+     *
+     * @param {Object} modelList - 模型列表
+     * @param {string|null} [sourceProtocol=null] - 源协议
+     * @returns {Object} Ollama tags 响应
      */
     toOllamaTags(modelList, sourceProtocol = null) {
         const models = [];
 
-        // Handle both OpenAI format (data array) and Gemini format (models array)
+        // 同时兼容 OpenAI 格式（data 数组）与 Gemini 格式（models 数组）
         const sourceModels = modelList.data || modelList.models || [];
         
         if (Array.isArray(sourceModels)) {
             sourceModels.forEach(model => {
-                // Get model name
+                // 获取模型名称
                 let modelName = model.id || model.name || model.displayName || 'unknown';
                 
-                // Remove "models/" prefix if present (for Gemini)
+                // 移除 "models/" 前缀（适配 Gemini）
                 if (modelName.startsWith('models/')) {
-                    modelName = modelName.substring(7); // Remove "models/"
+                    modelName = modelName.substring(7); // 移除 "models/" 前缀
                 }
                 
-                // Skip models with invalid names
+                // 跳过无效名称
                 if (modelName === 'unknown' || !modelName) {
                     return;
                 }
                 
-                // IMPORTANT: Copilot expects family: "Ollama" with capital O!
+                // 重要：Copilot 期望 family 为 "Ollama"（首字母大写）
                 const modelOwner = 'Ollama';
                 
                 models.push({
                     name: modelName,
                     model: modelName,
                     modified_at: new Date().toISOString(),
-                    size: 0,  // As in the old patch
-                    digest: '',  // Empty string, as in the old patch
+                    size: 0,  // 保持与旧补丁一致
+                    digest: '',  // 保持与旧补丁一致
                     details: {
                         parent_model: '',
                         format: 'gguf',
                         family: modelOwner,  // "Ollama" with capital O
                         families: [modelOwner],
-                        parameter_size: '0B',  // As in the old patch
+                        parameter_size: '0B',  // 保持与旧补丁一致
                         quantization_level: OLLAMA_DEFAULT_QUANTIZATION_LEVEL
                     }
                 });
@@ -480,22 +531,25 @@ export class OllamaConverter extends BaseConverter {
     }
 
     /**
-     * Generate Ollama show response
+     * 生成 Ollama show 响应
+     *
+     * @param {string} modelName - 模型名称
+     * @returns {Object} show 响应
      */
     toOllamaShowResponse(modelName) {
-        // Minimal implementation, as in the old patch
+        // 最小实现，保持与旧补丁一致
         let contextLength = OLLAMA_DEFAULT_CONTEXT_LENGTH;
         let maxOutputTokens = OLLAMA_DEFAULT_MAX_OUTPUT_TOKENS;
-        let family = 'Ollama';  // ВАЖНО: С большой буквы, как ожидает Copilot!
+        let family = 'Ollama';  // 重要：首字母大写，符合 Copilot 预期
         let architecture = 'transformer';
         
         const lowerName = modelName.toLowerCase();
         
-        // Determine contextLength by model name
-        // Claude models
+        // 根据模型名称确定上下文长度
+        // Claude 模型
         if (lowerName.includes('claude')) {
             architecture = 'claude';
-            contextLength = OLLAMA_CLAUDE_DEFAULT_CONTEXT_LENGTH; // Default 200K
+            contextLength = OLLAMA_CLAUDE_DEFAULT_CONTEXT_LENGTH; // 默认 200K
             
             // Claude Sonnet 4.5
             if (lowerName.includes('sonnet-4-5') || lowerName.includes('sonnet-4.5')) {
@@ -512,48 +566,48 @@ export class OllamaConverter extends BaseConverter {
                 contextLength = OLLAMA_CLAUDE_OPUS_41_CONTEXT_LENGTH; // 200K
                 maxOutputTokens = OLLAMA_CLAUDE_OPUS_41_MAX_OUTPUT_TOKENS; // 32K output
             }
-            // Claude Sonnet 4.0 (legacy)
+            // Claude Sonnet 4.0（旧版）
             else if (lowerName.includes('sonnet-4-0') || lowerName.includes('sonnet-4.0') || lowerName.includes('sonnet-4-20')) {
                 contextLength = OLLAMA_CLAUDE_SONNET_40_CONTEXT_LENGTH; // 200K (1M beta available)
                 maxOutputTokens = OLLAMA_CLAUDE_SONNET_40_MAX_OUTPUT_TOKENS; // 64K output
             }
-            // Claude Sonnet 3.7 (legacy)
+            // Claude Sonnet 3.7（旧版）
             else if (lowerName.includes('3-7') || lowerName.includes('3.7')) {
                 contextLength = OLLAMA_CLAUDE_SONNET_37_CONTEXT_LENGTH; // 200K
                 maxOutputTokens = OLLAMA_CLAUDE_SONNET_37_MAX_OUTPUT_TOKENS; // 64K output (128K beta available)
             }
-            // Claude Opus 4.0 (legacy)
+            // Claude Opus 4.0（旧版）
             else if (lowerName.includes('opus-4-0') || lowerName.includes('opus-4.0') || lowerName.includes('opus-4-20')) {
                 contextLength = OLLAMA_CLAUDE_OPUS_40_CONTEXT_LENGTH; // 200K
                 maxOutputTokens = OLLAMA_CLAUDE_OPUS_40_MAX_OUTPUT_TOKENS; // 32K output
             }
-            // Claude Haiku 3.5 (legacy)
+            // Claude Haiku 3.5（旧版）
             else if (lowerName.includes('haiku-3-5') || lowerName.includes('haiku-3.5')) {
                 contextLength = OLLAMA_CLAUDE_HAIKU_35_CONTEXT_LENGTH; // 200K
                 maxOutputTokens = OLLAMA_CLAUDE_HAIKU_35_MAX_OUTPUT_TOKENS; // 8K output
             }
-            // Claude Haiku 3.0 (legacy)
+            // Claude Haiku 3.0（旧版）
             else if (lowerName.includes('haiku-3-0') || lowerName.includes('haiku-3.0') || lowerName.includes('haiku-20240307')) {
                 contextLength = OLLAMA_CLAUDE_HAIKU_30_CONTEXT_LENGTH; // 200K
                 maxOutputTokens = OLLAMA_CLAUDE_HAIKU_30_MAX_OUTPUT_TOKENS; // 4K output
             }
-            // Claude Sonnet 3.5 (legacy)
+            // Claude Sonnet 3.5（旧版）
             else if (lowerName.includes('sonnet-3-5') || lowerName.includes('sonnet-3.5')) {
                 contextLength = OLLAMA_CLAUDE_SONNET_35_CONTEXT_LENGTH; // 200K
                 maxOutputTokens = OLLAMA_CLAUDE_SONNET_35_MAX_OUTPUT_TOKENS; // 8K output
             }
-            // Claude Opus 3.0 (legacy)
+            // Claude Opus 3.0（旧版）
             else if (lowerName.includes('opus-3-0') || lowerName.includes('opus-3.0') || lowerName.includes('opus') && lowerName.includes('20240229')) {
                 contextLength = OLLAMA_CLAUDE_OPUS_30_CONTEXT_LENGTH; // 200K
                 maxOutputTokens = OLLAMA_CLAUDE_OPUS_30_MAX_OUTPUT_TOKENS; // 4K output
             }
-            // Default for Claude
+            // Claude 默认配置
             else {
                 contextLength = OLLAMA_CLAUDE_DEFAULT_CONTEXT_LENGTH; // 200K
                 maxOutputTokens = OLLAMA_CLAUDE_HAIKU_35_MAX_OUTPUT_TOKENS; // 8K output
             }
         }
-        // Gemini models
+        // Gemini 模型
         else if (lowerName.includes('gemini')) {
             architecture = 'gemini';
             
@@ -592,23 +646,23 @@ export class OllamaConverter extends BaseConverter {
                 contextLength = OLLAMA_GEMINI_20_IMAGE_CONTEXT_LENGTH; // 32K input tokens
                 maxOutputTokens = OLLAMA_GEMINI_20_IMAGE_MAX_OUTPUT_TOKENS; // 8K output tokens
             }
-            // Gemini 1.5 Pro (legacy)
+            // Gemini 1.5 Pro（旧版）
             else if (lowerName.includes('1.5') && lowerName.includes('pro')) {
                 contextLength = OLLAMA_GEMINI_15_PRO_CONTEXT_LENGTH; // 2M tokens
                 maxOutputTokens = OLLAMA_GEMINI_15_PRO_MAX_OUTPUT_TOKENS;
             }
-            // Gemini 1.5 Flash (legacy)
+            // Gemini 1.5 Flash（旧版）
             else if (lowerName.includes('1.5') && lowerName.includes('flash')) {
                 contextLength = OLLAMA_GEMINI_15_FLASH_CONTEXT_LENGTH; // 1M tokens
                 maxOutputTokens = OLLAMA_GEMINI_15_FLASH_MAX_OUTPUT_TOKENS;
             }
-            // Default for Gemini
+            // Gemini 默认配置
             else {
                 contextLength = OLLAMA_GEMINI_DEFAULT_CONTEXT_LENGTH; // 1M tokens
                 maxOutputTokens = OLLAMA_GEMINI_DEFAULT_MAX_OUTPUT_TOKENS;
             }
         }
-        // GPT-4 models
+        // GPT-4 模型
         else if (lowerName.includes('gpt-4')) {
             architecture = 'gpt';
             
@@ -619,11 +673,11 @@ export class OllamaConverter extends BaseConverter {
                 contextLength = OLLAMA_GPT4_32K_CONTEXT_LENGTH;
                 maxOutputTokens = OLLAMA_GPT4_32K_MAX_OUTPUT_TOKENS;
             } else {
-                contextLength = OLLAMA_GPT4_BASE_CONTEXT_LENGTH; // GPT-4 base
+                contextLength = OLLAMA_GPT4_BASE_CONTEXT_LENGTH; // GPT-4 基础版
                 maxOutputTokens = OLLAMA_GPT4_BASE_MAX_OUTPUT_TOKENS;
             }
         }
-        // GPT-3.5 models
+        // GPT-3.5 模型
         else if (lowerName.includes('gpt-3.5')) {
             architecture = 'gpt';
             
@@ -635,16 +689,16 @@ export class OllamaConverter extends BaseConverter {
                 maxOutputTokens = OLLAMA_GPT35_BASE_MAX_OUTPUT_TOKENS;
             }
         }
-        // Qwen models
+        // Qwen 模型
         else if (lowerName.includes('qwen')) {
             architecture = 'qwen';
             
-            // Qwen3 Coder Plus (coder-model)
+            // Qwen3 Coder Plus（coder-model）
             if (lowerName.includes('coder-plus') || lowerName.includes('coder_plus') || lowerName.includes('coder-model')) {
                 contextLength = OLLAMA_QWEN_CODER_PLUS_CONTEXT_LENGTH; // 128K tokens
                 maxOutputTokens = OLLAMA_QWEN_CODER_PLUS_MAX_OUTPUT_TOKENS; // 65K output
             }
-            // Qwen3 VL Plus (vision-model)
+            // Qwen3 VL Plus（vision-model）
             else if (lowerName.includes('vl-plus') || lowerName.includes('vl_plus') || lowerName.includes('vision-model')) {
                 contextLength = OLLAMA_QWEN_VL_PLUS_CONTEXT_LENGTH; // 256K tokens
                 maxOutputTokens = OLLAMA_QWEN_VL_PLUS_MAX_OUTPUT_TOKENS; // 32K output
@@ -654,14 +708,14 @@ export class OllamaConverter extends BaseConverter {
                 contextLength = OLLAMA_QWEN_CODER_FLASH_CONTEXT_LENGTH; // 128K tokens
                 maxOutputTokens = OLLAMA_QWEN_CODER_FLASH_MAX_OUTPUT_TOKENS; // 65K output
             }
-            // Default for Qwen
+            // Qwen 默认配置
             else {
                 contextLength = OLLAMA_QWEN_DEFAULT_CONTEXT_LENGTH; // 32K tokens
                 maxOutputTokens = OLLAMA_QWEN_DEFAULT_MAX_OUTPUT_TOKENS;
             }
         }
         
-        // Minimal parameter_size, as in the old patch
+        // 最小化 parameter_size，保持旧补丁一致
         let parameterSize = '0B';
         
         return {
@@ -686,7 +740,7 @@ export class OllamaConverter extends BaseConverter {
                 'llama.context_length': contextLength,
                 'llama.rope.freq_base': OLLAMA_DEFAULT_ROPE_FREQ_BASE
             },
-            capabilities: ['tools', 'vision', 'completion']  // Indicate that the model supports tool calling
+            capabilities: ['tools', 'vision', 'completion']  // 标记模型支持工具调用
         };
     }
 }

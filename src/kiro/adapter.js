@@ -1,3 +1,10 @@
+/**
+ * Kiro 服务适配器
+ *
+ * 负责构建请求、处理模型映射、上下文裁剪、认证初始化与流式/非流式调用。
+ *
+ * @module kiro/adapter
+ */
 import axios from 'axios';
 import { v4 as uuidv4 } from 'uuid';
 import * as path from 'path';
@@ -56,8 +63,8 @@ const THINKING_PROMPT_TEMPLATE = `在回复之前，请在 <thinking>...</thinki
 - 确保工具参数完全符合要求
 然后提供经过充分思考的回复。`;
 
-// 完整的模型映射表 - Anthropic官方模型ID到AWS CodeWhisperer模型ID
-// 注意：AWS CodeWhisperer模型ID使用点号分隔版本号（如claude-opus-4.5）
+// 完整的模型映射表 - Anthropic 官方模型 ID 到 AWS CodeWhisperer 模型 ID
+// 注意：AWS CodeWhisperer 模型 ID 使用点号分隔版本号（如 claude-opus-4.5）
 const FULL_MODEL_MAPPING = {
     // Opus 4.5 映射（AWS使用点号格式）
     "claude-opus-4-5": "claude-opus-4.5",
@@ -77,12 +84,26 @@ const FULL_MODEL_MAPPING = {
     "claude-3-7-sonnet-20250219": "CLAUDE_3_7_SONNET_20250219_V1_0"
 };
 
-// 只保留 KIRO_MODELS 中存在的模型映射
+/**
+ * 模型名称映射表（仅保留 KIRO_MODELS 中存在的模型）
+ *
+ * @type {Object}
+ */
 export const MODEL_MAPPING = Object.fromEntries(
     Object.entries(FULL_MODEL_MAPPING).filter(([key]) => KIRO_MODELS.includes(key))
 );
 
+/**
+ * Kiro 服务适配器
+ *
+ * 封装认证、请求构建、上下文裁剪与模型映射等核心能力。
+ */
 export class KiroService {
+    /**
+     * 创建服务适配器实例
+     *
+     * @param {Object} [config={}] - 配置项
+     */
     constructor(config = {}) {
         this.isInitialized = false;
         this.config = config;
@@ -95,7 +116,7 @@ export class KiroService {
         logger.info(`Verbose logging ${this.verboseLogging ? 'enabled' : 'disabled'}`);
         logger.info(`ENABLE_THINKING_BY_DEFAULT in config: ${config.ENABLE_THINKING_BY_DEFAULT}`);
 
-        // Add kiro-oauth-creds-base64 and kiro-oauth-creds-file to config
+        // 将 kiro-oauth-creds-base64 与 kiro-oauth-creds-file 注入配置
         if (config.KIRO_OAUTH_CREDS_BASE64) {
             try {
                 const decodedCreds = Buffer.from(config.KIRO_OAUTH_CREDS_BASE64, 'base64').toString('utf8');
@@ -110,9 +131,14 @@ export class KiroService {
         }
 
         this.modelName = KIRO_CONSTANTS.DEFAULT_MODEL_NAME;
-        this.axiosInstance = null; // Initialize later in async method
+        this.axiosInstance = null; // 延迟在异步初始化中创建
     }
  
+    /**
+     * 检查 token 是否临近过期并触发刷新
+     *
+     * @returns {Promise<void>}
+     */
     async checkToken() {
         if (this.isExpiryDateNear() === true) {
             logger.info(`Expiry date is near, refreshing token...`);
@@ -121,6 +147,12 @@ export class KiroService {
         return Promise.resolve();
     }
 
+    /**
+     * 初始化服务（认证 + axios 实例）
+     *
+     * @param {boolean} [skipAuthCheck=false] - 是否跳过认证检查
+     * @returns {Promise<void>}
+     */
     async initialize(skipAuthCheck = false) {
         if (this.isInitialized) return;
         logger.info('Initializing Kiro API Service...');
@@ -187,7 +219,10 @@ export class KiroService {
 
     /**
      * 重置连接池（用于处理 socket 错误）
-     * 销毁旧的 agent 并重新初始化
+     *
+     * 销毁旧的 agent 并重新初始化。
+     *
+     * @returns {Promise<void>}
      */
     async resetConnectionPool() {
         logger.info('Resetting connection pool...');
@@ -208,10 +243,10 @@ export class KiroService {
     }
 
     /**
-     * AWS SSO OIDC设备授权流程 - 完整流程(用于OAuth handler调用)
+     * AWS SSO OIDC 设备授权流程 - 完整流程（用于 OAuth handler 调用）
      *
-     * @param {string} startUrl - AWS SSO起始URL
-     * @returns {Promise<Object>} 返回授权URL和设备信息
+     * @param {string} startUrl - AWS SSO 起始 URL
+     * @returns {Promise<Object>} 返回授权 URL 和设备信息
      */
     async initiateDeviceAuthorization(startUrl) {
         const deviceAuthInfo = await this.startDeviceAuthorization(this, startUrl);
@@ -244,11 +279,12 @@ export class KiroService {
 
     /**
      * 反向映射 schema 参数名（Kiro → CC）
-     * 用于将 Kiro schema 的参数名转换回 Claude Code 期望的参数名
+     *
+     * 用于将 Kiro schema 的参数名转换回 Claude Code 期望的参数名。
      *
      * @param {Object} schema - Kiro schema
      * @param {Object} paramMap - 参数映射表（CC → Kiro）
-     * @returns {Object} - 反向映射后的 schema
+     * @returns {Object} 反向映射后的 schema
      */
     reverseMapSchema(schema, paramMap) {
         if (!schema || typeof schema !== 'object') {
@@ -284,8 +320,13 @@ export class KiroService {
 
     /**
      * Kiro 优化：提取消息元数据
-     * 参�� Kiro 源码 extension.js:707749
-     * 从消息的 additional_kwargs 中提取元数据（conversationId, continuationId, taskType）
+     *
+     * 参考 Kiro 源码 extension.js:707749，
+     * 从消息的 additional_kwargs 中提取元数据（conversationId, continuationId, taskType）。
+     *
+     * @param {Array} messages - 消息数组
+     * @param {string} key - 元数据键名
+     * @returns {*|null} 元数据值或 null
      */
     extractMetadata(messages, key) {
         if (!messages || messages.length === 0) return null;
@@ -303,8 +344,9 @@ export class KiroService {
 
     /**
      * Kiro 优化：提取补充上下文
-     * 参考 Kiro 源码 extension.js:578750-578780
-     * 从消息的 additional_kwargs 中提取工作区上下文信息
+     *
+     * 参考 Kiro 源码 extension.js:578750-578780，
+     * 从消息的 additional_kwargs 中提取工作区上下文信息。
      *
      * @param {Object} message - 消息对象
      * @returns {Array} 补充上下文数组
@@ -357,15 +399,13 @@ export class KiroService {
     }
 
     /**
-     * Kiro 风格的消息摘要（简单截断到 100 字符）
-     * 参考: Kiro extension.js:161275-1280
-     * 注意：不是 AI 摘要，只是简单截断，节省成本和时间
-     *
-     * ⚠️ 关键：保持原始 content 的格式（数组就保持数组，字符串就保持字符串）
-     */
-    /**
      * Kiro 官方的 pruneStringFromTop 实现：使用 tokenizer 精确裁剪
-     * 保留字符串的最后 maxTokens 个 token
+     *
+     * 保留字符串的最后 maxTokens 个 token。
+     *
+     * @param {string} text - 原始文本
+     * @param {number} maxTokens - 最大 token 数
+     * @returns {string} 裁剪后的文本
      */
     pruneStringFromTop(text, maxTokens) {
         try {
@@ -377,7 +417,7 @@ export class KiroService {
             const prunedTokens = tokens.slice(tokens.length - maxTokens);
             return this.tokenizer.decode(prunedTokens);
         } catch (error) {
-            // Fallback: 字符估算
+            // 回退：字符估算
             logger.warn('Tokenizer failed, using character estimation');
             const estimatedChars = Math.floor(maxTokens * 3.5);
             return text.substring(text.length - estimatedChars);
@@ -386,7 +426,11 @@ export class KiroService {
 
     /**
      * Kiro 官方的 summarize 实现：智能摘要消息内容
-     * ⚠️ 关键：保留 tool_result 和 tool_use 的结构，只截断其内容
+     *
+     * ⚠️ 关键：保留 tool_result 和 tool_use 的结构，只截断其内容。
+     *
+     * @param {Object} message - 消息对象
+     * @returns {Object|string|Array} 摘要后的内容
      */
     summarizeMessage(message) {
         const content = message.content;
@@ -456,14 +500,14 @@ export class KiroService {
 
     /**
      * 使用 AI 进行智能摘要（异步方法）- 流式版本
-     * 优先尝试 AI 摘要，失败后降级到传统裁剪
      *
-     * 优化：使用流式请求复用现有连接，避免建立新连接的开销
+     * 优先尝试 AI 摘要，失败后降级到传统裁剪。
+     * 优化：使用流式请求复用现有连接，避免建立新连接的开销。
      *
      * @param {Array} messages - 消息数组
      * @param {number} contextLength - 上下文长度限制
      * @param {number} reservedTokens - 预留 token 数
-     * @returns {Promise<Array>} - 处理后的消息数组
+     * @returns {Promise<Array>} 处理后的消息数组
      */
     async pruneChatHistoryWithAI(messages, contextLength, reservedTokens) {
         const minKeep = SUMMARIZATION_CONFIG.MIN_MESSAGES_TO_KEEP || 5;
@@ -583,6 +627,12 @@ ${conversationData}`;
      * @param {Array} messages - 消息数组
      * @returns {string} - 提取的对话信息
      */
+    /**
+     * 提取对话信息用于摘要
+     *
+     * @param {Array} messages - 待摘要的消息
+     * @returns {string} 结构化的摘要输入
+     */
     _extractConversationInfo(messages) {
         const sections = [];
 
@@ -634,6 +684,14 @@ ${conversationData}`;
      * 4. 继续摘要剩余消息
      * 5. 继续删除旧消息（保留至少 1 条）
      * 6. 最终修剪第一条消息
+     */
+    /**
+     * 传统裁剪对话历史
+     *
+     * @param {Array} messages - 消息数组
+     * @param {number} contextLength - 上下文长度限制
+     * @param {number} tokensForCompletion - 预留 token 数
+     * @returns {Array} 裁剪后的消息数组
      */
     pruneChatHistory(messages, contextLength, tokensForCompletion) {
         // 深拷贝消息副本，避免修改原数组（特别是 content 数组）
@@ -817,12 +875,14 @@ ${conversationData}`;
 
 
     /**
-     * Build CodeWhisperer request
+     * 构建 CodeWhisperer 请求体
+     *
      * @param {Array} messages - 消息数组
      * @param {string} model - 模型名称
-     * @param {Array} tools - 工具定义数组
-     * @param {string} inSystemPrompt - 系统提示词
-     * @param {boolean} enableThinking - 是否启用思考模式（通过prompt injection实现）
+     * @param {Array|null} [tools=null] - 工具列表
+     * @param {string|null} [inSystemPrompt=null] - 系统提示词
+     * @param {boolean} [enableThinking=false] - 是否启用思考
+     * @returns {Promise<Object>} 请求体对象
      */
     async buildCodewhispererRequest(messages, model, tools = null, inSystemPrompt = null, enableThinking = false) {
         const buildStartTime = Date.now();
@@ -1191,7 +1251,7 @@ ${conversationData}`;
 
         // 官方Kiro策略：不裁剪history，直接发送所有消息（除最后一条作为currentMessage）
         // history: serializedMessages.slice(0, -1)
-        // Add remaining user/assistant messages to history
+        // 将剩余的 user/assistant 消息加入历史
         for (let i = startIndex; i < processedMessages.length - 1; i++) {
             const message = processedMessages[i];
             if (message.role === 'user') {
@@ -1600,6 +1660,11 @@ ${conversationData}`;
     /**
      * List available models
      */
+    /**
+     * 获取可用模型列表
+     *
+     * @returns {Promise<Array<string>>} 模型列表
+     */
     async listModels() {
         const models = KIRO_MODELS.map(id => ({
             name: id
@@ -1611,6 +1676,11 @@ ${conversationData}`;
     /**
      * Checks if the given expiresAt timestamp is within 10 minutes from now.
      * @returns {boolean} - True if expiresAt is less than 10 minutes from now, false otherwise.
+     */
+    /**
+     * 判断 token 是否接近过期
+     *
+     * @returns {boolean} 是否临近过期
      */
     isExpiryDateNear() {
         try {

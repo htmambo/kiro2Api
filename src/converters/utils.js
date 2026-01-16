@@ -1,6 +1,9 @@
 /**
  * 转换器公共工具函数模块
- * 提供各种协议转换所需的通用辅助函数
+ *
+ * 提供各种协议转换所需的通用辅助函数。
+ *
+ * @module converters/utils
  */
 
 import { v4 as uuidv4 } from 'uuid';
@@ -136,6 +139,7 @@ export const OLLAMA_SHOW_QUANTIZATION_LEVEL = 'Q4_K_M';
 
 /**
  * 判断值是否为 undefined 或 0，并返回默认值
+ *
  * @param {*} value - 要检查的值
  * @param {*} defaultValue - 默认值
  * @returns {*} 处理后的值
@@ -148,17 +152,19 @@ export function checkAndAssignOrDefault(value, defaultValue) {
 }
 
 /**
- * 生成唯一ID
- * @param {string} prefix - ID前缀
- * @returns {string} 生成的ID
+ * 生成唯一 ID
+ *
+ * @param {string} [prefix=''] - ID 前缀
+ * @returns {string} 生成的 ID
  */
 export function generateId(prefix = '') {
     return prefix ? `${prefix}_${uuidv4()}` : uuidv4();
 }
 
 /**
- * 安全解析JSON字符串
- * @param {string} str - JSON字符串
+ * 安全解析 JSON 字符串
+ *
+ * @param {string} str - JSON 字符串
  * @returns {*} 解析后的对象或原始字符串
  */
 export function safeParseJSON(str) {
@@ -184,6 +190,7 @@ export function safeParseJSON(str) {
 
 /**
  * 提取消息内容中的文本
+ *
  * @param {string|Array} content - 消息内容
  * @returns {string} 提取的文本
  */
@@ -202,8 +209,9 @@ export function extractTextFromMessageContent(content) {
 
 /**
  * 提取并处理系统消息
+ *
  * @param {Array} messages - 消息数组
- * @returns {{systemInstruction: Object|null, nonSystemMessages: Array}}
+ * @returns {{systemInstruction: Object|null, nonSystemMessages: Array}} 系统指令与非系统消息
  */
 export function extractAndProcessSystemMessages(messages) {
     const systemContents = [];
@@ -229,15 +237,17 @@ export function extractAndProcessSystemMessages(messages) {
 }
 
 /**
- * 清理JSON Schema属性（移除Gemini不支持的属性）
+ * 清理 JSON Schema 属性（移除 Gemini 不支持的属性）
+ *
  * Google Gemini API 只支持有限的 JSON Schema 属性，不支持以下属性：
  * - exclusiveMinimum, exclusiveMaximum, minimum, maximum
  * - minLength, maxLength, minItems, maxItems
  * - pattern, format, default, const
  * - additionalProperties, $schema, $ref, $id
  * - allOf, anyOf, oneOf, not
+ *
  * @param {Object} schema - JSON Schema
- * @returns {Object} 清理后的JSON Schema
+ * @returns {Object} 清理后的 JSON Schema
  */
 export function cleanJsonSchemaProperties(schema) {
     if (!schema || typeof schema !== 'object') {
@@ -284,6 +294,7 @@ export function cleanJsonSchemaProperties(schema) {
 
 /**
  * 映射结束原因
+ *
  * @param {string} reason - 结束原因
  * @param {string} sourceFormat - 源格式
  * @param {string} targetFormat - 目标格式
@@ -322,9 +333,10 @@ export function mapFinishReason(reason, sourceFormat, targetFormat) {
 }
 
 /**
- * 根据budget_tokens智能判断OpenAI reasoning_effort等级
- * @param {number|null} budgetTokens - Anthropic thinking的budget_tokens值
- * @returns {string} OpenAI reasoning_effort等级
+ * 根据 budget_tokens 智能判断 OpenAI reasoning_effort 等级
+ *
+ * @param {number|null} budgetTokens - Anthropic thinking 的 budget_tokens 值
+ * @returns {string} OpenAI reasoning_effort 等级
  */
 export function determineReasoningEffortFromBudget(budgetTokens) {
     if (budgetTokens === null || budgetTokens === undefined) {
@@ -351,7 +363,8 @@ export function determineReasoningEffortFromBudget(budgetTokens) {
 }
 
 /**
- * 从OpenAI文本中提取thinking内容
+ * 从 OpenAI 文本中提取 thinking 内容
+ *
  * @param {string} text - 文本内容
  * @returns {string|Array} 提取后的内容
  */
@@ -409,6 +422,9 @@ export function extractThinkingFromOpenAIText(text) {
  * 全局工具状态管理器
  */
 class ToolStateManager {
+    /**
+     * 创建工具状态管理器（单例）
+     */
     constructor() {
         if (ToolStateManager.instance) {
             return ToolStateManager.instance;
@@ -418,17 +434,40 @@ class ToolStateManager {
         return this;
     }
 
+    /**
+     * 存储函数名与工具 ID 的映射
+     *
+     * @param {string} funcName - 函数名
+     * @param {string} toolId - 工具 ID
+     * @returns {void}
+     */
     storeToolMapping(funcName, toolId) {
         this._toolMappings[funcName] = toolId;
     }
 
+    /**
+     * 获取工具 ID
+     *
+     * @param {string} funcName - 函数名
+     * @returns {string|null} 工具 ID
+     */
     getToolId(funcName) {
         return this._toolMappings[funcName] || null;
     }
 
+    /**
+     * 清空映射
+     *
+     * @returns {void}
+     */
     clearMappings() {
         this._toolMappings = {};
     }
 }
 
+/**
+ * 工具状态管理器单例
+ *
+ * @type {ToolStateManager}
+ */
 export const toolStateManager = new ToolStateManager();

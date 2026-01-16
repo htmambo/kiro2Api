@@ -16,7 +16,7 @@ import { createRequestHandler } from './request-handler.js';
 import { initLogger, createLogger } from '../lib/logger.js';
 import { attachViteDevProxy } from '../ui/vite-dev-proxy.js';
 
-import 'dotenv/config'; // Import dotenv and configure it
+import 'dotenv/config'; // 加载 dotenv 环境变量
 import { getAccountPoolManager } from '../services/manager.js';
 
 // 从环境变量读取日志级别
@@ -58,7 +58,7 @@ function maskSecret(value) {
  * @returns {Promise<http.Server>} 服务器实例（便于测试）
  */
 async function startServer() {
-    // Initialize configuration
+    // 初始化配置
     await initializeConfig();
 
     // 生产环境禁止使用弱默认 API Key（可用 ALLOW_WEAK_API_KEY=true 覆盖）
@@ -99,7 +99,7 @@ async function startServer() {
         logger.info(`  Health check: /health`);
         logger.info(`  UI Management Console: http://${CONFIG.HOST}:${CONFIG.SERVER_PORT}/`);
 
-        // Auto-open browser to UI (only if host is localhost or 127.0.0.1)
+        // 自动打开浏览器进入 UI（仅本地地址）
         if (CONFIG.OPEN_SERVER_URL) {
             try {
                 const open = (await import('open')).default;

@@ -1,6 +1,9 @@
 /**
  * 简单的进程内互斥锁实现
- * 用于防止并发操作导致的竞态条件
+ *
+ * 用于防止并发操作导致的竞态条件。
+ *
+ * @module utils/mutex
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks';
@@ -10,12 +13,13 @@ const asyncLocalStorage = new AsyncLocalStorage();
 
 /**
  * 获取锁并执行函数
+ *
  * @param {string} key - 锁的键（例如 accountNumber）
  * @param {Function} fn - 要执行的异步函数
  * @param {Object} options - 选项
  * @param {number} options.timeoutMs - 超时时间（毫秒），默认30秒
- * @returns {Promise<any>} - 函数执行结果
- * @throws {Error} - 超时或可重入死锁时抛出错误
+ * @returns {Promise<any>} 函数执行结果
+ * @throws {Error} 超时或可重入死锁时抛出错误
  */
 export async function withLock(key, fn, options = {}) {
     const { timeoutMs = 30000 } = options;
@@ -79,8 +83,9 @@ export async function withLock(key, fn, options = {}) {
 
 /**
  * 检查某个键是否被锁定
+ *
  * @param {string} key - 锁的键
- * @returns {boolean}
+ * @returns {boolean} 是否被锁定
  */
 export function isLocked(key) {
     return locks.has(key);
@@ -88,7 +93,8 @@ export function isLocked(key) {
 
 /**
  * 获取当前锁的数量（用于调试）
- * @returns {number}
+ *
+ * @returns {number} 锁数量
  */
 export function getLockCount() {
     return locks.size;
@@ -96,7 +102,8 @@ export function getLockCount() {
 
 /**
  * 获取当前持有的所有锁（用于调试）
- * @returns {Set<string>} - 返回副本，防止外部修改
+ *
+ * @returns {Set<string>} 返回副本，防止外部修改
  */
 export function getCurrentLocks() {
     const store = asyncLocalStorage.getStore();

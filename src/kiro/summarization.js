@@ -3,13 +3,19 @@
  * 参考官方 Kiro extension.js:711693-711902
  *
  * 提供智能的对话摘要功能，替代简单的 100 字符截断
+ *
+ * @module kiro/summarization
  */
 
 import { createLogger } from '../lib/logger.js';
 
 const logger = createLogger('kiro:summarization');
 
-// 摘要指令模板（复刻 Kiro getSummarizationInstructions）
+/**
+ * 摘要指令模板（复刻 Kiro getSummarizationInstructions）
+ *
+ * @type {string}
+ */
 export const SUMMARIZATION_INSTRUCTIONS = `You are preparing a summary for a new agent instance who will pick up this conversation.
 
 Organize the summary by TASKS/REQUESTS. For each distinct task or request the user made:
@@ -61,7 +67,11 @@ After all tasks, include:
 - \`src/routes/index.ts\`
 `;
 
-// 摘要系统提示词
+/**
+ * 摘要系统提示词
+ *
+ * @type {string}
+ */
 export const SUMMARIZATION_SYSTEM_PROMPT = `[SYSTEM NOTE: This is an automated summarization request due to context limit]
 
 IMPORTANT: Context limit reached. You MUST create a structured summary.
@@ -76,7 +86,11 @@ ${SUMMARIZATION_INSTRUCTIONS}
 
 Review the conversation history and create a comprehensive summary.`;
 
-// 系统内容模式（需要过滤掉的）
+/**
+ * 系统内容模式（需要过滤掉的）
+ *
+ * @type {Array<string>}
+ */
 export const SYSTEM_CONTENT_PATTERNS = [
     '<EnvironmentContext>',
     '<steering-reminder>',
@@ -90,7 +104,11 @@ export const SYSTEM_CONTENT_PATTERNS = [
     'INSTRUCTIONS:\nContinue working until the user query'
 ];
 
-// 需要截断输出的工具名
+/**
+ * 需要截断输出的工具名
+ *
+ * @type {Array<string>}
+ */
 export const TRUNCATE_TOOL_NAMES = [
     'Read', 'ReadFile', 'ReadMultipleFiles',
     'Bash', 'executeBash', 'executePwsh',
@@ -100,6 +118,9 @@ export const TRUNCATE_TOOL_NAMES = [
 
 /**
  * 检查是否是需要截断的工具
+ *
+ * @param {string} toolName - 工具名称
+ * @returns {boolean} 是否需要截断
  */
 export function shouldTruncateToolResult(toolName) {
     if (!toolName) return false;
@@ -109,6 +130,9 @@ export function shouldTruncateToolResult(toolName) {
 
 /**
  * 检查内容是否包含系统注入的模式
+ *
+ * @param {string} text - 待检测文本
+ * @returns {boolean} 是否包含系统内容
  */
 export function containsSystemContent(text) {
     if (!text) return false;
@@ -117,6 +141,9 @@ export function containsSystemContent(text) {
 
 /**
  * 提取用户查询（复刻 Kiro extractUserQueries）
+ *
+ * @param {Array} messages - 消息数组
+ * @returns {string} 格式化后的用户查询
  */
 export function extractUserQueries(messages) {
     const userQueries = [];
@@ -155,6 +182,9 @@ export function extractUserQueries(messages) {
 
 /**
  * 提取有用信息（复刻 Kiro extractUsefulInformation）
+ *
+ * @param {Array} messages - 消息数组
+ * @returns {string} 提取后的文本
  */
 export function extractUsefulInformation(messages) {
     const sections = [];
@@ -210,7 +240,7 @@ export function extractUsefulInformation(messages) {
  *
  * @param {Array} messages - 需要摘要的消息
  * @param {Object} kiroApiInstance - Kiro API 实例（用于发送摘要请求）
- * @returns {Promise<string|null>} - 摘要文本，失败返回 null
+ * @returns {Promise<string|null>} 摘要文本，失败返回 null
  */
 export async function generateConversationSummary(messages, kiroApiInstance) {
     logger.info('Starting AI summarization...');

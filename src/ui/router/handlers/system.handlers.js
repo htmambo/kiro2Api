@@ -1,6 +1,7 @@
 /**
- * 系统 Handler 实现
- * 处理系统相关的 API 请求
+ * 系统 Handler 实现。
+ * 处理系统相关的 API 请求。
+ * @module ui/router/handlers/system
  */
 
 import { getNoCacheHeaders } from '../utils/response.js';
@@ -10,7 +11,9 @@ import { createLogger } from '../../../lib/logger.js';
 const logger = createLogger('ui:handlers:system');
 
 /**
- * 登录 Handler
+ * 登录 Handler。
+ * @param {{ req: import('http').IncomingMessage, res: import('http').ServerResponse }} ctx - 请求上下文。
+ * @returns {Promise<void>}
  */
 export async function login({ req, res }) {
     try {
@@ -23,17 +26,17 @@ export async function login({ req, res }) {
             return;
         }
 
-        // 导入必要的函数
+        // 动态导入 UI 管理逻辑，避免循环依赖
         const { validateCredentials, generateToken, getExpiryTime, saveToken } = await import('../../../ui-manager.js');
 
         const isValid = await validateCredentials(password);
 
         if (isValid) {
-            // 生成简单token
+            // 生成简单 token
             const token = generateToken();
             const expiryTime = getExpiryTime();
 
-            // 存储token信息到本地文件
+            // 存储 token 信息到本地文件
             await saveToken(token, {
                 username: 'admin',
                 loginTime: Date.now(),
@@ -68,7 +71,9 @@ export async function login({ req, res }) {
 
 
 /**
- * 健康检查 Handler
+ * 健康检查 Handler。
+ * @param {{ res: import('http').ServerResponse }} ctx - 请求上下文。
+ * @returns {Promise<void>}
  */
 export async function healthCheck({ res }) {
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -79,7 +84,9 @@ export async function healthCheck({ res }) {
 }
 
 /**
- * 获取系统信息 Handler
+ * 获取系统信息 Handler。
+ * @param {{ res: import('http').ServerResponse }} ctx - 请求上下文。
+ * @returns {Promise<void>}
  */
 export async function getSystemInfo({ res }) {
     const memUsage = process.memoryUsage();
@@ -115,7 +122,9 @@ export async function getSystemInfo({ res }) {
 }
 
 /**
- * 重启服务器 Handler
+ * 重启服务器 Handler。
+ * @param {{ res: import('http').ServerResponse }} ctx - 请求上下文。
+ * @returns {Promise<void>}
  */
 export async function restartServer({ res }) {
     if (process.send && process.env.IS_WORKER_PROCESS) {
@@ -141,7 +150,9 @@ export async function restartServer({ res }) {
 }
 
 /**
- * 获取日志 Handler
+ * 获取日志 Handler。
+ * @param {{ res: import('http').ServerResponse }} ctx - 请求上下文。
+ * @returns {Promise<void>}
  */
 export async function getLogs({ res }) {
     res.writeHead(200, getNoCacheHeaders());
@@ -149,7 +160,9 @@ export async function getLogs({ res }) {
 }
 
 /**
- * 清空日志 Handler
+ * 清空日志 Handler。
+ * @param {{ res: import('http').ServerResponse }} ctx - 请求上下文。
+ * @returns {Promise<void>}
  */
 export async function clearLogs({ res }) {
     global.logBuffer = [];
@@ -162,8 +175,10 @@ export async function clearLogs({ res }) {
 }
 
 /**
- * SSE 事件流 Handler
- * 长连接实现，用于实时推送事件
+ * SSE 事件流 Handler。
+ * 长连接实现，用于实时推送事件。
+ * @param {{ req: import('http').IncomingMessage, res: import('http').ServerResponse }} ctx - 请求上下文。
+ * @returns {Promise<void>}
  */
 export async function eventStream({ req, res }) {
     // EventSource 无法设置 Authorization header，这里使用 ?token= 传递
@@ -185,6 +200,7 @@ export async function eventStream({ req, res }) {
             return;
         }
         if (Date.now() > tokenInfo.expiryTime) {
+            // 过期时清理 token 并提示重新登录
             delete tokenStore.tokens[token];
             await writeTokenStore(tokenStore);
             res.writeHead(401, { 'Content-Type': 'application/json' });
@@ -220,7 +236,7 @@ export async function eventStream({ req, res }) {
         try {
             oldest?.end();
         } catch {
-            // ignore
+            // 忽略无法关闭的连接
         }
     }
 

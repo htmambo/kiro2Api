@@ -1,8 +1,15 @@
+/**
+ * 通用工具模块
+ *
+ * 聚合请求解析、鉴权校验、响应封装、内容处理与系统提示管理等能力。
+ *
+ * @module utils/common
+ */
 import { promises as fs } from 'fs';
 import * as path from 'path';
-import * as http from 'http'; // Add http for IncomingMessage and ServerResponse types
-import * as crypto from 'crypto'; // Import crypto for MD5 hashing
-import { KiroService } from '../kiro/adapter.js'; // Import KiroService
+import * as http from 'http'; // 用于 IncomingMessage 和 ServerResponse 类型
+import * as crypto from 'crypto'; // 用于 MD5 哈希
+import { KiroService } from '../kiro/adapter.js'; // KiroService 适配器
 import { generateContent, generateContentStream } from '../kiro/api-client.js';
 import { KiroStrategy } from '../kiro/strategy.js';
 import { KIRO_MODELS } from '../kiro/constants.js';
@@ -16,21 +23,32 @@ const DEFAULT_MAX_BODY_BYTES = Number(process.env.REQUEST_MAX_BODY_BYTES) > 0
     ? Number(process.env.REQUEST_MAX_BODY_BYTES)
     : 10 * 1024 * 1024;
 
+/**
+ * API 动作常量
+ *
+ * @type {Object}
+ */
 export const API_ACTIONS = {
     GENERATE_CONTENT: 'generateContent',
     STREAM_GENERATE_CONTENT: 'streamGenerateContent',
 };
 
+/**
+ * 模型提供商常量
+ *
+ * @type {Object}
+ */
 export const MODEL_PROVIDER = {
-    // Model provider constants - Only Kiro OAuth
+    // 模型提供商常量 - 仅 Kiro OAuth
     KIRO_API: 'claude-kiro-oauth',
 }
 
-// CPU 使用率计算相关变量
+// 处理器使用率计算相关变量
 let previousCpuInfo = null;
 
 /**
  * 获取 CPU 使用率百分比
+ *
  * @returns {string} CPU 使用率字符串，如 "25.5%"
  */
 export function getCpuUsagePercent() {
@@ -67,6 +85,11 @@ export function getCpuUsagePercent() {
     return `${cpuPercent.toFixed(1)}%`;
 }
 
+/**
+ * 端点类型常量
+ *
+ * @type {Object}
+ */
 export const ENDPOINT_TYPE = {
     OPENAI_CHAT: 'openai_chat',
     OPENAI_RESPONSES: 'openai_responses',
@@ -77,6 +100,12 @@ export const ENDPOINT_TYPE = {
 export const FETCH_SYSTEM_PROMPT_FILE = path.join(process.cwd(), 'configs', 'fetch_system_prompt.txt');
 export const INPUT_SYSTEM_PROMPT_FILE = path.join(process.cwd(), 'configs', 'input_system_prompt.txt');
 
+/**
+ * 格式化过期时间为可读字符串
+ *
+ * @param {number} expiryTimestamp - 过期时间戳（毫秒）
+ * @returns {string} 格式化后的时间字符串
+ */
 export function formatExpiryTime(expiryTimestamp) {
     if (!expiryTimestamp || typeof expiryTimestamp !== 'number') return "No expiry date available";
     const diffMs = expiryTimestamp - Date.now();
@@ -91,10 +120,11 @@ export function formatExpiryTime(expiryTimestamp) {
 }
 
 /**
- * Reads the entire request body from an HTTP request.
- * @param {http.IncomingMessage} req - The HTTP request object.
- * @returns {Promise<Object>} A promise that resolves with the parsed JSON request body.
- * @throws {Error} If the request body is not valid JSON.
+ * 读取并解析 HTTP 请求体
+ *
+ * @param {http.IncomingMessage} req - HTTP 请求对象
+ * @returns {Promise<Object>} 解析后的 JSON 请求体
+ * @throws {Error} 请求体不是合法 JSON 时抛出
  */
 export function getRequestBody(req) {
     return new Promise((resolve, reject) => {
@@ -127,17 +157,18 @@ export function getRequestBody(req) {
 }
 
 /**
- * Checks if the request is authorized based on API key.
- * @param {http.IncomingMessage} req - The HTTP request object.
- * @param {URL} requestUrl - The parsed URL object.
- * @param {string} REQUIRED_API_KEY - The API key required for authorization.
- * @returns {boolean} True if authorized, false otherwise.
+ * 根据 API key 检查请求是否授权
+ *
+ * @param {http.IncomingMessage} req - HTTP 请求对象
+ * @param {URL} requestUrl - 解析后的 URL
+ * @param {string} REQUIRED_API_KEY - 期望的 API key
+ * @returns {boolean} 是否授权
  */
 export function isAuthorized(req, requestUrl, REQUIRED_API_KEY) {
     const authHeader = req.headers['authorization'];
-    const claudeApiKey = req.headers['x-api-key']; // Claude-specific header
+    const claudeApiKey = req.headers['x-api-key']; // Claude 专用请求头
 
-    // Check for Bearer token in Authorization header
+    // 检查 Authorization header 中的 Bearer token
     if (authHeader && authHeader.startsWith('Bearer ')) {
         const token = authHeader.substring(7);
         if (token === REQUIRED_API_KEY) {
@@ -145,7 +176,7 @@ export function isAuthorized(req, requestUrl, REQUIRED_API_KEY) {
         }
     }
 
-    // Check for API key in x-api-key header (Claude style)
+    // 检查 x-api-key header（Claude 风格）
     if (claudeApiKey === REQUIRED_API_KEY) {
         return true;
     }
@@ -159,11 +190,14 @@ export function isAuthorized(req, requestUrl, REQUIRED_API_KEY) {
 }
 
 /**
- * Handles the common logic for sending API responses (unary and stream).
- * This includes writing response headers, logging conversation, and logging auth token expiry.
- * @param {http.ServerResponse} res - The HTTP response object.
- * @param {Object} responsePayload - The actual response payload (string for unary, object for stream chunks).
- * @param {boolean} isStream - Whether the response is a stream.
+ * 统一处理响应头与返回内容（含一元与流式）
+ *
+ * 包含写入响应头、输出 payload 等通用逻辑。
+ *
+ * @param {http.ServerResponse} res - HTTP 响应对象
+ * @param {Object|string} responsePayload - 响应内容（非流式为字符串，流式为对象）
+ * @param {boolean} isStream - 是否为流式响应
+ * @returns {Promise<void>}
  */
 export async function handleUnifiedResponse(res, responsePayload, isStream) {
     if (isStream) {
@@ -173,16 +207,31 @@ export async function handleUnifiedResponse(res, responsePayload, isStream) {
     }
 
     if (isStream) {
-        // Stream chunks are handled by the calling function that iterates the stream
+        // 流式数据由上层迭代器负责输出
     } else {
         res.end(responsePayload);
     }
 }
 
+/**
+ * 判断是否可使用账号池
+ *
+ * @param {Object} config - 配置对象
+ * @param {Object} poolManager - 账号池管理器
+ * @returns {boolean} 是否可用
+ */
 function _canUsePool(config, poolManager) {
     return Boolean(poolManager);
 }
 
+/**
+ * 标记账号为健康
+ *
+ * @param {string} toProvider - 目标提供商
+ * @param {Object} poolManager - 账号池管理器
+ * @param {string} uuid - 账号 UUID
+ * @returns {void}
+ */
 function _markPoolHealthy(toProvider, poolManager, uuid) {
     if (!poolManager || !uuid) return;
     if (typeof poolManager.markAccountHealthy === 'function') {
@@ -191,6 +240,15 @@ function _markPoolHealthy(toProvider, poolManager, uuid) {
     }
 }
 
+/**
+ * 标记账号为不健康
+ *
+ * @param {string} toProvider - 目标提供商
+ * @param {Object} poolManager - 账号池管理器
+ * @param {string} uuid - 账号 UUID
+ * @param {Error} error - 错误对象
+ * @returns {void}
+ */
 function _markPoolUnhealthy(toProvider, poolManager, uuid, error) {
     if (!poolManager || !uuid) return;
     if (typeof poolManager.markAccountUnhealthy === 'function') {
@@ -199,6 +257,13 @@ function _markPoolUnhealthy(toProvider, poolManager, uuid, error) {
     }
 }
 
+/**
+ * 统计可用账号数量
+ *
+ * @param {Object} config - 配置对象
+ * @param {Object} poolManager - 账号池管理器
+ * @returns {number} 可用账号数量
+ */
 function _countAvailablePoolItems(config, poolManager) {
     if (!_canUsePool(config, poolManager)) return 1;
 
@@ -210,6 +275,21 @@ function _countAvailablePoolItems(config, poolManager) {
     return 1;
 }
 
+/**
+ * 处理流式请求
+ *
+ * @param {http.ServerResponse} res - HTTP 响应对象
+ * @param {KiroService} service - 服务适配器
+ * @param {string} model - 模型名称
+ * @param {Object} requestBody - 请求体
+ * @param {string} fromProvider - 客户端协议
+ * @param {string} toProvider - 后端协议
+ * @param {string} PROMPT_LOG_MODE - 提示词日志模式
+ * @param {string} PROMPT_LOG_FILENAME - 提示词日志文件名
+ * @param {Object} poolManager - 账号池管理器
+ * @param {string} pooluuid - 当前账号 UUID
+ * @returns {Promise<void>}
+ */
 export async function handleStreamRequest(res, service, model, requestBody, fromProvider, toProvider, PROMPT_LOG_MODE, PROMPT_LOG_FILENAME, poolManager, pooluuid) {
     let fullResponseText = '';
     let fullResponseJson = '';
@@ -219,7 +299,7 @@ export async function handleStreamRequest(res, service, model, requestBody, from
     await handleUnifiedResponse(res, '', true);
 
     // fs.writeFile('request'+Date.now()+'.json', JSON.stringify(requestBody));
-    // The service returns a stream in its native format (toProvider).
+    // 服务返回的流为后端协议格式（toProvider）
     requestBody.model = model;
     const needsConversion = getProtocolPrefix(fromProvider) !== getProtocolPrefix(toProvider);
     const addEvent = getProtocolPrefix(fromProvider) === MODEL_PROTOCOL_PREFIX.CLAUDE || getProtocolPrefix(fromProvider) === MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES;
@@ -231,7 +311,7 @@ export async function handleStreamRequest(res, service, model, requestBody, from
     try {
         nativeStream = await generateContentStream(service, model, requestBody);
     } catch (initialError) {
-        // 如果在生成stream时就失败了（还没有开始传输数据），尝试重试其他provider
+        // 如果在生成流时就失败（尚未输出数据），交由上层重试
         logger.error(`[Stream] Initial stream generation failed: ${initialError.message}`);
         throw initialError; // 抛出让外层重试逻辑处理
     }
@@ -239,13 +319,13 @@ export async function handleStreamRequest(res, service, model, requestBody, from
     try {
         streamStarted = true;
         for await (const nativeChunk of nativeStream) {
-            // Extract text for logging purposes
+        // 提取文本用于日志记录
             const chunkText = extractResponseText(nativeChunk, toProvider);
             if (chunkText && !Array.isArray(chunkText)) {
                 fullResponseText += chunkText;
             }
 
-            // Convert the complete chunk object to the client's format (fromProvider), if necessary.
+            // 按需将流式块转换为客户端协议格式（fromProvider）
             const chunkToSend = needsConversion
                 ? convertData(nativeChunk, 'streamChunk', toProvider, fromProvider, model)
                 : nativeChunk;
@@ -259,24 +339,22 @@ export async function handleStreamRequest(res, service, model, requestBody, from
 
             for (const chunk of chunksToSend) {
                 if (addEvent) {
-                    // fullOldResponseJson += chunk.type+"\n";
-                    // fullResponseJson += chunk.type+"\n";
+                    // 调试记录事件类型
                     res.write(`event: ${chunk.type}\n`);
-                    // logger.info(`event: ${chunk.type}\n`);
+                    // 调试输出事件日志
                 }
 
-                // fullOldResponseJson += JSON.stringify(chunk)+"\n";
-                // fullResponseJson += JSON.stringify(chunk)+"\n\n";
+                // 调试记录事件数据
                 res.write(`data: ${JSON.stringify(chunk)}\n\n`);
-                // logger.info(`data: ${JSON.stringify(chunk)}\n`);
+                // 调试输出数据日志
             }
         }
         if (openStop && needsConversion) {
             res.write(`data: ${JSON.stringify(getOpenAIStreamChunkStop(model))}\n\n`);
-            // logger.info(`data: ${JSON.stringify(getOpenAIStreamChunkStop(model))}\n`);
+            // 调试输出结束块
         }
 
-        // 流式请求成功完成，统计使用次数，错误次数重置为0
+        // 流式请求成功完成，统计使用次数，错误次数重置为 0
         if (poolManager && pooluuid) {
             logger.info(`[Pool] Increasing usage count for ${toProvider} (${pooluuid}) after successful stream request`);
             _markPoolHealthy(toProvider, poolManager, pooluuid);
@@ -285,7 +363,7 @@ export async function handleStreamRequest(res, service, model, requestBody, from
     }  catch (error) {
         logger.error(`[Server] Error during stream processing: ${error.stack}`);
 
-        // 如果stream已经开始传输数据，则无法重试，直接返回错误
+        // 如果 stream 已开始传输数据，则无法重试，直接返回错误
         if (streamStarted) {
             if (poolManager && pooluuid) {
                 logger.warn(`[Pool] Marking ${toProvider} (${pooluuid}) as unhealthy due to stream error`);
@@ -304,7 +382,7 @@ export async function handleStreamRequest(res, service, model, requestBody, from
             res.end();
             responseClosed = true;
         } else {
-            // Stream还没开始，可以重试，向上抛出错误
+            // 流还没开始，可以重试，向上抛出错误
             throw error;
         }
     } finally {
@@ -316,6 +394,21 @@ export async function handleStreamRequest(res, service, model, requestBody, from
 }
 
 
+/**
+ * 处理一元请求
+ *
+ * @param {http.ServerResponse} res - HTTP 响应对象
+ * @param {KiroService} service - 服务适配器
+ * @param {string} model - 模型名称
+ * @param {Object} requestBody - 请求体
+ * @param {string} fromProvider - 客户端协议
+ * @param {string} toProvider - 后端协议
+ * @param {string} PROMPT_LOG_MODE - 提示词日志模式
+ * @param {string} PROMPT_LOG_FILENAME - 提示词日志文件名
+ * @param {Object} poolManager - 账号池管理器
+ * @param {string} pooluuid - 当前账号 UUID
+ * @returns {Promise<void>}
+ */
 export async function handleUnaryRequest(res, service, model, requestBody, fromProvider, toProvider, PROMPT_LOG_MODE, PROMPT_LOG_FILENAME, poolManager, pooluuid) {
     let responseWritten = false;
     try{
@@ -324,19 +417,19 @@ export async function handleUnaryRequest(res, service, model, requestBody, fromP
         const nativeResponse = await generateContent(service, model, requestBody);
         const responseText = extractResponseText(nativeResponse, toProvider);
 
-        // Convert the response back to the client's format (fromProvider), if necessary.
+        // 按需将响应转换为客户端协议格式（fromProvider）
         let clientResponse = nativeResponse;
         const needsConversion = getProtocolPrefix(fromProvider) !== getProtocolPrefix(toProvider);
         if (needsConversion) {
             clientResponse = convertData(nativeResponse, 'response', toProvider, fromProvider, model);
         }
 
-        //logger.info(`[Response] Sending response to client: ${JSON.stringify(clientResponse)}`);
+        // 调试输出响应内容
         await handleUnifiedResponse(res, JSON.stringify(clientResponse), false);
         responseWritten = true;
         logger.verbose(responseText);
 
-        // 一元请求成功完成，统计使用次数，错误次数重置为0
+        // 一元请求成功完成，统计使用次数，错误次数重置为 0
         if (poolManager && pooluuid) {
             logger.info(`[Pool] Increasing usage count for ${toProvider} (${pooluuid}) after successful unary request`);
             _markPoolHealthy(toProvider, poolManager, pooluuid);
@@ -355,21 +448,26 @@ export async function handleUnaryRequest(res, service, model, requestBody, fromP
             const errorResponse = createErrorResponse(error, fromProvider);
             await handleUnifiedResponse(res, JSON.stringify(errorResponse), false);
         } else {
-            // 响应还没写入，可以重试，向上抛出错误
+        // 响应还没写入，可以重试，向上抛出错误
             throw error;
         }
     }
 }
 
 /**
- * Handles requests for content generation (both unary and streaming). This function
- * logging, and dispatching to the appropriate stream or unary handler.
- * @param {http.IncomingMessage} req The HTTP request object.
- * @param {http.ServerResponse} res The HTTP response object.
- * @param {KiroService} service The API service adapter.
- * @param {string} endpointType The type of endpoint being called (e.g., CLAUDE_MESSAGE).
- * @param {Object} CONFIG - The server configuration object.
- * @param {string} PROMPT_LOG_FILENAME - The prompt log filename.
+ * 处理内容生成请求（支持一元与流式）
+ *
+ * 包含请求解析、协议转换、日志记录与分发到流式/一元处理器的逻辑。
+ *
+ * @param {http.IncomingMessage} req - HTTP 请求对象
+ * @param {http.ServerResponse} res - HTTP 响应对象
+ * @param {KiroService} service - API 服务适配器
+ * @param {string} endpointType - 端点类型（如 CLAUDE_MESSAGE）
+ * @param {Object} CONFIG - 服务器配置对象
+ * @param {string} PROMPT_LOG_FILENAME - 提示词日志文件名
+ * @param {Object} providerPoolManager - 账号池管理器
+ * @param {string} pooluuid - 当前账号 UUID
+ * @returns {Promise<void>}
  */
 export async function handleContentGenerationRequest(req, res, service, endpointType, CONFIG, PROMPT_LOG_FILENAME, providerPoolManager, pooluuid) {
     const originalRequestBody = await getRequestBody(req);
@@ -391,10 +489,10 @@ export async function handleContentGenerationRequest(req, res, service, endpoint
         throw new Error(`Unsupported endpoint type for content generation: ${endpointType}`);
     }
 
-    // 2. Extract model and determine if the request is for streaming.
+    // 2. 提取模型并判断是否为流式请求
     let model = originalRequestBody.model;
     /**
-     * 这里需要一个转换列表，将OpenAI的模型名称转换为Claude对应的模型名称
+     * 这里需要一个转换列表，将 OpenAI 的模型名称转换为 Claude 对应的模型名称
      * 例如：
      * gpt-5.2-codex -> 'claude-opus-4-5'
      * gpt-5.2 -> 'claude-opus-4-5'
@@ -420,12 +518,12 @@ export async function handleContentGenerationRequest(req, res, service, endpoint
     }
     logger.warn(`Model: ${model}, Stream: ${isStream}`);
 
-    // 1. Convert request body from client format to backend format, if necessary.
+    // 1. 按需将请求体从客户端格式转换为后端格式
     let processedRequestBody = originalRequestBody;
     if (fromProvider !== MODEL_PROTOCOL_PREFIX.CLAUDE) {
         logger.warn(`Converting request from ${fromProvider} to ${toProvider}`);
         processedRequestBody = convertData(originalRequestBody, 'request', fromProvider, toProvider);
-        // 如果processedRequestBody中有model，则需要更新为转换后的model
+        // 如果 processedRequestBody 中有 model，则需要更新为转换后的 model
         if (processedRequestBody.model) {
             processedRequestBody.model = model;
         }
@@ -442,16 +540,16 @@ export async function handleContentGenerationRequest(req, res, service, endpoint
         logger.info(`Re-selected service adapter based on model: ${model}`);
     }
 
-    // 3. Apply system prompt from file if configured.
+    // 3. 如果配置了 system prompt 文件，则应用系统提示词
     processedRequestBody = await _applySystemPromptFromFile(CONFIG, processedRequestBody, toProvider);
     await _manageSystemPrompt(processedRequestBody, toProvider);
 
-    // 4. Log the incoming prompt (after potential conversion to the backend's format).
+    // 4. 记录传入的提示词（在可能完成协议转换之后）
     const promptText = extractPromptText(processedRequestBody, toProvider);
     logger.verbose(promptText);
 
-    // 5. 添加重试逻辑：如果使用了号池，当请求失败时自动切换到下一个健康的provider
-    // 限制最多重试3次，避免把所有provider都试一遍
+    // 5. 添加重试逻辑：如果使用了号池，当请求失败时自动切换到下一个健康的 provider
+    // 限制最多重试 3 次，避免把所有 provider 都试一遍
     const availableProviders = _countAvailablePoolItems(CONFIG, providerPoolManager);
     const maxRetries = Math.min(3, availableProviders);
 
@@ -460,7 +558,7 @@ export async function handleContentGenerationRequest(req, res, service, endpoint
 
     while (retryCount < maxRetries) {
         try {
-            // Call the appropriate stream or unary handler, passing the provider info.
+            // 调用流式/一元处理器，并传递 provider 信息
             if (isStream) {
                 await handleStreamRequest(res, service, model, processedRequestBody, fromProvider, toProvider, CONFIG.PROMPT_LOG_MODE, PROMPT_LOG_FILENAME, providerPoolManager, pooluuid);
             } else {
@@ -487,13 +585,13 @@ export async function handleContentGenerationRequest(req, res, service, endpoint
                 throw error;
             }
 
-            // 标记当前provider为unhealthy
+            // 标记当前 provider 为 unhealthy
             if (providerPoolManager && pooluuid) {
                 logger.info(`[Pool Retry] Request failed with ${pooluuid}, attempt ${retryCount}/${maxRetries}`);
                 _markPoolUnhealthy(toProvider, providerPoolManager, pooluuid, error);
             }
 
-            // 如果还有重试机会，选择下一个健康的provider
+            // 如果还有重试机会，选择下一个健康的 provider
             if (retryCount < maxRetries && _canUsePool(CONFIG, providerPoolManager)) {
                 logger.info('[Pool Retry] Selecting next healthy account/provider...');
                 const { getApiService } = await import('../services/manager.js');
@@ -514,11 +612,12 @@ export async function handleContentGenerationRequest(req, res, service, endpoint
 }
 
 /**
- * Helper function to extract model and stream information from the request.
- * @param {http.IncomingMessage} req The HTTP request object.
- * @param {Object} requestBody The parsed request body.
- * @param {string} fromProvider The type of endpoint being called.
- * @returns {{model: string, isStream: boolean}} An object containing the model name and stream status.
+ * 从请求中提取模型与流式标记
+ *
+ * @param {http.IncomingMessage} req - HTTP 请求对象
+ * @param {Object} requestBody - 解析后的请求体
+ * @param {string} fromProvider - 端点类型
+ * @returns {{model: string, isStream: boolean}} 模型名称与流式标记
  */
 function _extractModelAndStreamInfo(req, requestBody, fromProvider) {
     const model = requestBody.model;
@@ -531,6 +630,13 @@ async function _applySystemPromptFromFile(config, requestBody, toProvider) {
     return strategy.applySystemPromptFromFile(config, requestBody);
 }
 
+/**
+ * 管理系统提示词文件（同步内存与文件内容）
+ *
+ * @param {Object} requestBody - 请求体
+ * @param {string} provider - 提供商类型
+ * @returns {Promise<void>}
+ */
 async function _manageSystemPrompt(requestBody, provider) {
     let incomingSystemText = extractSystemPromptFromRequestBody(requestBody, 'claude');
     let currentSystemText = '';
@@ -555,22 +661,37 @@ async function _manageSystemPrompt(requestBody, provider) {
     }
 }
 
-// Helper functions for content extraction and conversion
+// 内容提取与转换的辅助函数
+/**
+ * 提取响应文本
+ *
+ * @param {Object} response - 响应对象
+ * @param {string} provider - 提供商类型
+ * @returns {string} 响应文本
+ */
 export function extractResponseText(response, provider) {
     const strategy = new KiroStrategy();
     return strategy.extractResponseText(response);
 }
 
+/**
+ * 提取请求体中的提示词文本
+ *
+ * @param {Object} requestBody - 请求体
+ * @param {string} provider - 提供商类型
+ * @returns {string} 提示词文本
+ */
 export function extractPromptText(requestBody, provider) {
     const strategy = new KiroStrategy();
     return strategy.extractPromptText(requestBody);
 }
 
 /**
- * 从请求体中提取系统提示词。
- * @param {Object} requestBody - 请求体对象。
- * @param {string} provider - 提供商类型（'claude'）。
- * @returns {string} 提取到的系统提示词字符串。
+ * 从请求体中提取系统提示词
+ *
+ * @param {Object} requestBody - 请求体对象
+ * @param {string} provider - 提供商类型（如 'claude'）
+ * @returns {string} 提取到的系统提示词字符串
  */
 export function extractSystemPromptFromRequestBody(requestBody, provider) {
     let incomingSystemText = '';
@@ -579,7 +700,7 @@ export function extractSystemPromptFromRequestBody(requestBody, provider) {
     } else if (typeof requestBody.system === 'object') {
         incomingSystemText = JSON.stringify(requestBody.system);
     } else if (requestBody.messages?.length > 0) {
-        // Fallback to first user message if no system property
+        // 如果没有 system 字段，回退到首条 user 消息
         const userMessage = requestBody.messages.find(m => m.role === 'user');
         if (userMessage) {
             if (Array.isArray(userMessage.content)) {
@@ -593,9 +714,10 @@ export function extractSystemPromptFromRequestBody(requestBody, provider) {
 }
 
 /**
- * Generates an MD5 hash for a given object by first converting it to a JSON string.
- * @param {object} obj - The object to hash.
- * @returns {string} The MD5 hash of the object's JSON string representation.
+ * 生成对象的 MD5 哈希（先转为 JSON 字符串）
+ *
+ * @param {object} obj - 需要哈希的对象
+ * @returns {string} MD5 哈希值
  */
 export function getMD5Hash(obj) {
     const jsonString = JSON.stringify(obj);
@@ -605,6 +727,7 @@ export function getMD5Hash(obj) {
 
 /**
  * 创建符合 fromProvider 格式的错误响应（非流式）
+ *
  * @param {Error} error - 错误对象
  * @param {string} fromProvider - 客户端期望的提供商格式
  * @returns {Object} 格式化的错误响应对象
@@ -648,6 +771,7 @@ export function createErrorResponse(error, fromProvider) {
 
 /**
  * 创建符合 fromProvider 格式的流式错误响应
+ *
  * @param {Error} error - 错误对象
  * @param {string} fromProvider - 客户端期望的提供商格式
  * @returns {string} 格式化的流式错误响应字符串
@@ -668,7 +792,7 @@ function createStreamErrorResponse(error, fromProvider) {
     
     switch (protocolPrefix) {
         case 'claude':
-            // Claude 流式错误格式（SSE event + data）
+            // Claude 流式错误格式（SSE 事件与数据）
             const claudeError = {
                 type: "error",
                 error: {

@@ -4,7 +4,7 @@
  * 提供：
  * - convertToQTool(): 将多种工具格式统一转换为 AWS CodeWhisperer toolSpecification 格式
  * - convertToQToolWithMapping(): 使用映射表优先转换工具
- * - compressInputSchema(): 压缩 schema 以兼��� AWS CodeWhisperer
+ * - compressInputSchema(): 压缩 schema 以兼容 AWS CodeWhisperer
  *
  * 支持的工具格式：
  * - 格式 0: Kiro 内置工具（Builtin Tools）- { type, name, ... }
@@ -17,6 +17,8 @@
  * 依赖：
  * - ../tools.js: CC_TO_KIRO_TOOL_MAPPING, normalizeToolName, isZodSchema
  * - ../lib/logger.js: createLogger
+ *
+ * @module kiro/converters/tool-converter
  */
 
 import { CC_TO_KIRO_TOOL_MAPPING, normalizeToolName } from '../tools.js';
@@ -46,8 +48,9 @@ const UNSUPPORTED_SCHEMA_KEYS = new Set([
 
 /**
  * 清理 inputSchema - 只移除 AWS CodeWhisperer 明确不支持的元数据和文档字段
+ *
  * 保守策略：保留所有 validation 字段（minLength, maxLength, pattern, minimum, maximum等）
- * 仿照官方Kiro：不压缩 description，保持 schema 的功能完整性
+ * 仿照官方 Kiro：不压缩 description，保持 schema 的功能完整性。
  *
  * @param {Object} schema - 原始 schema
  * @returns {Object} 压缩后的 schema
@@ -109,8 +112,8 @@ const BUILTIN_TOOLS = [
  * 在 CodeWhisperer API 中会导致 400 Bad Request 错误。
  *
  * @param {Object} tool - 工具定义（多种格式之一）
- * @param {Function} compressInputSchemaFn - schema 压缩函数（可选）
- * @param {number} maxDescLength - 描述最大长度（默认 500）
+ * @param {Function} [compressInputSchemaFn=compressInputSchema] - schema 压缩函数
+ * @param {number} [maxDescLength=500] - 描述最大长度
  * @returns {Object} toolSpecification 格式的工具定义
  */
 export function convertToQTool(tool, compressInputSchemaFn = compressInputSchema, maxDescLength = 500) {
@@ -232,12 +235,12 @@ export function convertToQTool(tool, compressInputSchemaFn = compressInputSchema
 /**
  * 使用映射表优先转换工具
  *
- * Kiro 优化：使用映射表转换工具，优先使用 CC_TO_KIRO_TOOL_MAPPING 中的 Kiro 官方 schema
- * 如果没有映射，则降级到原始的 convertToQTool
+ * Kiro 优化：使用映射表转换工具，优先使用 CC_TO_KIRO_TOOL_MAPPING 中的 Kiro 官方 schema。
+ * 如果没有映射，则降级到原始的 convertToQTool。
  *
  * @param {Object} tool - 工具定义
- * @param {Function} compressInputSchemaFn - schema 压缩函数（可选）
- * @param {number} maxDescLength - 描述最大长度（默认 500）
+ * @param {Function} [compressInputSchemaFn=compressInputSchema] - schema 压缩函数
+ * @param {number} [maxDescLength=500] - 描述最大长度
  * @returns {Object} toolSpecification 格式的工具定义
  */
 export function convertToQToolWithMapping(tool, compressInputSchemaFn = compressInputSchema, maxDescLength = 500) {

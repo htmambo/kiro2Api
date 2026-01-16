@@ -1,6 +1,9 @@
 /**
  * OpenAI Responses API 转换器
- * 处理 OpenAI Responses API 格式与其他协议之间的转换
+ *
+ * 处理 OpenAI Responses API 格式与其他协议之间的转换。
+ *
+ * @module converters/strategies/OpenAIResponsesConverter
  */
 
 import { BaseConverter } from '../BaseConverter.js';
@@ -17,9 +20,13 @@ const logger = createLogger('OpenAIResponsesConverter');
 
 /**
  * OpenAI Responses API 转换器类
- * 支持 OpenAI Responses 格式与 OpenAI、Claude、Gemini 之间的转换
+ *
+ * 支持 OpenAI Responses 格式与 OpenAI、Claude、Gemini 之间的转换。
  */
 export class OpenAIResponsesConverter extends BaseConverter {
+    /**
+     * 创建 OpenAI Responses 转换器
+     */
     constructor() {
         super(MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES);
     }
@@ -30,6 +37,10 @@ export class OpenAIResponsesConverter extends BaseConverter {
 
     /**
      * 转换请求到目标协议
+     *
+     * @param {Object} data - 请求数据
+     * @param {string} toProtocol - 目标协议
+     * @returns {Object} 转换后的请求
      */
     convertRequest(data, toProtocol) {
         switch (toProtocol) {
@@ -46,6 +57,11 @@ export class OpenAIResponsesConverter extends BaseConverter {
 
     /**
      * 转换响应到目标协议
+     *
+     * @param {Object} data - 响应数据
+     * @param {string} toProtocol - 目标协议
+     * @param {string} model - 模型名称
+     * @returns {Object} 转换后的响应
      */
     convertResponse(data, toProtocol, model) {
         switch (toProtocol) {
@@ -62,6 +78,11 @@ export class OpenAIResponsesConverter extends BaseConverter {
 
     /**
      * 转换流式响应块到目标协议
+     *
+     * @param {Object} chunk - 流式响应块
+     * @param {string} toProtocol - 目标协议
+     * @param {string} model - 模型名称
+     * @returns {Object} 转换后的流式响应块
      */
     convertStreamChunk(chunk, toProtocol, model) {
         switch (toProtocol) {
@@ -78,6 +99,10 @@ export class OpenAIResponsesConverter extends BaseConverter {
 
     /**
      * 转换模型列表到目标协议
+     *
+     * @param {Object} data - 模型列表数据
+     * @param {string} targetProtocol - 目标协议
+     * @returns {Object} 转换后的模型列表
      */
     convertModelList(data, targetProtocol) {
         switch (targetProtocol) {
@@ -98,6 +123,9 @@ export class OpenAIResponsesConverter extends BaseConverter {
 
     /**
      * 将 OpenAI Responses 请求转换为标准 OpenAI 请求
+     *
+     * @param {Object} responsesRequest - OpenAI Responses 请求
+     * @returns {Object} OpenAI 请求
      */
     toOpenAIRequest(responsesRequest) {
         const openaiRequest = {
@@ -162,6 +190,10 @@ export class OpenAIResponsesConverter extends BaseConverter {
 
     /**
      * 将 OpenAI Responses 响应转换为标准 OpenAI 响应
+     *
+     * @param {Object} responsesResponse - OpenAI Responses 响应
+     * @param {string} model - 模型名称
+     * @returns {Object} OpenAI 响应
      */
     toOpenAIResponse(responsesResponse, model) {
         // OpenAI Responses 格式已经很接近标准 OpenAI 格式
@@ -204,6 +236,10 @@ export class OpenAIResponsesConverter extends BaseConverter {
 
     /**
      * 将 OpenAI Responses 流式块转换为标准 OpenAI 流式块
+     *
+     * @param {Object} responsesChunk - OpenAI Responses 流式块
+     * @param {string} model - 模型名称
+     * @returns {Object} OpenAI 流式块
      */
     toOpenAIStreamChunk(responsesChunk, model) {
         return {
@@ -227,6 +263,9 @@ export class OpenAIResponsesConverter extends BaseConverter {
 
     /**
      * 将 OpenAI Responses 请求转换为 Claude 请求
+     *
+     * @param {Object} responsesRequest - OpenAI Responses 请求
+     * @returns {Object} Claude 请求
      */
     toClaudeRequest(responsesRequest) {
         const claudeRequest = {
@@ -292,6 +331,10 @@ export class OpenAIResponsesConverter extends BaseConverter {
 
     /**
      * 将 OpenAI Responses 响应转换为 Claude 响应
+     *
+     * @param {Object} responsesResponse - OpenAI Responses 响应
+     * @param {string} model - 模型名称
+     * @returns {Object} Claude 响应
      */
     toClaudeResponse(responsesResponse, model) {
         const content = responsesResponse.choices?.[0]?.message?.content || 
@@ -324,6 +367,10 @@ export class OpenAIResponsesConverter extends BaseConverter {
 
     /**
      * 将 OpenAI Responses 流式块转换为 Claude 流式块
+     *
+     * @param {Object} responsesChunk - OpenAI Responses 流式块
+     * @param {string} model - 模型名称
+     * @returns {Object} Claude 流式块
      */
     toClaudeStreamChunk(responsesChunk, model) {
         const delta = responsesChunk.choices?.[0]?.delta || responsesChunk.delta || {};
@@ -365,6 +412,9 @@ export class OpenAIResponsesConverter extends BaseConverter {
 
     /**
      * 将 OpenAI Responses 请求转换为 Gemini 请求
+     *
+     * @param {Object} responsesRequest - OpenAI Responses 请求
+     * @returns {Object} Gemini 请求
      */
     toGeminiRequest(responsesRequest) {
         const geminiRequest = {
@@ -450,6 +500,10 @@ export class OpenAIResponsesConverter extends BaseConverter {
 
     /**
      * 将 OpenAI Responses 响应转换为 Gemini 响应
+     *
+     * @param {Object} responsesResponse - OpenAI Responses 响应
+     * @param {string} model - 模型名称
+     * @returns {Object} Gemini 响应
      */
     toGeminiResponse(responsesResponse, model) {
         const content = responsesResponse.choices?.[0]?.message?.content || 
@@ -490,6 +544,10 @@ export class OpenAIResponsesConverter extends BaseConverter {
 
     /**
      * 将 OpenAI Responses 流式块转换为 Gemini 流式块
+     *
+     * @param {Object} responsesChunk - OpenAI Responses 流式块
+     * @param {string} model - 模型名称
+     * @returns {Object} Gemini 流式块
      */
     toGeminiStreamChunk(responsesChunk, model) {
         const delta = responsesChunk.choices?.[0]?.delta || responsesChunk.delta || {};
@@ -516,6 +574,9 @@ export class OpenAIResponsesConverter extends BaseConverter {
 
     /**
      * 映射完成原因
+     *
+     * @param {string} reason - 完成原因
+     * @returns {string} Gemini 结束原因
      */
     mapFinishReason(reason) {
         const reasonMap = {
@@ -529,6 +590,9 @@ export class OpenAIResponsesConverter extends BaseConverter {
 
     /**
      * 将 OpenAI Responses 模型列表转换为标准 OpenAI 模型列表
+     *
+     * @param {Object} responsesModels - OpenAI Responses 模型列表
+     * @returns {Object} OpenAI 模型列表
      */
     toOpenAIModelList(responsesModels) {
         // OpenAI Responses 格式的模型列表已经是标准 OpenAI 格式
@@ -551,6 +615,9 @@ export class OpenAIResponsesConverter extends BaseConverter {
 
     /**
      * 将 OpenAI Responses 模型列表转换为 Claude 模型列表
+     *
+     * @param {Object} responsesModels - OpenAI Responses 模型列表
+     * @returns {Object} Claude 模型列表
      */
     toClaudeModelList(responsesModels) {
         const models = responsesModels.data || responsesModels.models || [];
@@ -564,6 +631,9 @@ export class OpenAIResponsesConverter extends BaseConverter {
 
     /**
      * 将 OpenAI Responses 模型列表转换为 Gemini 模型列表
+     *
+     * @param {Object} responsesModels - OpenAI Responses 模型列表
+     * @returns {Object} Gemini 模型列表
      */
     toGeminiModelList(responsesModels) {
         const models = responsesModels.data || responsesModels.models || [];

@@ -1,6 +1,9 @@
 /**
- * Web Search Module
- * 提供服务端 Web 搜索功能，支持 DuckDuckGo 和 Bing
+ * Web 搜索模块
+ *
+ * 提供服务端 Web 搜索功能，支持 DuckDuckGo 和 Bing。
+ *
+ * @module kiro/search
  */
 
 import axios from 'axios';
@@ -24,9 +27,10 @@ const WEB_SEARCH_CONFIG = {
 
 /**
  * 服务端 Web Search 函数
+ *
  * @param {string} query - 搜索查询
- * @param {boolean} verboseLogging - 是否输出详细日志
- * @returns {Promise<{success: boolean, results: Array, source?: string, error?: string}>}
+ * @param {boolean} [verboseLogging=false] - 是否输出详细日志
+ * @returns {Promise<{success: boolean, results: Array, source?: string, error?: string}>} 搜索结果
  */
 export async function executeWebSearch(query, verboseLogging = false) {
     if (verboseLogging) {
@@ -52,11 +56,13 @@ export async function executeWebSearch(query, verboseLogging = false) {
 }
 
 /**
- * DuckDuckGo 搜索 (免费，无需 API Key)
- * 使用 DuckDuckGo HTML 搜索页面抓取结果
+ * DuckDuckGo 搜索（免费，无需 API Key）
+ *
+ * 使用 DuckDuckGo HTML 搜索页面抓取结果。
+ *
  * @param {string} query - 搜索查询
- * @param {boolean} verboseLogging - 是否输出详细日志
- * @returns {Promise<{success: boolean, results: Array, source: string}>}
+ * @param {boolean} [verboseLogging=false] - 是否输出详细日志
+ * @returns {Promise<{success: boolean, results: Array, source: string}>} 搜索结果
  */
 export async function duckDuckGoSearch(query, verboseLogging = false) {
     const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
@@ -110,10 +116,11 @@ export async function duckDuckGoSearch(query, verboseLogging = false) {
 }
 
 /**
- * Bing Search API (需要 API Key)
+ * Bing Search API（需要 API Key）
+ *
  * @param {string} query - 搜索查询
- * @param {boolean} verboseLogging - 是否输出详细日志
- * @returns {Promise<{success: boolean, results: Array, source: string}>}
+ * @param {boolean} [verboseLogging=false] - 是否输出详细日志
+ * @returns {Promise<{success: boolean, results: Array, source: string}>} 搜索结果
  */
 export async function bingSearch(query, verboseLogging = false) {
     const url = 'https://api.bing.microsoft.com/v7.0/search';
@@ -149,6 +156,7 @@ export async function bingSearch(query, verboseLogging = false) {
 
 /**
  * 将搜索结果格式化为可读文本
+ *
  * @param {{success: boolean, results: Array, source?: string, error?: string}} searchResult - 搜索结果
  * @returns {string} 格式化后的文本
  */

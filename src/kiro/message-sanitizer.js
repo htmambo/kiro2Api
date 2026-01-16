@@ -1,8 +1,9 @@
 /**
- * Message Sanitizer Module
- * 处理消息验证和自动修复，确保消息符合 Kiro API 规则
+ * 消息清理模块
  *
- * 完全匹配官方 Kiro 源码的 message-history-sanitizer (extension.js:706680-706688)
+ * 处理消息验证和自动修复，确保消息符合 Kiro API 规则。
+ *
+ * 完全匹配官方 Kiro 源码的 message-history-sanitizer (extension.js:706680-706688)。
  *
  * 官方处理流程：
  * 1. ensureStartsWithUserMessage - 确保以 user 消息开始
@@ -11,6 +12,8 @@
  * 4. ensureValidToolUsesAndResults - 确保工具调用有对应结果
  * 5. ensureAlternatingMessages - 确保消息交替
  * 6. ensureEndsWithUserMessage - 确保以 user 消息结束
+ *
+ * @module kiro/message-sanitizer
  */
 
 import { createLogger } from '../lib/logger.js';
@@ -19,6 +22,7 @@ const logger = createLogger('message-sanitizer');
 
 /**
  * 提取消息的文本内容
+ *
  * @param {Object|Array|string} message - 消息对象、内容数组或字符串
  * @returns {string} 提取的文本内容
  */
@@ -155,10 +159,11 @@ function ensureValidToolUsesAndResults(messages) {
 
 /**
  * Kiro 优化：消息验证和自动修复
- * 完全匹配官方 Kiro 源码的 message-history-sanitizer (extension.js:706680-706688)
+ *
+ * 完全匹配官方 Kiro 源码的 message-history-sanitizer (extension.js:706680-706688)。
  *
  * @param {Array} messages - 消息数组
- * @param {boolean} verboseLogging - 是否启用详细日志
+ * @param {boolean} [verboseLogging=false] - 是否启用详细日志
  * @returns {Array} 修复后的消息数组
  */
 export function sanitizeMessages(messages, verboseLogging = false) {

@@ -1,6 +1,7 @@
 /**
- * OAuth Handler 实现
- * 处理 OAuth 相关的 API 请求
+ * OAuth Handler 实现。
+ * 处理 OAuth 相关的 API 请求。
+ * @module ui/router/handlers/oauth
  */
 import { startDeviceAuthorization, pollDeviceToken } from '../../../kiro/auth.js';
 import { createLogger } from '../../../lib/logger.js';
@@ -17,8 +18,10 @@ const logger = createLogger('oauth');
 const awsSsoInflight = new Map();
 
 /**
- * OAuth 网页回调 Handler
- * 返回 HTML 页面
+ * OAuth 网页回调 Handler。
+ * 返回 HTML 页面。
+ * @param {{ req: import('http').IncomingMessage, res: import('http').ServerResponse, accountPoolManager: object }} ctx - 请求上下文。
+ * @returns {Promise<void>}
  */
 export async function webCallback({ req, res, accountPoolManager }) {
     try {
@@ -68,7 +71,9 @@ export async function webCallback({ req, res, accountPoolManager }) {
 }
 
 /**
- * 检查 OAuth state 状态
+ * 检查 OAuth state 状态。
+ * @param {{ req: import('http').IncomingMessage, res: import('http').ServerResponse }} ctx - 请求上下文。
+ * @returns {Promise<void>}
  */
 export async function checkState({ req, res }) {
     try {
@@ -102,7 +107,9 @@ export async function checkState({ req, res }) {
 }
 
 /**
- * 手动导入 refreshToken
+ * 手动导入 refreshToken。
+ * @param {{ req: import('http').IncomingMessage, res: import('http').ServerResponse, currentConfig: object, accountPoolManager: object }} ctx - 请求上下文。
+ * @returns {Promise<void>}
  */
 export async function manualImport({ req, res, currentConfig, accountPoolManager }) {
     try {
@@ -387,7 +394,9 @@ export async function manualImport({ req, res, currentConfig, accountPoolManager
 }
 
 /**
- * AWS SSO 设备授权启动
+ * AWS SSO 设备授权启动。
+ * @param {{ req: import('http').IncomingMessage, res: import('http').ServerResponse, currentConfig: object, accountPoolManager: object }} ctx - 请求上下文。
+ * @returns {Promise<void>}
  */
 export async function awsSsoStart({ req, res, currentConfig, accountPoolManager }) {
     let accountNumber; // 提升作用域，用于 catch 块清理 in-flight
@@ -458,7 +467,7 @@ export async function awsSsoStart({ req, res, currentConfig, accountPoolManager 
         // Step 1: 自动注册 Client
         const registerClientUrl = `https://oidc.${region}.amazonaws.com/client/register`;
 
-        // 随机化 Client 配置
+        // 随机化 Client 配置，避免重复注册冲突
         const randomSuffix = Math.random().toString(36).substring(2, 8);
         const randomPort = 10000 + Math.floor(Math.random() * 50000);
         const clientNames = ['Kiro IDE', 'Kiro', 'Kiro Editor', 'Kiro Dev', 'AWS Kiro'];

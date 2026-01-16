@@ -1,8 +1,10 @@
 /**
- * Kiro API Client Module
+ * Kiro API 客户端模块
  *
- * 提取自 core.js 的 API 调用相关函数
- * 包含：请求发送、响应处理、流式传输、token 计数等功能
+ * 提取自 core.js 的 API 调用相关函数，
+ * 包含请求发送、响应处理、流式传输与 token 计数等功能。
+ *
+ * @module kiro/api-client
  */
 
 import axios from 'axios';
@@ -118,10 +120,11 @@ function parseEventStreamChunk(rawData) {
  * 调用 Kiro API（带重试和错误处理）
  *
  * @param {KiroService} service - KiroService 实例
- * @param {string} conversationId - 对话 ID
+ * @param {string} method - 请求方法（保留参数）
  * @param {string} model - 模型名称
- * @param {Object} requestBody - 请求体
- * @param {boolean} isStreaming - 是否流式请求
+ * @param {Object} body - 请求体
+ * @param {boolean} [isRetry=false] - 是否为重试
+ * @param {number} [retryCount=0] - 当前重试次数
  * @returns {Promise<Object>} API 响应
  */
 export async function callApi(
@@ -358,6 +361,14 @@ function processApiResponse(response) {
  * @param {Object} requestBody - 请求体
  * @returns {Promise<Object>} 生成的内容
  */
+/**
+ * 生成非流式内容
+ *
+ * @param {Object} service - KiroService 实例
+ * @param {string} model - 模型名称
+ * @param {Object} requestBody - 请求体
+ * @returns {Promise<Object>} 生成结果
+ */
 export async function generateContent(service, model, requestBody) {
     if (typeof service?.initialize !== 'function') {
         throw new Error('Service does not support initialize()');
@@ -397,6 +408,14 @@ export async function generateContent(service, model, requestBody) {
  * @param {string} model - 模型名称
  * @param {Object} requestBody - 请求体
  * @returns {AsyncGenerator} 事件流
+ */
+/**
+ * 生成流式内容
+ *
+ * @param {Object} service - KiroService 实例
+ * @param {string} model - 模型名称
+ * @param {Object} requestBody - 请求体
+ * @yields {Object} 流式事件
  */
 export async function* generateContentStream(service, model, requestBody) {
     if (!service.isInitialized) await service.initialize();
@@ -988,6 +1007,17 @@ export async function* generateContentStream(service, model, requestBody) {
  * @param {number} inputTokens - 输入 token 数
  * @returns {Object|Array} Claude 格式的响应
  */
+/**
+ * 构造 Claude 风格响应
+ *
+ * @param {string|Array} content - 响应内容
+ * @param {boolean} [isStream=false] - 是否为流式响应
+ * @param {string} [role='assistant'] - 角色
+ * @param {string} model - 模型名称
+ * @param {Array|null} [toolCalls=null] - 工具调用
+ * @param {number} [inputTokens=0] - 输入 token 数
+ * @returns {Object} Claude 风格响应对象
+ */
 export function buildClaudeResponse(content, isStream = false, role = 'assistant', model, toolCalls = null, inputTokens = 0) {
     const messageId = `${uuidv4()}`;
 
@@ -1173,6 +1203,12 @@ export function buildClaudeResponse(content, isStream = false, role = 'assistant
  *
  * @param {KiroService} service - KiroService 实例
  * @returns {Promise<Object>} 用量限制信息
+ */
+/**
+ * 获取使用额度限制
+ *
+ * @param {Object} service - KiroService 实例
+ * @returns {Promise<Object>} 使用额度信息
  */
 export async function getUsageLimits(service) {
     if (!service.isInitialized) await service.initialize();

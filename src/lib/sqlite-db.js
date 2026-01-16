@@ -1,6 +1,9 @@
 /**
  * SQLite 数据库管理器
- * v2（账号池）：移除 provider_type，providers 表迁移为 accounts
+ *
+ * v2（账号池）：移除 provider_type，providers 表迁移为 accounts。
+ *
+ * @module lib/sqlite-db
  */
 
 import Database from 'better-sqlite3';
@@ -12,7 +15,15 @@ import { DEFAULT_PROVIDER_TYPE } from '../kiro/constants.js';
 const SCHEMA_VERSION = 2;
 const logger = createLogger('services:storage:sqlite-db');
 
+/**
+ * SQLite 数据库访问封装
+ *
+ * 负责初始化、迁移、账号池数据读写与统计。
+ */
 class SQLiteDB {
+    /**
+     * 创建 SQLiteDB 实例
+     */
     constructor() {
         this.db = null;
         this.dbPath = null;
@@ -20,7 +31,9 @@ class SQLiteDB {
 
     /**
      * 初始化数据库
+     *
      * @param {string} dbPath - 数据库文件路径
+     * @returns {Database} 数据库实例
      */
     init(dbPath = 'data/kiro2api.db') {
         if (this.db) {
@@ -54,6 +67,11 @@ class SQLiteDB {
         return this.db;
     }
 
+    /**
+     * 获取数据库连接
+     *
+     * @returns {Database} 数据库实例
+     */
     getDb() {
         if (!this.db) {
             throw new Error('Database not initialized. Call init() first.');
@@ -61,6 +79,11 @@ class SQLiteDB {
         return this.db;
     }
 
+    /**
+     * 关闭数据库连接
+     *
+     * @returns {void}
+     */
     close() {
         if (this.db) {
             this.db.close();
@@ -69,6 +92,12 @@ class SQLiteDB {
         }
     }
 
+    /**
+     * 检查表是否存在
+     *
+     * @param {string} name - 表名
+     * @returns {boolean} 是否存在
+     */
     _tableExists(name) {
         const row = this.db.prepare(
             "SELECT name FROM sqlite_master WHERE type='table' AND name=?"
@@ -76,6 +105,11 @@ class SQLiteDB {
         return Boolean(row);
     }
 
+    /**
+     * 按需执行数据库迁移
+     *
+     * @returns {void}
+     */
     _migrateIfNeeded() {
         const db = this.getDb();
         const currentVersion = db.pragma('user_version', { simple: true }) || 0;
@@ -109,7 +143,7 @@ class SQLiteDB {
             }
 
             db.transaction(() => {
-                // accounts
+                // accounts 表
                 db.exec(`
                     CREATE TABLE IF NOT EXISTS accounts_new (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -150,7 +184,7 @@ class SQLiteDB {
                 db.exec('DROP TABLE providers');
                 db.exec('ALTER TABLE accounts_new RENAME TO accounts');
 
-                // usage_cache
+                // usage_cache 表
                 if (this._tableExists('usage_cache')) {
                     db.exec(`
                         CREATE TABLE IF NOT EXISTS usage_cache_new (
@@ -174,7 +208,7 @@ class SQLiteDB {
                     db.exec('ALTER TABLE usage_cache_new RENAME TO usage_cache');
                 }
 
-                // health_check_history
+                // health_check_history 表
                 if (this._tableExists('health_check_history')) {
                     db.exec(`
                         CREATE TABLE IF NOT EXISTS health_check_history_new (
@@ -226,6 +260,11 @@ class SQLiteDB {
         }
     }
 
+    /**
+     * 创建 v2 表结构
+     *
+     * @returns {void}
+     */
     _createTablesV2() {
         const db = this.getDb();
 
@@ -286,6 +325,12 @@ class SQLiteDB {
 
     // ==================== Accounts (v2) ====================
 
+    /**
+     * 新增或更新账号
+     *
+     * @param {Object} account - 账号对象
+     * @returns {Object} 执行结果
+     */
     upsertAccount(account) {
         const db = this.getDb();
         const stmt = db.prepare(`
@@ -338,17 +383,34 @@ class SQLiteDB {
         });
     }
 
+    /**
+     * 获取所有账号
+     *
+     * @returns {Array} 账号数组
+     */
     getAccounts() {
         const db = this.getDb();
         return db.prepare('SELECT * FROM accounts').all().map((row) => this._parseAccountRow(row));
     }
 
+    /**
+     * 按 UUID 获取账号
+     *
+     * @param {string} uuid - 账号 UUID
+     * @returns {Object|null} 账号对象或 null
+     */
     getAccountByUuid(uuid) {
         const db = this.getDb();
         const row = db.prepare('SELECT * FROM accounts WHERE uuid = ?').get(uuid);
         return row ? this._parseAccountRow(row) : null;
     }
 
+    /**
+     * 获取健康账号列表（可按模型过滤）
+     *
+     * @param {string|null} [model=null] - 模型名称
+     * @returns {Array} 账号数组
+     */
     getHealthyAccounts(model = null) {
         const db = this.getDb();
         let rows;
@@ -377,6 +439,13 @@ class SQLiteDB {
         return rows.map((row) => this._parseAccountRow(row));
     }
 
+    /**
+     * 设置账号禁用状态
+     *
+     * @param {string} uuid - 账号 UUID
+     * @param {boolean} disabled - 是否禁用
+     * @returns {Object} 执行结果
+     */
     setAccountDisabled(uuid, disabled) {
         const db = this.getDb();
         return db.prepare(`
@@ -387,6 +456,13 @@ class SQLiteDB {
         `).run(disabled ? 1 : 0, uuid);
     }
 
+    /**
+     * 标记账号为健康
+     *
+     * @param {string} uuid - 账号 UUID
+     * @param {Object} [options={}] - 额外选项
+     * @returns {Object} 执行结果
+     */
     markAccountHealthy(uuid, options = {}) {
         const db = this.getDb();
         const {
@@ -431,6 +507,14 @@ class SQLiteDB {
         return db.prepare(`UPDATE accounts SET ${fields.join(', ')} WHERE uuid = ?`).run(...values);
     }
 
+    /**
+     * 标记账号为不健康
+     *
+     * @param {string} uuid - 账号 UUID
+     * @param {Error|string|null} [errorOrMessage=null] - 错误信息
+     * @param {Object} [options={}] - 额外选项
+     * @returns {Object|undefined} 执行结果
+     */
     markAccountUnhealthy(uuid, errorOrMessage = null, options = {}) {
         const db = this.getDb();
         const maxErrorCount = options.maxErrorCount ?? 3;
@@ -488,6 +572,12 @@ class SQLiteDB {
         `).run(nowIso, errorMessage || null, isFatalError ? 1 : 0, maxErrorCount, uuid);
     }
 
+    /**
+     * 增加账号使用次数
+     *
+     * @param {string} uuid - 账号 UUID
+     * @returns {Object} 执行结果
+     */
     incrementUsage(uuid) {
         const db = this.getDb();
         return db.prepare(`
@@ -499,11 +589,23 @@ class SQLiteDB {
         `).run(uuid);
     }
 
+    /**
+     * 删除账号
+     *
+     * @param {string} uuid - 账号 UUID
+     * @returns {Object} 执行结果
+     */
     deleteAccount(uuid) {
         const db = this.getDb();
         return db.prepare('DELETE FROM accounts WHERE uuid = ?').run(uuid);
     }
 
+    /**
+     * 解析账号行数据
+     *
+     * @param {Object} row - 数据库行
+     * @returns {Object} 账号对象
+     */
     _parseAccountRow(row) {
         let config = {};
         try {
@@ -541,10 +643,23 @@ class SQLiteDB {
 
     // ==================== 兼容旧 Provider API（映射到 accounts） ====================
 
+    /**
+     * 兼容旧 Provider API：新增或更新 provider
+     *
+     * @param {Object} provider - provider 对象
+     * @returns {Object} 执行结果
+     */
     upsertProvider(provider) {
         return this.upsertAccount(provider);
     }
 
+    /**
+     * 兼容旧 Provider API：批量新增或更新 provider
+     *
+     * @param {Array} providers - provider 数组
+     * @param {string} providerType - provider 类型
+     * @returns {Object} 执行结果
+     */
     upsertProviders(providers, providerType) {
         const db = this.getDb();
         const upsert = db.transaction((items) => {
@@ -555,21 +670,48 @@ class SQLiteDB {
         return upsert(providers);
     }
 
+    /**
+     * 兼容旧 Provider API：获取 provider 列表
+     *
+     * @param {string|null} [providerType=null] - provider 类型
+     * @returns {Array} provider 列表
+     */
     getProviders(providerType = null) {
         const accounts = this.getAccounts();
         if (!providerType) return accounts.map((a) => ({ ...a, providerType: DEFAULT_PROVIDER_TYPE }));
         return accounts.map((a) => ({ ...a, providerType }));
     }
 
+    /**
+     * 兼容旧 Provider API：获取健康 provider 列表
+     *
+     * @param {string} providerType - provider 类型
+     * @param {string|null} [model=null] - 模型名称
+     * @returns {Array} provider 列表
+     */
     getHealthyProviders(providerType, model = null) {
         const accounts = this.getHealthyAccounts(model);
         return accounts.map((a) => ({ ...a, providerType: providerType || DEFAULT_PROVIDER_TYPE }));
     }
 
+    /**
+     * 兼容旧 Provider API：按 UUID 获取 provider
+     *
+     * @param {string} uuid - 账号 UUID
+     * @returns {Object|null} provider 对象
+     */
     getProviderByUuid(uuid) {
         return this.getAccountByUuid(uuid);
     }
 
+    /**
+     * 兼容旧 Provider API：更新健康状态
+     *
+     * @param {string} uuid - 账号 UUID
+     * @param {boolean} isHealthy - 是否健康
+     * @param {Object} [extra={}] - 额外字段
+     * @returns {Object} 执行结果
+     */
     updateProviderHealth(uuid, isHealthy, extra = {}) {
         const db = this.getDb();
         const fields = ['is_healthy = ?', "updated_at = datetime('now')"];
@@ -608,12 +750,27 @@ class SQLiteDB {
         return db.prepare(`UPDATE accounts SET ${fields.join(', ')} WHERE uuid = ?`).run(...values);
     }
 
+    /**
+     * 兼容旧 Provider API：删除 provider
+     *
+     * @param {string} uuid - 账号 UUID
+     * @returns {Object} 执行结果
+     */
     deleteProvider(uuid) {
         return this.deleteAccount(uuid);
     }
 
     // ==================== Usage Cache（v2：按 account_uuid） ====================
 
+    /**
+     * 设置 usage 缓存
+     *
+     * @param {string} uuid - 账号 UUID
+     * @param {string} providerType - provider 类型
+     * @param {Object} usageData - usage 数据
+     * @param {number} [ttlSeconds=300] - 过期时间（秒）
+     * @returns {Object} 执行结果
+     */
     setUsageCache(uuid, providerType, usageData, ttlSeconds = 300) {
         const db = this.getDb();
         const expiresAt = Date.now() + ttlSeconds * 1000;
@@ -628,6 +785,13 @@ class SQLiteDB {
         return stmt.run(uuid, JSON.stringify(usageData), expiresAt);
     }
 
+    /**
+     * 获取 usage 缓存
+     *
+     * @param {string} uuid - 账号 UUID
+     * @param {string} providerType - provider 类型
+     * @returns {Object|null} 缓存数据或 null
+     */
     getUsageCache(uuid, providerType) {
         const db = this.getDb();
         const row = db.prepare(`
@@ -648,6 +812,12 @@ class SQLiteDB {
         }
     }
 
+    /**
+     * 批量获取 usage 缓存
+     *
+     * @param {string} providerType - provider 类型
+     * @returns {Map} 缓存 Map
+     */
     getUsageCacheBatch(providerType) {
         const db = this.getDb();
         const rows = db.prepare(`
@@ -669,6 +839,11 @@ class SQLiteDB {
         return cache;
     }
 
+    /**
+     * 清理过期 usage 缓存
+     *
+     * @returns {Object} 执行结果
+     */
     cleanExpiredUsageCache() {
         const db = this.getDb();
         const result = db.prepare(`DELETE FROM usage_cache WHERE expires_at <= ?`).run(Date.now());
@@ -678,6 +853,11 @@ class SQLiteDB {
         return result;
     }
 
+    /**
+     * 清空所有 usage 缓存
+     *
+     * @returns {Object} 执行结果
+     */
     clearAllUsageCache() {
         const db = this.getDb();
         return db.prepare('DELETE FROM usage_cache').run();
@@ -685,6 +865,16 @@ class SQLiteDB {
 
     // ==================== Health History（v2：按 account_uuid） ====================
 
+    /**
+     * 记录健康检查结果
+     *
+     * @param {string} uuid - 账号 UUID
+     * @param {string} providerType - provider 类型
+     * @param {boolean} isHealthy - 是否健康
+     * @param {string|null} [checkModel=null] - 检查模型
+     * @param {string|null} [errorMessage=null] - 错误信息
+     * @returns {Object} 执行结果
+     */
     recordHealthCheck(uuid, providerType, isHealthy, checkModel = null, errorMessage = null) {
         const db = this.getDb();
         return db.prepare(`
@@ -693,6 +883,13 @@ class SQLiteDB {
         `).run(uuid, isHealthy ? 1 : 0, checkModel, errorMessage);
     }
 
+    /**
+     * 获取健康检查历史
+     *
+     * @param {string} uuid - 账号 UUID
+     * @param {number} [limit=10] - 返回数量
+     * @returns {Array} 历史记录
+     */
     getHealthCheckHistory(uuid, limit = 10) {
         const db = this.getDb();
         return db.prepare(`
@@ -703,6 +900,12 @@ class SQLiteDB {
         `).all(uuid, limit);
     }
 
+    /**
+     * 清理旧的健康检查历史
+     *
+     * @param {number} [days=7] - 保留天数
+     * @returns {Object} 执行结果
+     */
     cleanOldHealthHistory(days = 7) {
         const db = this.getDb();
         const result = db.prepare(`
@@ -717,6 +920,12 @@ class SQLiteDB {
 
     // ==================== Stats ====================
 
+    /**
+     * 获取账号池统计信息
+     *
+     * @param {string|null} [providerType=null] - provider 类型
+     * @returns {Array} 统计结果
+     */
     getPoolStats(providerType = null) {
         const db = this.getDb();
         const row = db.prepare(`
@@ -742,5 +951,10 @@ class SQLiteDB {
     }
 }
 
+/**
+ * SQLiteDB 单例实例
+ *
+ * @type {SQLiteDB}
+ */
 export const sqliteDB = new SQLiteDB();
 export default sqliteDB;

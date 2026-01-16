@@ -1,5 +1,6 @@
 /**
- * 用量 Handler 实现
+ * 用量 Handler 实现。
+ * @module ui/router/handlers/usage
  */
 import path from 'path';
 import { createLogger } from '../../../lib/logger.js';
@@ -12,7 +13,9 @@ import { serviceInstances, getServiceAdapter } from '../../../services/manager.j
 const logger = createLogger('ui:handlers:usage');
 
 /**
- * 获取所有用量
+ * 获取所有用量。
+ * @param {{ req: import('http').IncomingMessage, res: import('http').ServerResponse, currentConfig: object, accountPoolManager: object }} ctx - 请求上下文。
+ * @returns {Promise<void>}
  */
 export async function getAllUsage({ req, res, currentConfig, accountPoolManager }) {
     try {
@@ -22,6 +25,7 @@ export async function getAllUsage({ req, res, currentConfig, accountPoolManager 
         let usageResults;
 
         if (!refresh) {
+            // 优先读取缓存，避免频繁请求
             const { readUsageCache } = await import('../../../ui-manager.js');
             const cachedData = await readUsageCache();
             if (cachedData) {
@@ -51,7 +55,9 @@ export async function getAllUsage({ req, res, currentConfig, accountPoolManager 
 }
 
 /**
- * 获取账号用量
+ * 获取账号用量。
+ * @param {{ req: import('http').IncomingMessage, res: import('http').ServerResponse, currentConfig: object, accountPoolManager: object, match: Array<string> }} ctx - 请求上下文。
+ * @returns {Promise<void>}
  */
 export async function getAccountUsage({ req, res, currentConfig, accountPoolManager, match }) {
     const uuid = decodeURIComponent(match[1]);
@@ -83,7 +89,9 @@ export async function getAccountUsage({ req, res, currentConfig, accountPoolMana
 }
 
 /**
- * 获取模型列表
+ * 获取模型列表。
+ * @param {{ res: import('http').ServerResponse }} ctx - 请求上下文。
+ * @returns {Promise<void>}
  */
 export async function getFullModels({ res }) {
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -91,10 +99,10 @@ export async function getFullModels({ res }) {
 }
 
 /**
- * 获取所有支持用量查询的提供商的用量信息
- * @param {Object} currentConfig - 当前配置
- * @param {Object} accountPoolManager - 账号池管理器
- * @returns {Promise<Object>} 所有提供商的用量信息
+ * 获取所有支持用量查询的提供商的用量信息。
+ * @param {object} currentConfig - 当前配置。
+ * @param {object} accountPoolManager - 账号池管理器。
+ * @returns {Promise<object>} 所有提供商的用量信息。
  */
 async function getAllProvidersUsage(currentConfig, accountPoolManager) {
     const results = {
@@ -134,10 +142,10 @@ async function getAllProvidersUsage(currentConfig, accountPoolManager) {
 }
 
 /**
- * 获取提供商显示名称
- * @param {Object} provider - 提供商配置
- * @param {string} providerType - 提供商类型
- * @returns {string} 显示名称
+ * 获取提供商显示名称。
+ * @param {object} provider - 提供商配置。
+ * @param {string} providerType - 提供商类型。
+ * @returns {string} 显示名称。
  */
 function getProviderDisplayName(provider, providerType) {
     // 尝试从凭据文件路径提取名称
@@ -156,11 +164,11 @@ function getProviderDisplayName(provider, providerType) {
 }
 
 /**
- * 获取指定提供商类型的用量信息
- * @param {string} providerType - 提供商类型
- * @param {Object} currentConfig - 当前配置
- * @param {Object} accountPoolManager - 账号池管理器
- * @returns {Promise<Object>} 提供商用量信息
+ * 获取指定提供商类型的用量信息。
+ * @param {string} providerType - 提供商类型。
+ * @param {object} currentConfig - 当前配置。
+ * @param {object} accountPoolManager - 账号池管理器。
+ * @returns {Promise<object>} 提供商用量信息。
  */
 async function getProviderTypeUsage(providerType, currentConfig, accountPoolManager) {
     const result = {
@@ -178,8 +186,8 @@ async function getProviderTypeUsage(providerType, currentConfig, accountPoolMana
 
     result.totalCount = providers.length;
 
-    // 遍历所有提供商实例获取用量
-    for (const provider of providers) {
+        // 遍历所有提供商实例获取用量
+        for (const provider of providers) {
         const providerKey = providerType + (provider.uuid || '');
         let adapter = serviceInstances[providerKey];
 
@@ -340,9 +348,9 @@ async function getProviderTypeUsage(providerType, currentConfig, accountPoolMana
 }
 
 /**
- * 从适配器获取用量信息
- * @param {Object} adapter - 服务适配器
- * @returns {Promise<Object>} 用量信息
+ * 从适配器获取用量信息。
+ * @param {object} adapter - 服务适配器。
+ * @returns {Promise<object | null>} 用量信息。
  */
 async function getAdapterUsage(adapter) {
     const rawUsage = await getUsageLimits(adapter);
@@ -350,9 +358,9 @@ async function getAdapterUsage(adapter) {
 }
 
 /**
- * 格式化 Kiro 用量信息为易读格式
- * @param {Object} usageData - 原始用量数据
- * @returns {Object} 格式化后的用量信息
+ * 格式化 Kiro 用量信息为易读格式。
+ * @param {object | null} usageData - 原始用量数据。
+ * @returns {object | null} 格式化后的用量信息。
  */
 function formatKiroUsage(usageData) {
     if (!usageData) {
@@ -489,9 +497,10 @@ function formatKiroUsage(usageData) {
 }
 
 /**
- * 更新特定提供商类型的用量缓存
- * @param {string} providerType - 提供商类型
- * @param {Object} usageData - 用量数据
+ * 更新特定提供商类型的用量缓存。
+ * @param {string} providerType - 提供商类型。
+ * @param {object} usageData - 用量数据。
+ * @returns {Promise<void>}
  */
 export async function updateProviderUsageCache(providerType, usageData) {
     const { readUsageCache, writeUsageCache } = await import('../../../ui-manager.js');

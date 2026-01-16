@@ -1,20 +1,18 @@
 /**
- * OAuth 结果页面视图生成器
- * Stage 2.5: Split OAuth Page Generation
- *
- * 负责生成 OAuth 授权成功/失败的 HTML 页面
- * 从 ui-manager.js 中分离出来，提高代码的可维护性和职责分离
+ * OAuth 结果页面视图生成器。
+ * 负责生成 OAuth 授权成功/失败的 HTML 页面，从 ui-manager.js 中分离以便维护。
+ * @module ui/views/oauth-result
  */
 
 /**
- * 生成 OAuth 结果页面 HTML
- * @param {boolean} success - 是否成功
- * @param {string} message - 提示消息
- * @param {Object} details - 详细信息（可选）
- * @param {string} details.provider - 提供商名称
- * @param {number} details.accountNumber - 账号编号
- * @param {string} details.tokenFile - Token 文件名
- * @returns {string} HTML 字符串
+ * 生成 OAuth 结果页面 HTML。
+ * @param {boolean} success - 是否成功。
+ * @param {string} message - 提示消息。
+ * @param {object | null} details - 详细信息（可选）。
+ * @param {string} [details.provider] - 提供商名称。
+ * @param {number} [details.accountNumber] - 账号编号。
+ * @param {string} [details.tokenFile] - Token 文件名。
+ * @returns {string} HTML 字符串。
  */
 export function generateOAuthResultPage(success, message, details = null) {
     const iconColor = success ? '#10b981' : '#ef4444';
@@ -23,6 +21,7 @@ export function generateOAuthResultPage(success, message, details = null) {
 
     let detailsHtml = '';
     if (details) {
+        // 仅在有详细信息时渲染附加卡片
         detailsHtml = `
             <div style="background: rgba(255,255,255,0.05); border-radius: 12px; padding: 20px; text-align: left; max-width: 400px; margin: 0 auto 32px;">
                 ${details.provider ? `<div style="color: #9ca3af; margin-bottom: 8px;">登录方式: <span style="color: #3b82f6; font-weight: 600;">${details.provider}</span></div>` : ''}

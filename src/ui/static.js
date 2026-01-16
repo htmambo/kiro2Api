@@ -1,17 +1,18 @@
+/**
+ * 静态文件服务模块。
+ * 负责解析路径、定位静态资源并返回响应。
+ * @module ui/static
+ */
+
 import { createReadStream } from 'fs';
 import { promises as fs } from 'fs';
 import path from 'path';
 
 /**
- * 静态文件服务模块
- * 处理静态资源的请求和响应
- */
-
-/**
- * 提供静态文件服务
- * @param {string} pathParam - 请求路径
- * @param {http.ServerResponse} res - HTTP响应对象
- * @returns {Promise<boolean>} - 如果文件被成功提供则返回true
+ * 提供静态文件服务。
+ * @param {string} pathParam - 请求路径。
+ * @param {import('http').ServerResponse} res - HTTP 响应对象。
+ * @returns {Promise<boolean>} 如果文件被成功提供则返回 true。
  */
 export async function serveStaticFiles(pathParam, res) {
     const staticRoot = path.resolve(process.cwd(), 'static');
@@ -44,6 +45,7 @@ export async function serveStaticFiles(pathParam, res) {
         return false;
     }
 
+    // 生成候选路径（带扩展名、原路径、目录 index）
     const candidates = [];
     const ext = path.extname(candidateBase);
     if (!ext && !candidateBase.endsWith(path.sep)) {
@@ -61,7 +63,7 @@ export async function serveStaticFiles(pathParam, res) {
                 break;
             }
         } catch {
-            // ignore missing
+            // 忽略不存在的候选路径
         }
     }
 
@@ -73,7 +75,7 @@ export async function serveStaticFiles(pathParam, res) {
                 filePath = fallbackIndex;
             }
         } catch {
-            // ignore missing
+            // 忽略不存在的回退文件
         }
     }
 
@@ -96,7 +98,7 @@ export async function serveStaticFiles(pathParam, res) {
             }
             res.end('Internal Server Error');
         } catch {
-            // ignore
+            // 忽略无法写入的响应
         }
     });
     stream.pipe(res);
@@ -104,9 +106,9 @@ export async function serveStaticFiles(pathParam, res) {
 }
 
 /**
- * 根据文件扩展名获取Content-Type
- * @param {string} fileExt - 文件扩展名
- * @returns {string} - Content-Type字符串
+ * 根据文件扩展名获取 Content-Type。
+ * @param {string} fileExt - 文件扩展名。
+ * @returns {string} Content-Type 字符串。
  */
 function getContentType(fileExt) {
     const contentTypes = {

@@ -1,6 +1,7 @@
 /**
- * 上传 Handler 实现
- * 处理文件上传和配置文件管理
+ * 上传 Handler 实现。
+ * 处理文件上传和配置文件管理。
+ * @module ui/router/handlers/upload
  */
 import { promises as fs, existsSync } from 'fs';
 import path from 'path';
@@ -47,6 +48,13 @@ const upload = multer({
     limits: { fileSize: MAX_UPLOAD_BYTES }
 });
 
+/**
+ * 执行单文件上传解析。
+ * @param {import('http').IncomingMessage} req - 请求对象。
+ * @param {import('http').ServerResponse} res - 响应对象。
+ * @param {string} fieldName - 表单字段名。
+ * @returns {Promise<void>}
+ */
 function runMulterSingle(req, res, fieldName) {
     return new Promise((resolve, reject) => {
         upload.single(fieldName)(req, res, (err) => {
@@ -57,8 +65,11 @@ function runMulterSingle(req, res, fieldName) {
 }
 
 /**
- * Helper function to attempt quick link for a single file
- * Extracted from ui-manager.js for reusability
+ * 尝试为单个文件执行快速关联。
+ * 从 ui-manager.js 中抽取，便于复用。
+ * @param {string} filePath - 目标文件路径。
+ * @param {object} accountPoolManager - 账号池管理器。
+ * @returns {Promise<object>} 关联结果。
  */
 async function attemptQuickLinkFile(filePath, accountPoolManager) {
     if (!filePath) {
@@ -66,24 +77,24 @@ async function attemptQuickLinkFile(filePath, accountPoolManager) {
     }
 
     try {
-        // Import dependencies
+        // 动态导入依赖，避免初始化时加载过重
         const { DEFAULT_PROVIDER_TYPE_FOR_ACCOUNTS } = await import('../../../ui-manager.js');
         const { KIRO_MODELS } = await import('../../../kiro/constants.js');
         const { createProviderConfig, formatSystemPath } = await import('../../../utils/account-utils.js');
         const { broadcastEvent } = await import('../../events.js');
 
-        // Defaults for Kiro OAuth
+        // Kiro OAuth 的默认值
         const providerType = DEFAULT_PROVIDER_TYPE_FOR_ACCOUNTS;
         const credPathKey = 'KIRO_OAUTH_CREDS_FILE_PATH';
         const defaultCheckModel = KIRO_MODELS[0];
         const displayName = 'Claude Kiro Account';
         const needsProjectId = false;
 
-        // Check if already linked
+        // 检查是否已关联
         const targetAbsPath = path.resolve(process.cwd(), filePath);
         const accounts = accountPoolManager.listAccounts();
         const isAlreadyLinked = accounts.some(p => {
-            const existingPath = p.path || p[credPathKey]; // Support both key formats
+            const existingPath = p.path || p[credPathKey]; // 兼容两种字段格式
             if (!existingPath) return false;
             const existingAbsPath = path.resolve(process.cwd(), existingPath);
             return existingAbsPath.toLowerCase() === targetAbsPath.toLowerCase();
@@ -93,7 +104,7 @@ async function attemptQuickLinkFile(filePath, accountPoolManager) {
             return { success: false, message: '该配置文件已关联', alreadyLinked: true };
         }
 
-        // Create new provider config based on provider type
+        // 根据提供商类型生成配置
         const newProviderConfig = createProviderConfig({
             credPathKey,
             credPath: formatSystemPath(filePath),
@@ -101,11 +112,11 @@ async function attemptQuickLinkFile(filePath, accountPoolManager) {
             needsProjectId
         });
 
-        // Add account through AccountPoolManager
+        // 通过 AccountPoolManager 添加账号
         const newProvider = accountPoolManager.addAccount(newProviderConfig);
         logger.info(`[UI API] Quick linked config: ${filePath}`);
 
-        // Broadcast update event
+        // 广播更新事件
         broadcastEvent('config_update', {
             action: 'quick_link',
             filePath: filePath,
@@ -133,7 +144,9 @@ async function attemptQuickLinkFile(filePath, accountPoolManager) {
 
 
 /**
- * 上传 OAuth 凭据文件
+ * 上传 OAuth 凭据文件。
+ * @param {{ req: import('http').IncomingMessage, res: import('http').ServerResponse, currentConfig: object }} ctx - 请求上下文。
+ * @returns {Promise<void>}
  */
 export async function uploadCredentials({ req, res, currentConfig }) {
     try {
@@ -158,12 +171,12 @@ export async function uploadCredentials({ req, res, currentConfig }) {
             return;
         }
 
-        // multer执行完成后，表单字段已解析到req.body中
+        // multer 执行完成后，表单字段已解析到 req.body 中
         const providerRaw = req.body?.provider || 'common';
         const provider = String(providerRaw).trim() || 'common';
         const tempFilePath = req.file.path;
 
-        // 根据实际的provider移动文件到正确的目录
+        // 根据实际的 provider 移动文件到正确的目录
         const configsRoot = path.resolve(process.cwd(), 'configs');
         let targetDir = path.resolve(configsRoot, provider);
 
@@ -174,7 +187,7 @@ export async function uploadCredentials({ req, res, currentConfig }) {
             return;
         }
 
-        // 如果是kiro类型的凭证，需要再包裹一层文件夹
+        // 如果是 kiro 类型的凭证，需要再包裹一层文件夹
         if (provider === 'kiro') {
             // 使用时间戳作为子文件夹名称，确保每个上传的文件都有独立的目录
             const timestamp = Date.now();
@@ -221,7 +234,9 @@ export async function uploadCredentials({ req, res, currentConfig }) {
 }
 
 /**
- * 获取上传配置文件列表
+ * 获取上传配置文件列表。
+ * @param {{ res: import('http').ServerResponse, currentConfig: object, accountPoolManager: object }} ctx - 请求上下文。
+ * @returns {Promise<void>}
  */
 export async function getUploadConfigs({ res, currentConfig, accountPoolManager }) {
     try {
@@ -239,7 +254,9 @@ export async function getUploadConfigs({ res, currentConfig, accountPoolManager 
 }
 
 /**
- * 查看配置文件
+ * 查看配置文件。
+ * @param {{ res: import('http').ServerResponse, match: Array<string> }} ctx - 请求上下文。
+ * @returns {Promise<void>}
  */
 export async function viewConfig({ res, match }) {
     try {
@@ -286,7 +303,9 @@ export async function viewConfig({ res, match }) {
 }
 
 /**
- * 删除配置文件
+ * 删除配置文件。
+ * @param {{ res: import('http').ServerResponse, match: Array<string> }} ctx - 请求上下文。
+ * @returns {Promise<void>}
  */
 export async function deleteConfig({ res, match }) {
     const { broadcastEvent } = await import('../../events.js');
@@ -339,7 +358,9 @@ export async function deleteConfig({ res, match }) {
 }
 
 /**
- * 快速关联配置文件
+ * 快速关联配置文件。
+ * @param {{ req: import('http').IncomingMessage, res: import('http').ServerResponse, accountPoolManager: object }} ctx - 请求上下文。
+ * @returns {Promise<void>}
  */
 export async function quickLink({ req, res, accountPoolManager }) {
     const { getRequestBody } = await import('../../../utils/common.js');
@@ -373,7 +394,9 @@ export async function quickLink({ req, res, accountPoolManager }) {
 }
 
 /**
- * 批量快速关联
+ * 批量快速关联。
+ * @param {{ req: import('http').IncomingMessage, res: import('http').ServerResponse, accountPoolManager: object }} ctx - 请求上下文。
+ * @returns {Promise<void>}
  */
 export async function bulkQuickLink({ req, res, accountPoolManager }) {
     const { getRequestBody } = await import('../../../utils/common.js');
@@ -559,6 +582,12 @@ function isPathUsed(relativePath, fileName, usedPaths) {
     return false;
 }
 
+/**
+ * 扫描配置文件并生成列表。
+ * @param {object} currentConfig - 当前配置。
+ * @param {object} accountPoolManager - 账号池管理器。
+ * @returns {Promise<Array<object>>} 配置文件列表。
+ */
 async function scanConfigFiles(currentConfig, accountPoolManager) {
     const configFiles = [];
     const seenPaths = new Set();
@@ -575,7 +604,7 @@ async function scanConfigFiles(currentConfig, accountPoolManager) {
     // 使用最新的号池数据
     let accounts = accountPoolManager.listAccounts();
 
-    // 检查号池文件中的所有OAuth凭据路径 - 标准化路径格式
+    // 检查号池文件中的所有 OAuth 凭据路径 - 标准化路径格式
     if (accounts) {
         const { addToUsedPaths } = await import('../../../utils/account-utils.js');
         for (const account of accounts) {
@@ -642,17 +671,17 @@ async function scanConfigFiles(currentConfig, accountPoolManager) {
 }
 
 /**
- * Scan OAuth directory for credential files
- * @param {string} dirPath - Directory path to scan
- * @param {Set} usedPaths - Set of used paths
- * @param {Object} currentConfig - Current configuration
- * @returns {Promise<Array>} Array of OAuth configuration file objects
+ * 扫描 OAuth 目录中的凭据文件。
+ * @param {string} dirPath - 要扫描的目录路径。
+ * @param {Set<string>} usedPaths - 已使用的路径集合。
+ * @param {object} currentConfig - 当前配置。
+ * @returns {Promise<Array<object>>} OAuth 配置文件列表。
  */
 async function scanOAuthDirectory(dirPath, usedPaths, currentConfig) {
     const oauthFiles = [];
     // const path = await import('path');
     // const { promises: fs, existsSync } = await import('fs');
-    
+
     try {
         const files = await fs.readdir(dirPath, { withFileTypes: true });
         
@@ -686,10 +715,11 @@ async function scanOAuthDirectory(dirPath, usedPaths, currentConfig) {
 }
 
 /**
- * Analyze OAuth configuration file and return metadata
- * @param {string} filePath - Full path to the file
- * @param {Set} usedPaths - Set of paths currently in use
- * @returns {Promise<Object|null>} OAuth file information object
+ * 分析 OAuth 配置文件并返回元信息。
+ * @param {string} filePath - 文件完整路径。
+ * @param {Set<string>} usedPaths - 当前已使用路径集合。
+ * @param {object} currentConfig - 当前配置。
+ * @returns {Promise<object | null>} OAuth 文件信息对象。
  */
 async function analyzeOAuthFile(filePath, usedPaths, currentConfig) {
     try {
@@ -712,7 +742,7 @@ async function analyzeOAuthFile(filePath, usedPaths, currentConfig) {
                 const jsonData = JSON.parse(rawContent);
                 content = rawContent;
                 
-                // 识别OAuth提供商
+                // 识别 OAuth 提供商
                 if (jsonData.apiKey || jsonData.api_key) {
                     type = 'api_key';
                 } else if (jsonData.client_id || jsonData.client_secret) {
@@ -769,12 +799,12 @@ async function analyzeOAuthFile(filePath, usedPaths, currentConfig) {
 }
 
 /**
- * Get detailed usage information for a file
- * @param {string} relativePath - Relative file path
- * @param {string} fileName - File name
- * @param {Set} usedPaths - Set of used paths
- * @param {Object} currentConfig - Current configuration
- * @returns {Object} Usage information object
+ * 获取文件的详细使用信息。
+ * @param {string} relativePath - 相对路径。
+ * @param {string} fileName - 文件名。
+ * @param {Set<string>} usedPaths - 已使用路径集合。
+ * @param {object} currentConfig - 当前配置。
+ * @returns {object} 使用信息对象。
  */
 function getFileUsageInfo(relativePath, fileName, usedPaths, currentConfig) {
     const usageInfo = {

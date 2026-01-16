@@ -1,16 +1,16 @@
 /**
- * 用量路由配置
+ * 用量路由配置。
+ * @module ui/router/routes/usage
  */
 
 import * as usageHandlers from '../handlers/usage.handlers.js';
 
 /**
- * 设置用量查询路由
- *
- * @param {Router} router - 路由器实例
+ * 设置用量查询路由。
+ * @param {import('../Router.js').Router} router - 路由器实例。
+ * @returns {void}
  */
 export function setupUsageRoutes(router) {
-
     // 获取指定账号的用量
     router.addRoute('GET', /^\/api\/usage\/([^\/]+)$/, usageHandlers.getAccountUsage, {
         auth: true,

@@ -1,5 +1,6 @@
 /**
- * 配置 Handler 实现
+ * 配置 Handler 实现。
+ * @module ui/router/handlers/config
  */
 
 import { existsSync, readFileSync, writeFileSync } from 'fs';
@@ -13,7 +14,9 @@ import crypto from 'node:crypto';
 const logger = createLogger('ui:handlers:config');
 
 /**
- * 获取配置
+ * 获取配置。
+ * @param {{ res: import('http').ServerResponse, currentConfig: object }} ctx - 请求上下文。
+ * @returns {Promise<void>}
  */
 export async function getConfig({ res, currentConfig }) {
     let systemPrompt = '';
@@ -34,7 +37,9 @@ export async function getConfig({ res, currentConfig }) {
 }
 
 /**
- * 更新配置
+ * 更新配置。
+ * @param {{ req: import('http').IncomingMessage, res: import('http').ServerResponse, currentConfig: object }} ctx - 请求上下文。
+ * @returns {Promise<void>}
  */
 export async function updateConfig({ req, res, currentConfig }) {
     try {
@@ -85,7 +90,9 @@ export async function updateConfig({ req, res, currentConfig }) {
 }
 
 /**
- * 重载配置
+ * 重载配置。
+ * @param {{ res: import('http').ServerResponse }} ctx - 请求上下文。
+ * @returns {Promise<void>}
  */
 export async function reloadConfig({ res }) {
     try {
@@ -110,7 +117,9 @@ export async function reloadConfig({ res }) {
 }
 
 /**
- * 更新管理员密码
+ * 更新管理员密码。
+ * @param {{ req: import('http').IncomingMessage, res: import('http').ServerResponse }} ctx - 请求上下文。
+ * @returns {Promise<void>}
  */
 export async function updateAdminPassword({ req, res }) {
     try {
@@ -135,6 +144,7 @@ export async function updateAdminPassword({ req, res }) {
         const salt = crypto.randomBytes(16);
         const keylen = 64;
         const derived = await new Promise((resolve, reject) => {
+            // 使用 scrypt 生成加盐哈希，避免明文存储
             crypto.scrypt(trimmed, salt, keylen, { N: 16384, r: 8, p: 1 }, (err, buf) => {
                 if (err) return reject(err);
                 resolve(buf);

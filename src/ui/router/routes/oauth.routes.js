@@ -1,13 +1,14 @@
 /**
- * OAuth 路由配置
+ * OAuth 路由配置。
+ * @module ui/router/routes/oauth
  */
 
 import * as oauthHandlers from '../handlers/oauth.handlers.js';
 
 /**
- * 设置 OAuth 相关路由
- *
- * @param {Router} router - 路由器实例
+ * 设置 OAuth 相关路由。
+ * @param {import('../Router.js').Router} router - 路由器实例。
+ * @returns {void}
  */
 export function setupOAuthRoutes(router) {
     // OAuth 网页回调（返回 HTML）

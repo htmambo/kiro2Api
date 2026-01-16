@@ -1,6 +1,9 @@
 /**
  * 账号工具模块
- * 包含 ui-manager.js 等共用的工具函数
+ *
+ * 包含 ui-manager.js 等共用的工具函数。
+ *
+ * @module utils/account-utils
  */
 
 import * as path from 'path';
@@ -8,6 +11,7 @@ import { promises as fs } from 'fs';
 
 /**
  * 生成 UUID
+ *
  * @returns {string} UUID 字符串
  */
 export function generateUUID() {
@@ -20,6 +24,7 @@ export function generateUUID() {
 
 /**
  * 格式化相对路径为当前系统的路径格式
+ *
  * @param {string} relativePath - 相对路径
  * @returns {string} 格式化后的路径（带有 ./ 或 .\ 前缀）
  */
@@ -36,26 +41,29 @@ export function formatSystemPath(relativePath) {
 
 /**
  * 根据文件路径检测提供商类型
+ *
  * @param {string} normalizedPath - 标准化的文件路径（小写，正斜杠）
  * @returns {Object|null} 提供商映射对象，如果未检测到则返回 null
  */
 export function detectProviderFromPath(normalizedPath) {
-    // provider 层已移除：保留函数签名用于兼容旧代码路径（返回 null）
+    // 提供商层已移除：保留函数签名用于兼容旧代码路径（返回 null）
     return null;
 }
 
 /**
  * 根据目录名获取提供商映射
+ *
  * @param {string} dirName - 目录名称
  * @returns {Object|null} 提供商映射对象，如果未找到则返回 null
  */
 export function getProviderMappingByDirName(dirName) {
-    // provider 层已移除：保留函数签名用于兼容旧代码路径（返回 null）
+    // 提供商层已移除：保留函数签名用于兼容旧代码路径（返回 null）
     return null;
 }
 
 /**
  * 验证文件是否是有效的 OAuth 凭据文件
+ *
  * @param {string} filePath - 文件路径
  * @returns {Promise<boolean>} 是否有效
  */
@@ -88,6 +96,7 @@ export async function isValidOAuthCredentials(filePath) {
 
 /**
  * 创建新的提供商配置对象
+ *
  * @param {Object} options - 配置选项
  * @param {string} options.credPathKey - 凭据路径键名
  * @param {string} options.credPath - 凭据文件路径
@@ -124,6 +133,7 @@ export function createProviderConfig(options) {
 
 /**
  * 将路径添加到已使用路径集合（标准化多种格式）
+ *
  * @param {Set} usedPaths - 已使用路径的集合
  * @param {string} filePath - 要添加的文件路径
  */
@@ -142,6 +152,7 @@ export function addToUsedPaths(usedPaths, filePath) {
 
 /**
  * 检查路径是否已关联（用于自动关联检测）
+ *
  * @param {string} relativePath - 相对路径
  * @param {Set} linkedPaths - 已关联路径的集合
  * @returns {boolean} 是否已关联
@@ -154,6 +165,7 @@ export function isPathLinked(relativePath, linkedPaths) {
 
 /**
  * 检查 provider pool 中是否存在相同 userId 的 token
+ *
  * @param {Array} providerPool - provider pool 数组
  * @param {string} userId - 要检查的 userId
  * @param {string} excludeUuid - 排除的 uuid（用于更新场景）

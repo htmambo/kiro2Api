@@ -1,7 +1,10 @@
 /**
- * Streaming Module
- * 处理 AWS Event Stream 格式的流式传输
- * 包含事件解析、流式请求处理、错误重试等功能
+ * 流式处理模块
+ *
+ * 处理 AWS Event Stream 格式的流式传输，
+ * 包含事件解析、流式请求处理与错误重试等功能。
+ *
+ * @module kiro/streaming
  */
 
 import { initializeAuth } from './auth.js';
@@ -32,9 +35,16 @@ const MAX_BUFFER_SIZE = (() => {
 
 /**
  * 协议损坏错误
- * 用于区分"数据不完整"（需等待）和"协议损坏"（无法修复）
+ *
+ * 用于区分“数据不完整”（需等待）和“协议损坏”（无法修复）。
  */
 class AwsEventStreamCorruptError extends Error {
+    /**
+     * 创建协议损坏错误
+     *
+     * @param {string} message - 错误信息
+     * @param {Object} [details={}] - 细节信息
+     */
     constructor(message, details = {}) {
         super(message);
         this.name = 'AwsEventStreamCorruptError';
@@ -225,7 +235,7 @@ export function parseAwsEventStreamMessage(buffer, offset = 0) {
  * 解析 AWS Event Stream 缓冲区，提取所有完整的事件
  *
  * @param {Buffer} buffer - 包含事件流数据的缓冲区
- * @returns {Object} { events: 解析出的事件数组, remaining: 未处理完的缓冲区 }
+ * @returns {{events: Array, remaining: Buffer}} 解析结果
  */
 export function parseAwsEventStreamBuffer(buffer) {
     const events = [];
@@ -358,14 +368,15 @@ export function parseAwsEventStreamBuffer(buffer) {
 
 /**
  * 流式 API 调用（生成器函数）
- * 处理 AWS CodeWhisperer 的流式响应，包含错误重试、性能监控等功能
+ *
+ * 处理 AWS CodeWhisperer 的流式响应，包含错误重试与性能监控等功能。
  *
  * @param {Object} service - KiroService 实例
  * @param {string} method - HTTP 方法（保留参数，暂未使用）
  * @param {string} model - 模型名称
  * @param {Object} body - 请求体 { messages, tools, system, thinking }
- * @param {boolean} isRetry - 是否为重试请求
- * @param {number} retryCount - 当前重试次数
+ * @param {boolean} [isRetry=false] - 是否为重试请求
+ * @param {number} [retryCount=0] - 当前重试次数
  * @yields {Object} 流式事件 { type, content/data }
  */
 export async function* streamApiReal(

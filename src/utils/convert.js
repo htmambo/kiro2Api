@@ -7,6 +7,8 @@
  * - 这里作为薄封装层，负责：
  *   1) 初始化注册（避免循环依赖）
  *   2) 暴露 convertData / getOpenAIStreamChunkStop 供业务层调用
+ *
+ * @module utils/convert
  */
 
 import { v4 as uuidv4 } from 'uuid';
@@ -18,11 +20,13 @@ import '../converters/register-converters.js';
 
 /**
  * 通用数据转换函数
+ *
  * @param {object} data - 要转换的数据（请求体或响应/流式 chunk）
  * @param {'request'|'response'|'streamChunk'|'modelList'} type - 转换类型
  * @param {string} fromProvider - 源 provider（可能带后缀，如 claude-kiro-oauth）
  * @param {string} toProvider - 目标 provider（可能带后缀）
  * @param {string} [model] - 可选模型名（部分响应/流式转换需要）
+ * @returns {object} 转换后的数据
  */
 export function convertData(data, type, fromProvider, toProvider, model) {
     const fromProtocol = getProtocolPrefix(fromProvider);
@@ -48,8 +52,12 @@ export function convertData(data, type, fromProvider, toProvider, model) {
 }
 
 /**
- * OpenAI ChatCompletions 流式 stop chunk（用于在 Claude → OpenAI 转换后补全结尾块）
- * @param {string} model
+ * OpenAI ChatCompletions 流式 stop chunk
+ *
+ * 用于在 Claude → OpenAI 转换后补全结尾块。
+ *
+ * @param {string} model - 模型名称
+ * @returns {Object} 流式结束块
  */
 export function getOpenAIStreamChunkStop(model) {
     return {
@@ -79,4 +87,3 @@ export function getOpenAIStreamChunkStop(model) {
         },
     };
 }
-

@@ -1,10 +1,17 @@
+/**
+ * 配置管理模块
+ *
+ * 负责读取配置文件、合并默认配置、处理命令行参数并导出运行时配置。
+ *
+ * @module config/manager
+ */
 import * as fs from 'fs';
 import { promises as pfs } from 'fs';
 import { INPUT_SYSTEM_PROMPT_FILE, MODEL_PROVIDER } from '../utils/common.js';
 import { createLogger } from '../lib/logger.js';
 
-export let CONFIG = {}; // Make CONFIG exportable
-export let PROMPT_LOG_FILENAME = ''; // Make PROMPT_LOG_FILENAME exportable
+export let CONFIG = {}; // 导出全局 CONFIG 供其他模块使用
+export let PROMPT_LOG_FILENAME = ''; // 导出提示词日志文件名
 
 const ALL_MODEL_PROVIDERS = Object.values(MODEL_PROVIDER);
 const logger = createLogger('config:manager');
@@ -50,6 +57,12 @@ const DEFAULT_CONFIG = {
     USAGE_QUERY_CONCURRENCY: 10
 };
 
+/**
+ * 规范化配置中的模型提供商列表
+ *
+ * @param {Object} config - 当前配置对象
+ * @returns {void}
+ */
 function normalizeConfiguredProviders(config) {
     const fallbackProvider = MODEL_PROVIDER.KIRO_API;
     const dedupedProviders = [];
@@ -90,10 +103,11 @@ function normalizeConfiguredProviders(config) {
 }
 
 /**
- * Initializes the server configuration from config.json and command-line arguments.
- * @param {string[]} args - Command-line arguments.
- * @param {string} [configFilePath='configs/config.json'] - Path to the configuration file.
- * @returns {Object} The initialized configuration object.
+ * 从 config.json 与命令行参数初始化配置
+ *
+ * @param {string[]} args - 命令行参数
+ * @param {string} [configFilePath='configs/config.json'] - 配置文件路径
+ * @returns {Object} 初始化后的配置对象
  */
 export async function initializeConfig(args = process.argv.slice(2), configFilePath = 'configs/config.json') {
     let currentConfig = {};
@@ -134,7 +148,7 @@ export async function initializeConfig(args = process.argv.slice(2), configFileP
             }
         } else {
             logger.error('Failed to load config.json:', error.message);
-            // Fallback to default values if config.json is invalid
+            // 配置文件无效时回退到默认配置
             currentConfig = { ...DEFAULT_CONFIG };
             logger.info('Using default configuration.');
         }
@@ -151,7 +165,7 @@ export async function initializeConfig(args = process.argv.slice(2), configFileP
     }
 
     currentConfig.OPEN_SERVER_URL  = true;
-    // Parse command-line arguments
+    // 解析命令行参数
     for (let i = 0; i < args.length; i++) {
         if (args[i] === '--api-key') {
             if (i + 1 < args.length) {
@@ -256,25 +270,25 @@ export async function initializeConfig(args = process.argv.slice(2), configFileP
         currentConfig.ACCOUNT_POOL_FILE_PATH = 'configs/account_pool.json';
     }
 
-    // Set PROMPT_LOG_FILENAME based on the determined config
+    // 根据配置生成 PROMPT_LOG_FILENAME
     if (currentConfig.PROMPT_LOG_MODE === 'file') {
         const now = new Date();
         const pad = (num) => String(num).padStart(2, '0');
         const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
         PROMPT_LOG_FILENAME = `${currentConfig.PROMPT_LOG_BASE_NAME}-${timestamp}.log`;
     } else {
-        PROMPT_LOG_FILENAME = ''; // Clear if not logging to file
+        PROMPT_LOG_FILENAME = ''; // 未启用文件日志则清空
     }
 
-    // Assign to the exported CONFIG
+    // 写回导出的 CONFIG
     Object.assign(CONFIG, currentConfig);
     return CONFIG;
 }
 
 /**
- * Gets system prompt content from the specified file path.
- * @param {string} filePath - Path to the system prompt file.
- * @returns {Promise<string|null>} File content, or null if the file does not exist, is empty, or an error occurs.
+ * 从指定文件路径读取系统提示词内容。
+ * @param {string} filePath - 系统提示词文件路径。
+ * @returns {Promise<string|null>} 文件内容；不存在、为空或读取失败则返回 null。
  */
 export async function getSystemPromptFileContent(filePath) {
     try {

@@ -1,7 +1,7 @@
 /**
- * Vite 开发服务器代理（仅开发环境使用）
- *
- * 目标：通过 8088 访问前端，隐藏 5173 端口
+ * Vite 开发服务器代理（仅开发环境使用）。
+ * 目标：通过 8088 访问前端，隐藏 5173 端口。
+ * @module ui/vite-dev-proxy
  */
 
 import { createLogger } from '../lib/logger.js';
@@ -12,14 +12,27 @@ let proxyInstance = null;
 let proxyTarget = null;
 let proxyInitPromise = null;
 
+/**
+ * 获取 Vite 开发服务器地址。
+ * @returns {string | undefined}
+ */
 function getViteDevServerUrl() {
     return process.env.VITE_DEV_SERVER_URL;
 }
 
+/**
+ * 判断是否启用 Vite 开发代理。
+ * @returns {boolean}
+ */
 export function isViteProxyEnabled() {
     return Boolean(getViteDevServerUrl());
 }
 
+/**
+ * 判断请求路径是否需要代理到 Vite。
+ * @param {string} pathname - 请求路径。
+ * @returns {boolean}
+ */
 export function shouldProxyToVitePath(pathname) {
     if (!isViteProxyEnabled()) return false;
     if (!pathname) return false;
@@ -30,6 +43,11 @@ export function shouldProxyToVitePath(pathname) {
     return true;
 }
 
+/**
+ * 从 URL 中提取标准路径，避免查询参数影响。
+ * @param {string} rawUrl - 原始 URL 字符串。
+ * @returns {string}
+ */
 function normalizePath(rawUrl) {
     if (!rawUrl) return '';
     try {
@@ -39,6 +57,10 @@ function normalizePath(rawUrl) {
     }
 }
 
+/**
+ * 确保代理实例已初始化，并复用同一目标的实例。
+ * @returns {Promise<import('http-proxy') | null>}
+ */
 async function ensureProxy() {
     const target = getViteDevServerUrl();
     if (!target) return null;
@@ -71,11 +93,12 @@ async function ensureProxy() {
                 try {
                     resOrSocket.end();
                 } catch {
-                    // ignore
+                    // 忽略无法关闭的连接
                 }
             }
         });
 
+        // 缓存实例以避免重复创建
         proxyInstance = instance;
         proxyTarget = target;
         return instance;
@@ -86,6 +109,12 @@ async function ensureProxy() {
     return created;
 }
 
+/**
+ * 代理普通 HTTP 请求到 Vite 开发服务器。
+ * @param {import('http').IncomingMessage} req - HTTP 请求对象。
+ * @param {import('http').ServerResponse} res - HTTP 响应对象。
+ * @returns {Promise<boolean>} 是否成功代理。
+ */
 export async function proxyViteRequest(req, res) {
     const target = getViteDevServerUrl();
     if (!target) return false;
@@ -97,6 +126,13 @@ export async function proxyViteRequest(req, res) {
     return true;
 }
 
+/**
+ * 代理 WebSocket 升级请求到 Vite 开发服务器。
+ * @param {import('http').IncomingMessage} req - HTTP 请求对象。
+ * @param {import('net').Socket} socket - 升级 Socket。
+ * @param {Buffer} head - 升级头部数据。
+ * @returns {Promise<boolean>} 是否成功代理。
+ */
 export async function proxyViteUpgrade(req, socket, head) {
     const target = getViteDevServerUrl();
     if (!target) return false;
@@ -108,6 +144,11 @@ export async function proxyViteUpgrade(req, socket, head) {
     return true;
 }
 
+/**
+ * 为服务器附加 Vite 代理的 upgrade 事件处理。
+ * @param {import('http').Server} server - HTTP 服务器实例。
+ * @returns {void}
+ */
 export function attachViteDevProxy(server) {
     if (!isViteProxyEnabled()) return;
 

@@ -1,3 +1,10 @@
+/**
+ * Kiro 工具映射与参数处理模块
+ *
+ * 负责工具名称映射、参数转换、工具调用解析与自适应超时/分段策略。
+ *
+ * @module kiro/tools
+ */
 import { v4 as uuidv4 } from 'uuid';
 import { findMatchingBracket, repairJson } from './utils.js';
 import { createLogger } from '../lib/logger.js';
@@ -5,6 +12,11 @@ import { KIRO_CONSTANTS } from './constants.js';
 
 const logger = createLogger('kiro:tools');
 
+/**
+ * Claude Code → Kiro 工具映射表
+ *
+ * @type {Object}
+ */
 export const CC_TO_KIRO_TOOL_MAPPING = {
     Read: {
         kiroTool: 'readFile',
@@ -94,6 +106,12 @@ const KIRO_TO_CC_TOOL_NAME = new Map(
         .map(([ccName, mapping]) => [mapping.kiroTool, ccName])
 );
 
+/**
+ * 规范化工具名称（处理别名）
+ *
+ * @param {string} toolName - 原始工具名
+ * @returns {string} 规范化后的工具名
+ */
 export function normalizeToolName(toolName) {
     if (!toolName) {
         return toolName;
@@ -108,12 +126,24 @@ export function normalizeToolName(toolName) {
     return toolName;
 }
 
+/**
+ * 将 Claude Code 工具名映射为 Kiro 工具名
+ *
+ * @param {string} toolName - 原始工具名
+ * @returns {string} Kiro 工具名
+ */
 export function mapToolNameToKiro(toolName) {
     const normalized = normalizeToolName(toolName);
     const mapping = CC_TO_KIRO_TOOL_MAPPING[normalized];
     return mapping?.kiroTool || toolName;
 }
 
+/**
+ * 将 Kiro 工具名映射回 Claude Code 工具名
+ *
+ * @param {string} toolName - 原始工具名
+ * @returns {string} Claude Code 工具名
+ */
 export function mapToolNameToCC(toolName) {
     if (!toolName) {
         return toolName;
@@ -121,6 +151,11 @@ export function mapToolNameToCC(toolName) {
     return KIRO_TO_CC_TOOL_NAME.get(toolName) || toolName;
 }
 
+/**
+ * Kiro 工具输入参数的 JSON Schema 定义
+ *
+ * @type {Object}
+ */
 export const KIRO_TOOL_SCHEMAS = {
     readFile: {
         type: 'object',
@@ -228,6 +263,14 @@ export const KIRO_TOOL_SCHEMAS = {
     }
 };
 
+/**
+ * 将 Claude Code 工具参数映射为 Kiro 工具参数
+ *
+ * @param {string} toolName - 工具名
+ * @param {*} input - 输入参数
+ * @param {boolean} [verboseLogging=false] - 是否输出详细日志
+ * @returns {Object} 映射后的参数对象
+ */
 export function mapToolUseParams(toolName, input, verboseLogging = false) {
     if (input === undefined || input === null) {
         return {};
@@ -272,6 +315,14 @@ export function mapToolUseParams(toolName, input, verboseLogging = false) {
     return mappedInput;
 }
 
+/**
+ * 将 Kiro 工具参数反向映射为 Claude Code 工具参数
+ *
+ * @param {string} toolName - 工具名
+ * @param {Object} input - 工具输入
+ * @param {boolean} [verboseLogging=false] - 是否输出详细日志
+ * @returns {Object} 反向映射后的参数对象
+ */
 export function reverseMapToolInput(toolName, input, verboseLogging = false) {
     if (!input || typeof input !== 'object') {
         return input;
@@ -309,6 +360,12 @@ export function reverseMapToolInput(toolName, input, verboseLogging = false) {
     return reversedInput;
 }
 
+/**
+ * 解析单条括号工具调用文本
+ *
+ * @param {string} toolCallText - 工具调用文本
+ * @returns {Object|null} 解析后的工具调用或 null
+ */
 export function parseSingleToolCall(toolCallText) {
     const namePattern = /\[Called\s+(\w+)\s+with\s+args:/i;
     const nameMatch = toolCallText.match(namePattern);
@@ -357,6 +414,12 @@ export function parseSingleToolCall(toolCallText) {
     }
 }
 
+/**
+ * 解析 [Called ...] 格式的工具调用集合
+ *
+ * @param {string} responseText - 模型输出文本
+ * @returns {Array<Object>|null} 工具调用数组或 null
+ */
 export function parseBracketToolCalls(responseText) {
     if (!responseText || !responseText.includes("[Called")) {
         return null;
@@ -412,7 +475,12 @@ export function parseBracketToolCalls(responseText) {
 
 /**
  * 根据模型类型获取自适应超时时间
- * 对于 Opus 等慢模型，自动增加超时时间
+ *
+ * 对于 Opus 等慢模型，自动增加超时时间。
+ *
+ * @param {string} model - 模型名称
+ * @param {number} baseTimeout - 基础超时时间（毫秒）
+ * @returns {number} 自适应超时时间
  */
 export function getAdaptiveTimeout(model, baseTimeout) {
     if (!model) return baseTimeout;
@@ -434,6 +502,9 @@ export function getAdaptiveTimeout(model, baseTimeout) {
 
 /**
  * 检查文本是否需要分段
+ *
+ * @param {string} text - 原始文本
+ * @returns {boolean} 是否需要分段
  */
 export function needsChunking(text) {
     return KIRO_CONSTANTS.AUTO_CHUNKING_ENABLED &&
@@ -486,6 +557,9 @@ function findSplitPoint(text, targetPos) {
 
 /**
  * 将长文本分割成多个片段
+ *
+ * @param {string} text - 原始文本
+ * @returns {Array<string>} 分段后的文本数组
  */
 function splitLongText(text) {
     if (!needsChunking(text)) {

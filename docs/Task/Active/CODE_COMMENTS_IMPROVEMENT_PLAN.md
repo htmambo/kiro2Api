@@ -1,6 +1,6 @@
 # 代码注释完善任务计划
 
-**状态**: 🔄 进行中 (开始时间: 2026-01-16)
+**状态**: ✅ 已完成 (完成时间: 2026-01-16)
 **创建时间**: 2026-01-16
 **创建人**: Claude Code
 
@@ -89,32 +89,63 @@
 - [x] 4.3 标记英文注释和过时注释
 - [x] 4.4 生成注释现状评估报告（已保存至 docs/Analysis/CODE_COMMENTS_ASSESSMENT_REPORT.md）
 
-### 阶段二：核心模块注释完善 🔄
+### 阶段二：核心模块注释完善 ✅
 - [x] 4.5 完善 `api` 模块注释（对外接口）✅
   - [x] rate-limiter.js ✅
   - [x] server.js ✅
   - [x] request-handler.js ✅
   - [x] manager.js ✅
   - [x] error-middleware.js ✅
-- [ ] 4.6 完善 `services` 模块注释（业务服务）
-- [ ] 4.7 完善 `openai` 模块注释（OpenAI 集成）
-- [ ] 4.8 完善 `domain` 模块注释（领域模型）
+- [x] 4.6 完善 `services` 模块注释（业务服务）✅
+  - [x] manager.js ✅
+- [x] 4.7 完善 `openai` 模块注释（OpenAI 集成）✅
+  - [x] openai-responses-core.mjs ✅
+- [x] 4.8 完善 `domain` 模块注释（领域模型）✅
+  - [x] oauth/index.js ✅
+  - [x] oauth/token-store.js ✅
+  - [x] oauth/state-store.js ✅
+  - [x] oauth/flows/aws-sso-device.js ✅
+  - [x] account-pool/index.js ✅
+  - [x] account-pool/json-store.js ✅
+  - [x] account-pool/sqlite-store.js ✅
 
-### 阶段三：业务逻辑模块注释完善 ⏳
-- [ ] 4.9 完善 `kiro` 模块注释（核心业务）
-- [ ] 4.10 完善 `converters` 模块注释（数据转换）
+### 阶段三：业务逻辑模块注释完善 ✅
+- [x] 4.9 完善 `kiro` 模块注释（核心业务）✅
+  - [x] constants.js, tools.js, adapter.js, strategy.js, auth.js ✅
+  - [x] converters/tool-converter.js, message-sanitizer.js ✅
+  - [x] utils/token-counter.js, request-executor.js, streaming.js ✅
+  - [x] api-client.js, utils.js, search.js, summarization.js, request-utils.js ✅
+- [x] 4.10 完善 `converters` 模块注释（数据转换）✅
+  - [x] register-converters.js, BaseConverter.js, ConverterFactory.js, utils.js ✅
+  - [x] strategies/OllamaConverter.js, OpenAIConverter.js, GeminiConverter.js ✅
+  - [x] strategies/OpenAIResponsesConverter.js, ClaudeConverter.js ✅
 
-### 阶段四：基础模块注释完善 ⏳
-- [ ] 4.11 完善 `utils` 模块注释（工具函数）
-- [ ] 4.12 完善 `lib` 模块注释（公共库）
-- [ ] 4.13 完善 `config` 模块注释（配置管理）
-- [ ] 4.14 完善 `ui` 模块注释（用户界面）
+### 阶段四：基础模块注释完善 ✅
+- [x] 4.11 完善 `utils` 模块注释（工具函数）✅
+  - [x] error-logger.js, protocol.js, convert.js ✅
+  - [x] account-utils.js, mutex.js, common.js ✅
+- [x] 4.12 完善 `lib` 模块注释（公共库）✅
+  - [x] logger.js, sqlite-db.js ✅
+- [x] 4.13 完善 `config` 模块注释（配置管理）✅
+  - [x] manager.js ✅
+- [x] 4.14 完善 `ui` 模块注释（用户界面）✅
+  - [x] events.js, index.js, vite-dev-proxy.js, static.js ✅
+  - [x] views/oauth-result.js ✅
+  - [x] router/Router.js, router/index.js ✅
+  - [x] router/middleware/auth.middleware.js ✅
+  - [x] router/utils/response.js ✅
+  - [x] router/routes/*.js (所有路由文件) ✅
+  - [x] router/handlers/*.js (所有处理器文件) ✅
 
-### 阶段五：质量检查与优化 ⏳
-- [ ] 4.15 统一注释风格和术语
-- [ ] 4.16 使用 codex 审查注释质量
-- [ ] 4.17 修复注释中的错误和不一致
-- [ ] 4.18 生成最终验收报告
+### 阶段五：质量检查与优化 ✅
+- [x] 4.15 统一注释风格和术语 ✅
+- [x] 4.16 使用 codex 审查注释质量 ✅
+- [x] 4.17 修复注释中的错误和不一致 ✅
+  - [x] 修正注释与代码不一致（鉴权注释）✅
+  - [x] 清理残留英文注释/JSDoc ✅
+  - [x] 删除重复和过度注释 ✅
+  - [x] 修正 JSDoc 类型不准确 ✅
+- [x] 4.18 生成最终验收报告 ✅
 
 ## 5. 实施顺序
 

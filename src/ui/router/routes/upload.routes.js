@@ -1,13 +1,14 @@
 /**
- * 文件上传路由配置
+ * 文件上传路由配置。
+ * @module ui/router/routes/upload
  */
 
 import * as uploadHandlers from '../handlers/upload.handlers.js';
 
 /**
- * 设置文件上传路由
- *
- * @param {Router} router - 路由器实例
+ * 设置文件上传路由。
+ * @param {import('../Router.js').Router} router - 路由器实例。
+ * @returns {void}
  */
 export function setupUploadRoutes(router) {
     // 上传 OAuth 凭据文件

@@ -1,6 +1,7 @@
 /**
- * UI事件广播模块
- * 处理日志广播和事件流
+ * UI事件广播模块。
+ * 负责初始化日志广播、管理事件客户端，并向前端推送事件流。
+ * @module ui/events
  */
 
 import Logger, { createLogger } from '../lib/logger.js';
@@ -8,11 +9,12 @@ import Logger, { createLogger } from '../lib/logger.js';
 const logger = createLogger('ui:events');
 
 /**
- * 初始化UI管理功能
- * 设置日志广播和事件客户端
+ * 初始化 UI 管理功能。
+ * 建立日志广播机制并准备事件客户端容器。
+ * @returns {void}
  */
 export function initializeUIManagement() {
-    // Initialize log broadcasting for UI
+    // 初始化用于 UI 的日志广播容器
     if (!global.eventClients) {
         global.eventClients = [];
     }
@@ -20,7 +22,7 @@ export function initializeUIManagement() {
         global.logBuffer = [];
     }
 
-    // Patch Logger.prototype so broadcasting survives initLogger()/new Logger() calls.
+    // 打补丁保证 Logger 的新实例也能触发广播
     if (Logger.prototype.__uiBroadcastPatched) {
         return;
     }
@@ -75,7 +77,7 @@ export function broadcastEvent(eventType, data) {
                 try {
                     client.end();
                 } catch {
-                    // ignore
+                    // 忽略无法关闭的连接
                 }
             }
         });

@@ -1,6 +1,9 @@
 /**
- * 转换器工厂类
- * 使用工厂模式管理转换器实例的创建和缓存
+ * 转换器工厂模块
+ *
+ * 使用工厂模式管理转换器实例的创建和缓存。
+ *
+ * @module converters/ConverterFactory
  */
 import { createLogger } from '../lib/logger.js';
 const logger = createLogger({ module: 'ConverterFactory' });
@@ -17,6 +20,7 @@ export class ConverterFactory {
 
     /**
      * 注册转换器类
+     *
      * @param {string} protocolPrefix - 协议前缀
      * @param {Class} ConverterClass - 转换器类
      */
@@ -26,6 +30,7 @@ export class ConverterFactory {
 
     /**
      * 获取转换器实例（带缓存）
+     *
      * @param {string} protocolPrefix - 协议前缀
      * @returns {BaseConverter} 转换器实例
      */
@@ -48,6 +53,7 @@ export class ConverterFactory {
 
     /**
      * 创建转换器实例
+     *
      * @param {string} protocolPrefix - 协议前缀
      * @returns {BaseConverter} 转换器实例
      */
@@ -63,6 +69,8 @@ export class ConverterFactory {
 
     /**
      * 清除所有缓存的转换器
+     *
+     * @returns {void}
      */
     static clearCache() {
         this.#converters.clear();
@@ -70,7 +78,9 @@ export class ConverterFactory {
 
     /**
      * 清除特定协议的转换器缓存
+     *
      * @param {string} protocolPrefix - 协议前缀
+     * @returns {void}
      */
     static clearConverterCache(protocolPrefix) {
         this.#converters.delete(protocolPrefix);
@@ -78,6 +88,7 @@ export class ConverterFactory {
 
     /**
      * 获取所有已注册的协议
+     *
      * @returns {Array<string>} 协议前缀数组
      */
     static getRegisteredProtocols() {
@@ -86,6 +97,7 @@ export class ConverterFactory {
 
     /**
      * 检查协议是否已注册
+     *
      * @param {string} protocolPrefix - 协议前缀
      * @returns {boolean} 是否已注册
      */
@@ -102,6 +114,7 @@ export class ContentProcessorFactory {
 
     /**
      * 获取内容处理器
+     *
      * @param {string} sourceFormat - 源格式
      * @param {string} targetFormat - 目标格式
      * @returns {ContentProcessor} 内容处理器实例
@@ -118,12 +131,13 @@ export class ContentProcessorFactory {
 
     /**
      * 创建内容处理器
+     *
      * @param {string} sourceFormat - 源格式
      * @param {string} targetFormat - 目标格式
      * @returns {ContentProcessor} 内容处理器实例
      */
     static createProcessor(sourceFormat, targetFormat) {
-        // 这里返回null，实际使用时需要导入具体的处理器类
+        // 这里返回 null，实际使用时需要导入具体的处理器类
         // 为了避免循环依赖，处理器类应该在使用时动态导入
         logger.warn(`Content processor for ${sourceFormat} to ${targetFormat} not yet implemented`);
         return null;
@@ -131,6 +145,8 @@ export class ContentProcessorFactory {
 
     /**
      * 清除所有缓存的处理器
+     *
+     * @returns {void}
      */
     static clearCache() {
         this.#processors.clear();
@@ -145,6 +161,7 @@ export class ToolProcessorFactory {
 
     /**
      * 获取工具处理器
+     *
      * @param {string} sourceFormat - 源格式
      * @param {string} targetFormat - 目标格式
      * @returns {ToolProcessor} 工具处理器实例
@@ -161,6 +178,7 @@ export class ToolProcessorFactory {
 
     /**
      * 创建工具处理器
+     *
      * @param {string} sourceFormat - 源格式
      * @param {string} targetFormat - 目标格式
      * @returns {ToolProcessor} 工具处理器实例
@@ -172,6 +190,8 @@ export class ToolProcessorFactory {
 
     /**
      * 清除所有缓存的处理器
+     *
+     * @returns {void}
      */
     static clearCache() {
         this.#processors.clear();

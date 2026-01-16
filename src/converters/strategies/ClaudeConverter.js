@@ -1,6 +1,9 @@
 /**
- * Claude转换器
- * 处理Claude（Anthropic）协议与其他协议之间的转换
+ * Claude 转换器
+ *
+ * 处理 Claude（Anthropic）协议与其他协议之间的转换。
+ *
+ * @module converters/strategies/ClaudeConverter
  */
 
 import { v4 as uuidv4 } from 'uuid';
@@ -33,16 +36,24 @@ import { createLogger } from '../../lib/logger.js';
 const logger = createLogger({ module: 'ClaudeConverter' });
 
 /**
- * Claude转换器类
- * 实现Claude协议到其他协议的转换
+ * Claude 转换器类
+ *
+ * 实现 Claude 协议到其他协议的转换。
  */
 export class ClaudeConverter extends BaseConverter {
+    /**
+     * 创建 Claude 转换器
+     */
     constructor() {
         super('claude');
     }
 
     /**
      * 转换请求
+     *
+     * @param {Object} data - 请求数据
+     * @param {string} targetProtocol - 目标协议
+     * @returns {Object} 转换后的请求
      */
     convertRequest(data, targetProtocol) {
         switch (targetProtocol) {
@@ -59,6 +70,11 @@ export class ClaudeConverter extends BaseConverter {
 
     /**
      * 转换响应
+     *
+     * @param {Object} data - 响应数据
+     * @param {string} targetProtocol - 目标协议
+     * @param {string} model - 模型名称
+     * @returns {Object} 转换后的响应
      */
     convertResponse(data, targetProtocol, model) {
         switch (targetProtocol) {
@@ -75,6 +91,11 @@ export class ClaudeConverter extends BaseConverter {
 
     /**
      * 转换流式响应块
+     *
+     * @param {Object} chunk - 流式响应块
+     * @param {string} targetProtocol - 目标协议
+     * @param {string} model - 模型名称
+     * @returns {Object} 转换后的流式响应块
      */
     convertStreamChunk(chunk, targetProtocol, model) {
         switch (targetProtocol) {
@@ -91,6 +112,10 @@ export class ClaudeConverter extends BaseConverter {
 
     /**
      * 转换模型列表
+     *
+     * @param {Object} data - 模型列表数据
+     * @param {string} targetProtocol - 目标协议
+     * @returns {Object} 转换后的模型列表
      */
     convertModelList(data, targetProtocol) {
         switch (targetProtocol) {
@@ -108,7 +133,10 @@ export class ClaudeConverter extends BaseConverter {
     // =========================================================================
 
     /**
-     * Claude请求 -> OpenAI请求
+     * Claude 请求 -> OpenAI 请求
+     *
+     * @param {Object} claudeRequest - Claude 请求
+     * @returns {Object} OpenAI 请求
      */
     toOpenAIRequest(claudeRequest) {
         const openaiMessages = [];
@@ -276,7 +304,11 @@ export class ClaudeConverter extends BaseConverter {
     }
 
     /**
-     * Claude响应 -> OpenAI响应
+     * Claude 响应 -> OpenAI 响应
+     *
+     * @param {Object} claudeResponse - Claude 响应
+     * @param {string} model - 模型名称
+     * @returns {Object} OpenAI 响应
      */
     toOpenAIResponse(claudeResponse, model) {
         if (!claudeResponse || !claudeResponse.content || claudeResponse.content.length === 0) {
@@ -375,7 +407,11 @@ export class ClaudeConverter extends BaseConverter {
     }
 
     /**
-     * Claude流式响应 -> OpenAI流式响应
+     * Claude 流式响应 -> OpenAI 流式响应
+     *
+     * @param {Object} claudeChunk - Claude 流式块
+     * @param {string} model - 模型名称
+     * @returns {Object|null} OpenAI 流式块
      */
     toOpenAIStreamChunk(claudeChunk, model) {
         if (!claudeChunk) return null;
@@ -605,7 +641,10 @@ export class ClaudeConverter extends BaseConverter {
     }
 
     /**
-     * Claude模型列表 -> OpenAI模型列表
+     * Claude 模型列表 -> OpenAI 模型列表
+     *
+     * @param {Object} claudeModels - Claude 模型列表
+     * @returns {Object} OpenAI 模型列表
      */
     toOpenAIModelList(claudeModels) {
         return {
@@ -625,6 +664,9 @@ export class ClaudeConverter extends BaseConverter {
 
     /**
      * 将 Claude 模型列表转换为 Gemini 模型列表
+     *
+     * @param {Object} claudeModels - Claude 模型列表
+     * @returns {Object} Gemini 模型列表
      */
     toGeminiModelList(claudeModels) {
         const models = claudeModels.models || [];
@@ -642,7 +684,10 @@ export class ClaudeConverter extends BaseConverter {
     }
 
     /**
-     * 处理Claude内容到OpenAI格式
+     * 处理 Claude 内容到 OpenAI 格式
+     *
+     * @param {Array} content - Claude 内容
+     * @returns {Array} OpenAI 内容
      */
     processClaudeContentToOpenAIContent(content) {
         if (!content || !Array.isArray(content)) return [];
@@ -701,7 +746,10 @@ export class ClaudeConverter extends BaseConverter {
     }
 
     /**
-     * 处理Claude响应内容
+     * 处理 Claude 响应内容
+     *
+     * @param {Array} content - Claude 内容块
+     * @returns {string} 文本内容
      */
     processClaudeResponseContent(content) {
         if (!content || !Array.isArray(content)) return '';
@@ -749,11 +797,14 @@ export class ClaudeConverter extends BaseConverter {
     // Claude -> Gemini 转换
     // =========================================================================
 
-    // Gemini Claude thought signature constant
+    // Gemini Claude 思考签名常量
     static GEMINI_CLAUDE_THOUGHT_SIGNATURE = "skip_thought_signature_validator";
 
     /**
-     * Claude请求 -> Gemini请求
+     * Claude 请求 -> Gemini 请求
+     *
+     * @param {Object} claudeRequest - Claude 请求
+     * @returns {Object} Gemini 请求
      */
     toGeminiRequest(claudeRequest) {
         if (!claudeRequest || typeof claudeRequest !== 'object') {
@@ -998,7 +1049,11 @@ export class ClaudeConverter extends BaseConverter {
 
     /**
      * 清理 JSON Schema 中的 URL 格式
-     * Gemini 不支持 "format": "uri"
+     *
+     * Gemini 不支持 "format": "uri"。
+     *
+     * @param {Object} schema - JSON Schema
+     * @returns {void}
      */
     cleanUrlFormatFromSchema(schema) {
         if (!schema || typeof schema !== 'object') return;
@@ -1028,6 +1083,8 @@ export class ClaudeConverter extends BaseConverter {
 
     /**
      * 获取默认的 Gemini 安全设置
+     *
+     * @returns {Array} 默认安全设置
      */
     getDefaultSafetySettings() {
         return [
@@ -1040,7 +1097,11 @@ export class ClaudeConverter extends BaseConverter {
     }
 
     /**
-     * Claude响应 -> Gemini响应
+     * Claude 响应 -> Gemini 响应
+     *
+     * @param {Object} claudeResponse - Claude 响应
+     * @param {string} model - 模型名称
+     * @returns {Object} Gemini 响应
      */
     toGeminiResponse(claudeResponse, model) {
         if (!claudeResponse || !claudeResponse.content || claudeResponse.content.length === 0) {
@@ -1121,7 +1182,11 @@ export class ClaudeConverter extends BaseConverter {
     }
 
     /**
-     * Claude流式响应 -> Gemini流式响应
+     * Claude 流式响应 -> Gemini 流式响应
+     *
+     * @param {Object} claudeChunk - Claude 流式块
+     * @param {string} model - 模型名称
+     * @returns {Object|null} Gemini 流式块
      */
     toGeminiStreamChunk(claudeChunk, model) {
         if (!claudeChunk) return null;
@@ -1212,7 +1277,10 @@ export class ClaudeConverter extends BaseConverter {
     }
 
     /**
-     * 处理Claude内容到Gemini parts
+     * 处理 Claude 内容到 Gemini parts
+     *
+     * @param {Array|string} content - Claude 内容
+     * @returns {Array} Gemini parts
      */
     processClaudeContentToGeminiParts(content) {
         if (!content) return [];
@@ -1288,7 +1356,10 @@ export class ClaudeConverter extends BaseConverter {
     }
 
     /**
-     * 构建Gemini工具配置
+     * 构建 Gemini 工具配置
+     *
+     * @param {Object} claudeToolChoice - Claude 工具选择
+     * @returns {Object|undefined} Gemini 工具配置
      */
     buildGeminiToolConfigFromClaude(claudeToolChoice) {
         if (!claudeToolChoice || typeof claudeToolChoice !== 'object' || !claudeToolChoice.type) {
@@ -1323,7 +1394,10 @@ export class ClaudeConverter extends BaseConverter {
     // =========================================================================
 
     /**
-     * Claude请求 -> OpenAI Responses请求
+     * Claude 请求 -> OpenAI Responses 请求
+     *
+     * @param {Object} claudeRequest - Claude 请求
+     * @returns {Object} OpenAI Responses 请求
      */
     toOpenAIResponsesRequest(claudeRequest) {
         // 转换为OpenAI Responses格式
@@ -1348,7 +1422,11 @@ export class ClaudeConverter extends BaseConverter {
     }
 
     /**
-     * Claude响应 -> OpenAI Responses响应
+     * Claude 响应 -> OpenAI Responses 响应
+     *
+     * @param {Object} claudeResponse - Claude 响应
+     * @param {string} model - 模型名称
+     * @returns {Object} OpenAI Responses 响应
      */
     toOpenAIResponsesResponse(claudeResponse, model) {
         const content = this.processClaudeResponseContent(claudeResponse.content);
@@ -1414,7 +1492,12 @@ export class ClaudeConverter extends BaseConverter {
     }
 
     /**
-     * Claude流式响应 -> OpenAI Responses流式响应
+     * Claude 流式响应 -> OpenAI Responses 流式响应
+     *
+     * @param {Object} claudeChunk - Claude 流式块
+     * @param {string} model - 模型名称
+     * @param {string|null} [requestId=null] - 请求 ID
+     * @returns {Array} OpenAI Responses 流式事件
      */
     toOpenAIResponsesStreamChunk(claudeChunk, model, requestId = null) {
         if (!claudeChunk) return [];
