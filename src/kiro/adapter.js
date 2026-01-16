@@ -41,8 +41,10 @@ import {
 import {
     CC_TO_KIRO_TOOL_MAPPING,
     KIRO_TOOL_SCHEMAS,
-    mapToolUseParams as mapToolParamsImpl,
-    reverseMapToolInput as reverseMapInputImpl,
+    mapToolUseParams,
+    reverseMapToolInput,
+    normalizeToolName,
+    mapToolNameToKiro,
     parseSingleToolCall,
     parseBracketToolCalls,
     deduplicateToolCalls
@@ -289,30 +291,6 @@ export class KiroService {
     }
 
     /**
-     * 映射工具调用的参数名（Claude Code → Kiro）
-     * 用于处理 tool_use 时将 CC 的参数名转换为 Kiro 的参数名
-     *
-     * @param {string} toolName - 工具名称
-     * @param {Object} input - 原始输入参数
-     * @returns {Object} - 映射后的参数
-     */
-    mapToolUseParams(toolName, input) {
-        return mapToolParamsImpl(toolName, input, this.verboseLogging || toolName === 'Task');
-    }
-
-    /**
-     * 反向映射工具调用的参数名（Kiro → Claude Code）
-     * 用于将 Kiro 返回的 tool_use 参数转换回 CC 期望的格式
-     *
-     * @param {string} toolName - 工具名称（CC 格式）
-     * @param {Object} input - Kiro 返回的参数
-     * @returns {Object} - 反向映射后的参数（CC 格式）
-     */
-    reverseMapToolInput(toolName, input) {
-        return reverseMapInputImpl(toolName, input, this.verboseLogging);
-    }
-
-    /**
      * Kiro 优化：工具格式转换（支持多种输入格式，统一输出 toolSpecification）
      * 参考 Kiro 源码 extension.js:707778
      * 支持 Kiro 原生等多种工具格式
@@ -476,8 +454,9 @@ export class KiroService {
             originalDesc = tool.description;
         }
 
+        const normalizedToolName = normalizeToolName(toolName);
         // 检查是否有映射
-        const mapping = CC_TO_KIRO_TOOL_MAPPING[toolName];
+        const mapping = CC_TO_KIRO_TOOL_MAPPING[normalizedToolName];
 
         if (mapping && mapping.kiroTool) {
             // ⚠️ 关键修复：使用 CC 原始的 schema，不要用 Kiro 的 schema
@@ -499,7 +478,7 @@ export class KiroService {
 
             return {
                 toolSpecification: {
-                    name: toolName,  // 保持原工具名，因为 CC 会用原名调用
+                    name: mapping.kiroTool || toolName,
                     description: truncatedDesc,
                     inputSchema: { json: compressedSchema }
                 }
@@ -1383,9 +1362,10 @@ ${conversationData}`;
             return false;
         };
 
+        let filteredTools = null;
         if (tools && Array.isArray(tools) && tools.length > 0) {
             // 第一步：过滤掉内置工具（AWS CodeWhisperer 不支持）
-            let filteredTools = tools.filter(tool => {
+            filteredTools = tools.filter(tool => {
                 const isBuiltin = isBuiltinTool(tool);
                 if (isBuiltin && this.verboseLogging) {
                     logger.info(`Filtering out builtin tool: ${tool.name} (not supported by AWS CodeWhisperer)`);
@@ -1414,12 +1394,21 @@ ${conversationData}`;
 
         // ⚠️ 关键修复：收集保留的工具名称，用于过滤历史消息中的 tool_use 和 tool_result
         const keptToolNames = new Set();
-        if (tools && Array.isArray(tools)) {
+        if (filteredTools !== null) {
             // 收集裁剪后保留的工具名称
+            const maxTools = Math.min(filteredTools.length, MAX_TOOL_COUNT);
+            for (let i = 0; i < maxTools; i++) {
+                const tool = filteredTools[i];
+                const name = normalizeToolName(tool.name || (tool.function && tool.function.name));
+                if (name) {
+                    keptToolNames.add(name);
+                }
+            }
+        } else if (tools && Array.isArray(tools)) {
             const maxTools = Math.min(tools.length, MAX_TOOL_COUNT);
             for (let i = 0; i < maxTools; i++) {
                 const tool = tools[i];
-                const name = tool.name || (tool.function && tool.function.name);
+                const name = normalizeToolName(tool.name || (tool.function && tool.function.name));
                 if (name) {
                     keptToolNames.add(name);
                 }
@@ -1432,7 +1421,7 @@ ${conversationData}`;
             if (message.role === 'assistant' && Array.isArray(message.content)) {
                 for (const part of message.content) {
                     if (part.type === 'tool_use' && part.id && part.name) {
-                        toolUseIdToName.set(part.id, part.name);
+                        toolUseIdToName.set(part.id, normalizeToolName(part.name));
                     }
                 }
             }
@@ -1570,7 +1559,8 @@ ${conversationData}`;
                             assistantResponseMessage.content += part.text;
                         } else if (part.type === 'tool_use') {
                             // ⚠️ 关键修复：过滤掉被裁剪的工具
-                            if (keptToolNames.size > 0 && !keptToolNames.has(part.name)) {
+                            const normalizedToolName = normalizeToolName(part.name);
+                            if (keptToolNames.size > 0 && !keptToolNames.has(normalizedToolName)) {
                                 if (this.verboseLogging) {
                                     logger.info(`Filtering out tool_use for trimmed tool: ${part.name}`);
                                 }
@@ -1578,10 +1568,10 @@ ${conversationData}`;
                             }
 
                             // 应用参数映射（CC → Kiro）
-                            const mappedInput = this.mapToolUseParams(part.name, part.input);
+                            const mappedInput = mapToolUseParams(part.name, part.input, this.verboseLogging || part.name === 'Task');
                             toolUses.push({
                                 input: mappedInput,
-                                name: part.name,
+                                name: mapToolNameToKiro(part.name),
                                 toolUseId: part.id
                             });
                         } else if (part.type === 'thinking') {
@@ -1633,17 +1623,18 @@ ${conversationData}`;
                         assistantResponseMessage.content += part.text;
                     } else if (part.type === 'tool_use') {
                         // ⚠️ 关键修复：过滤掉被裁剪的工具
-                        if (keptToolNames.size > 0 && !keptToolNames.has(part.name)) {
+                        const normalizedToolName = normalizeToolName(part.name);
+                        if (keptToolNames.size > 0 && !keptToolNames.has(normalizedToolName)) {
                             if (this.verboseLogging) {
                                 logger.info(`Filtering out tool_use for trimmed tool: ${part.name}`);
                             }
                             continue;
                         }
                         // 应用参数映射（CC → Kiro）
-                        const mappedInput = this.mapToolUseParams(part.name, part.input);
+                        const mappedInput = mapToolUseParams(part.name, part.input, this.verboseLogging || part.name === 'Task');
                         assistantResponseMessage.toolUses.push({
                             input: mappedInput,
-                            name: part.name,
+                            name: mapToolNameToKiro(part.name),
                             toolUseId: part.id
                         });
                     } else if (part.type === 'thinking') {
@@ -1698,17 +1689,18 @@ ${conversationData}`;
                         });
                     } else if (part.type === 'tool_use') {
                         // ⚠️ 关键修复：过滤掉被裁剪的工具
-                        if (keptToolNames.size > 0 && !keptToolNames.has(part.name)) {
+                        const normalizedToolName = normalizeToolName(part.name);
+                        if (keptToolNames.size > 0 && !keptToolNames.has(normalizedToolName)) {
                             if (this.verboseLogging) {
                                 logger.info(`Filtering out tool_use for trimmed tool: ${part.name}`);
                             }
                             continue;
                         }
                         // 应用参数映射（CC → Kiro）
-                        const mappedInput = this.mapToolUseParams(part.name, part.input);
+                        const mappedInput = mapToolUseParams(part.name, part.input, this.verboseLogging || part.name === 'Task');
                         currentToolUses.push({
                             input: mappedInput,
-                            name: part.name,
+                            name: mapToolNameToKiro(part.name),
                             toolUseId: part.id
                         });
                     } else if (part.type === 'image') {
