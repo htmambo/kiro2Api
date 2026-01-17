@@ -8,6 +8,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { createLogger } from '../lib/logger.js';
+import { cleanSchema, SCHEMA_CLEANER_STRATEGY } from '../utils/schema-cleaner.js';
 const logger = createLogger({ module: 'ConverterUtils' });
 // =============================================================================
 // 常量定义
@@ -239,57 +240,14 @@ export function extractAndProcessSystemMessages(messages) {
 /**
  * 清理 JSON Schema 属性（移除 Gemini 不支持的属性）
  *
- * Google Gemini API 只支持有限的 JSON Schema 属性，不支持以下属性：
- * - exclusiveMinimum, exclusiveMaximum, minimum, maximum
- * - minLength, maxLength, minItems, maxItems
- * - pattern, format, default, const
- * - additionalProperties, $schema, $ref, $id
- * - allOf, anyOf, oneOf, not
+ * 使用统一的 Schema 清理器，策略为 GEMINI。
+ * 兼容性包装：保留原有函数签名，内部调用新实现。
  *
  * @param {Object} schema - JSON Schema
  * @returns {Object} 清理后的 JSON Schema
  */
 export function cleanJsonSchemaProperties(schema) {
-    if (!schema || typeof schema !== 'object') {
-        return schema;
-    }
-
-    // 如果是数组，递归处理每个元素
-    if (Array.isArray(schema)) {
-        return schema.map(item => cleanJsonSchemaProperties(item));
-    }
-
-    // Gemini 支持的 JSON Schema 属性白名单
-    const allowedKeys = [
-        "type",
-        "description",
-        "properties",
-        "required",
-        "enum",
-        "items",
-        "nullable"
-    ];
-
-    const sanitized = {};
-    for (const [key, value] of Object.entries(schema)) {
-        if (allowedKeys.includes(key)) {
-            // 对于需要递归处理的属性
-            if (key === 'properties' && typeof value === 'object' && value !== null) {
-                const cleanProperties = {};
-                for (const [propName, propSchema] of Object.entries(value)) {
-                    cleanProperties[propName] = cleanJsonSchemaProperties(propSchema);
-                }
-                sanitized[key] = cleanProperties;
-            } else if (key === 'items') {
-                sanitized[key] = cleanJsonSchemaProperties(value);
-            } else {
-                sanitized[key] = value;
-            }
-        }
-        // 其他属性（如 exclusiveMinimum, minimum, maximum, pattern 等）被忽略
-    }
-
-    return sanitized;
+    return cleanSchema(schema, SCHEMA_CLEANER_STRATEGY.GEMINI);
 }
 
 /**

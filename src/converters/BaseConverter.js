@@ -6,6 +6,8 @@
  * @module converters/BaseConverter
  */
 
+import { MODEL_PROTOCOL_PREFIX } from '../utils/protocol.js';
+
 /**
  * 抽象转换器基类
  *
@@ -25,18 +27,40 @@ export class BaseConverter {
     }
 
     /**
-     * 转换请求
+     * 转换请求（通用路由实现）
+     *
+     * 自动路由到具体的 toXxxRequest 方法
      *
      * @param {Object} data - 请求数据
      * @param {string} targetProtocol - 目标协议
      * @returns {Object} 转换后的请求
      */
     convertRequest(data, targetProtocol) {
-        throw new Error('convertRequest方法必须被子类实现');
+        const methodMap = {
+            [MODEL_PROTOCOL_PREFIX.OPENAI]: 'toOpenAIRequest',
+            [MODEL_PROTOCOL_PREFIX.CLAUDE]: 'toClaudeRequest',
+            [MODEL_PROTOCOL_PREFIX.GEMINI]: 'toGeminiRequest',
+            [MODEL_PROTOCOL_PREFIX.OLLAMA]: 'toOllamaRequest',
+            [MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES]: 'toOpenAIResponsesRequest'
+        };
+
+        const targetMethod = methodMap[targetProtocol];
+        if (!targetMethod) {
+            throw new Error(`Unsupported target protocol: ${targetProtocol}`);
+        }
+
+        const method = this[targetMethod];
+        if (typeof method !== 'function') {
+            throw new Error(`Conversion method ${targetMethod} not implemented in ${this.protocolName} converter`);
+        }
+
+        return method.call(this, data);
     }
 
     /**
-     * 转换响应
+     * 转换响应（通用路由实现）
+     *
+     * 自动路由到具体的 toXxxResponse 方法
      *
      * @param {Object} data - 响应数据
      * @param {string} targetProtocol - 目标协议
@@ -44,11 +68,31 @@ export class BaseConverter {
      * @returns {Object} 转换后的响应
      */
     convertResponse(data, targetProtocol, model) {
-        throw new Error('convertResponse方法必须被子类实现');
+        const methodMap = {
+            [MODEL_PROTOCOL_PREFIX.OPENAI]: 'toOpenAIResponse',
+            [MODEL_PROTOCOL_PREFIX.CLAUDE]: 'toClaudeResponse',
+            [MODEL_PROTOCOL_PREFIX.GEMINI]: 'toGeminiResponse',
+            [MODEL_PROTOCOL_PREFIX.OLLAMA]: 'toOllamaResponse',
+            [MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES]: 'toOpenAIResponsesResponse'
+        };
+
+        const targetMethod = methodMap[targetProtocol];
+        if (!targetMethod) {
+            throw new Error(`Unsupported target protocol: ${targetProtocol}`);
+        }
+
+        const method = this[targetMethod];
+        if (typeof method !== 'function') {
+            throw new Error(`Conversion method ${targetMethod} not implemented in ${this.protocolName} converter`);
+        }
+
+        return method.call(this, data, model);
     }
 
     /**
-     * 转换流式响应块
+     * 转换流式响应块（通用路由实现）
+     *
+     * 自动路由到具体的 toXxxStreamChunk 方法
      *
      * @param {Object} chunk - 流式响应块
      * @param {string} targetProtocol - 目标协议
@@ -56,18 +100,56 @@ export class BaseConverter {
      * @returns {Object} 转换后的流式响应块
      */
     convertStreamChunk(chunk, targetProtocol, model) {
-        throw new Error('convertStreamChunk方法必须被子类实现');
+        const methodMap = {
+            [MODEL_PROTOCOL_PREFIX.OPENAI]: 'toOpenAIStreamChunk',
+            [MODEL_PROTOCOL_PREFIX.CLAUDE]: 'toClaudeStreamChunk',
+            [MODEL_PROTOCOL_PREFIX.GEMINI]: 'toGeminiStreamChunk',
+            [MODEL_PROTOCOL_PREFIX.OLLAMA]: 'toOllamaStreamChunk',
+            [MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES]: 'toOpenAIResponsesStreamChunk'
+        };
+
+        const targetMethod = methodMap[targetProtocol];
+        if (!targetMethod) {
+            throw new Error(`Unsupported target protocol: ${targetProtocol}`);
+        }
+
+        const method = this[targetMethod];
+        if (typeof method !== 'function') {
+            throw new Error(`Conversion method ${targetMethod} not implemented in ${this.protocolName} converter`);
+        }
+
+        return method.call(this, chunk, model);
     }
 
     /**
-     * 转换模型列表
+     * 转换模型列表（通用路由实现）
+     *
+     * 自动路由到具体的 toXxxModelList 方法
      *
      * @param {Object} data - 模型列表数据
      * @param {string} targetProtocol - 目标协议
      * @returns {Object} 转换后的模型列表
      */
     convertModelList(data, targetProtocol) {
-        throw new Error('convertModelList方法必须被子类实现');
+        const methodMap = {
+            [MODEL_PROTOCOL_PREFIX.OPENAI]: 'toOpenAIModelList',
+            [MODEL_PROTOCOL_PREFIX.CLAUDE]: 'toClaudeModelList',
+            [MODEL_PROTOCOL_PREFIX.GEMINI]: 'toGeminiModelList',
+            [MODEL_PROTOCOL_PREFIX.OLLAMA]: 'toOllamaModelList',
+            [MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES]: 'toOpenAIResponsesModelList'
+        };
+
+        const targetMethod = methodMap[targetProtocol];
+        if (!targetMethod) {
+            throw new Error(`Unsupported target protocol: ${targetProtocol}`);
+        }
+
+        const method = this[targetMethod];
+        if (typeof method !== 'function') {
+            throw new Error(`Conversion method ${targetMethod} not implemented in ${this.protocolName} converter`);
+        }
+
+        return method.call(this, data);
     }
 
     /**

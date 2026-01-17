@@ -1,0 +1,63 @@
+/**
+ * 统一的工具格式转换器模块
+ *
+ * 提供：
+ * - convertToQTool(): 将多种工具格式统一转换为 AWS CodeWhisperer toolSpecification 格式
+ * - convertToQToolWithMapping(): 使用映射表优先转换工具
+ * - compressInputSchema(): 压缩 schema 以兼容 AWS CodeWhisperer
+ *
+ * 支持的工具格式：
+ * - 格式 0: Kiro 内置工具（Builtin Tools）- { type, name, ... }
+ * - 格式 1: OpenAI 风格 - { function: { name, description, parameters } }
+ * - 格式 2: Kiro 原生格式 - { toolSpecification: { ... } }
+ * - 格式 3: Anthropic/Claude 格式 - { name, description, input_schema }
+ * - 格式 4: 带 id 和 parameters - { id, description, parameters }
+ * - 格式 5: 带 id 和 schema - { id, description, schema }
+ *
+ * 依赖：
+ * - ../tools.js: CC_TO_KIRO_TOOL_MAPPING, normalizeToolName, isZodSchema
+ * - ../lib/logger.js: createLogger
+ * - ../../utils/schema-cleaner.js: cleanSchema, SCHEMA_CLEANER_STRATEGY
+ *
+ * @module kiro/converters/tool-converter
+ */
+
+import { CC_TO_KIRO_TOOL_MAPPING, normalizeToolName } from '../tools.js';
+import { isZodSchema } from '../utils.js';
+import { createLogger } from '../../lib/logger.js';
+import { cleanSchema, SCHEMA_CLEANER_STRATEGY } from '../../utils/schema-cleaner.js';
+
+const logger = createLogger('kiro:tool-converter');
+
+/**
+ * AWS CodeWhisperer 不支持的 JSON Schema 字段
+ *
+ * 参考官方Kiro的做法：保留所有可能有功能性的validation，只删除元数据和文档
+ * 优化：保留更多关键字段以提升模型理解
+ */
+const UNSUPPORTED_SCHEMA_KEYS = new Set([
+    // JSON Schema 元信息（纯元数据，无功能）
+    '$schema', '$id', '$defs', 'definitions',
+    // 文档字段（保留 title 和 default，它们对理解有帮助）
+    'examples',  // 只移除 examples，保留 title 和 default
+    // 组合逻辑（AWS不支持复杂schema组合）
+    'allOf', 'anyOf', 'oneOf', 'not', 'if', 'then', 'else',
+    // 评估相关（AWS不支持）
+    'additionalItems', 'unevaluatedItems', 'unevaluatedProperties',
+    // 依赖相关（AWS不支持）
+    'dependentSchemas', 'dependentRequired'
+]);
+
+/**
+ * 压缩 inputSchema - 只移除 AWS CodeWhisperer 明确不支持的元数据和文档字段
+ *
+ * 使用统一的 Schema 清理器，策略为 AWS_CODEWHISPERER。
+ * 兼容性包装：保留原有函数签名，内部调用新实现。
+ *
+ * @param {Object} schema - 原始 schema
+ * @returns {Object} 压缩后的 schema
+ */
+export function compressInputSchema(schema) {
+    return cleanSchema(schema, SCHEMA_CLEANER_STRATEGY.AWS_CODEWHISPERER);
+}
+

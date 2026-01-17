@@ -8,6 +8,9 @@
  */
 
 import deepmerge from 'deepmerge';
+import * as fs from 'fs';
+import * as path from 'path';
+import { fileURLToPath } from 'url';
 import { isAuthorized } from '../utils/common.js';
 import { handleUIApiRequests, serveStaticFiles } from '../ui-manager.js';
 import { proxyViteRequest, shouldProxyToVitePath } from '../ui/vite-dev-proxy.js';
@@ -19,6 +22,11 @@ import { PROMPT_LOG_FILENAME } from '../config/manager.js';
 import { errorMiddleware, createError } from './error-middleware.js';
 import { checkRateLimit, isRateLimitWhitelisted } from './rate-limiter.js';
 import { createLogger } from '../lib/logger.js';
+import { readRequestBody as readBody } from '../utils/request-body.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const UNMATCHED_ROUTES_LOG_DIR = path.resolve(__dirname, '../../logs/unmatched-routes');
 
 const logger = createLogger('api:request-handler');
 
@@ -64,6 +72,92 @@ function isApiKeyProtectedPath(pathname) {
     if (pathname.startsWith('/v1/')) return true;
     if (pathname === '/stats') return true;
     return false;
+}
+
+/**
+ * 获取客户端真实 IP 地址
+ * 
+ * @param {http.IncomingMessage} req - HTTP 请求对象
+ * @returns {string} 客户端 IP 地址
+ */
+function getClientIp(req) {
+    const xForwardedFor = req.headers['x-forwarded-for'];
+    if (xForwardedFor) {
+        const ips = xForwardedFor.split(',').map(ip => ip.trim());
+        return ips[0];
+    }
+    
+    const xRealIp = req.headers['x-real-ip'];
+    if (xRealIp) {
+        return xRealIp;
+    }
+    
+    return req.socket.remoteAddress || 'unknown';
+}
+
+async function logUnmatchedRoute(req, method, pathname, body) {
+    try {
+        if (!fs.existsSync(UNMATCHED_ROUTES_LOG_DIR)) {
+            fs.mkdirSync(UNMATCHED_ROUTES_LOG_DIR, { recursive: true });
+        }
+
+        const timestamp = Date.now();
+        const randomSuffix = String(Math.floor(Math.random() * 1000)).padStart(3, '0');
+        const filename = `${timestamp}-${randomSuffix}.txt`;
+        const filepath = path.join(UNMATCHED_ROUTES_LOG_DIR, filename);
+
+        const clientIp = getClientIp(req);
+        const userAgent = req.headers['user-agent'] || 'unknown';
+        const referer = req.headers['referer'] || req.headers['referrer'] || 'none';
+        const contentType = req.headers['content-type'] || 'none';
+        const contentLength = req.headers['content-length'] || '0';
+
+        const logContent = [
+            `=== Unmatched Route Request ===`,
+            `Time: ${new Date().toISOString()}`,
+            `Timestamp: ${timestamp}`,
+            ``,
+            `--- Request Info ---`,
+            `Method: ${method}`,
+            `URL: ${req.url}`,
+            `Path: ${pathname}`,
+            ``,
+            `--- Client Info ---`,
+            `IP: ${clientIp}`,
+            `User-Agent: ${userAgent}`,
+            `Referer: ${referer}`,
+            ``,
+            `--- Headers ---`,
+            ...Object.entries(req.headers).map(([key, value]) => `${key}: ${value}`),
+            ``,
+            `--- Request Body ---`,
+            `Content-Type: ${contentType}`,
+            `Content-Length: ${contentLength}`,
+            `Body:`,
+            body || '(empty)',
+            ``,
+            `=== End of Request ===`
+        ].join('\n');
+
+        fs.writeFileSync(filepath, logContent, 'utf-8');
+        logger.debug(`Unmatched route logged to: ${filepath}`);
+    } catch (error) {
+        logger.error(`Failed to log unmatched route: ${error.message}`);
+    }
+}
+
+async function safeReadRequestBody(req) {
+    if (req.body !== undefined) {
+        return typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
+    }
+    try {
+        return await Promise.race([
+            readBody(req),
+            new Promise(resolve => setTimeout(() => resolve('(timeout)'), 1000))
+        ]);
+    } catch {
+        return '(error reading body)';
+    }
 }
 /**
  * 主请求处理器，按固定顺序完成限流、静态资源、鉴权与 API 路由分发
@@ -255,8 +349,11 @@ export function createRequestHandler(config, accountPoolManager) {
         const apiHandled = await handleAPIRequests(method, path, req, res, currentConfig, apiService, accountPoolManager, PROMPT_LOG_FILENAME);
         if (apiHandled) return;
 
+            if (currentConfig.LOG_UNMATCHED_ROUTES) {
+                const body = await safeReadRequestBody(req);
+                await logUnmatchedRoute(req, method, path, body);
+            }
 
-            // Fallback for unmatched routes
             res.writeHead(404, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: { message: 'Not Found' } }));
         } catch (error) {

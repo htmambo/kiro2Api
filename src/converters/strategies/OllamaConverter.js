@@ -99,57 +99,15 @@ export class OllamaConverter extends BaseConverter {
     }
 
     /**
-     * 转换请求（Ollama -> 其他协议）
-     *
-     * @param {Object} data - 请求数据
-     * @param {string} targetProtocol - 目标协议
-     * @returns {Object} 转换后的请求
-     */
-    convertRequest(data, targetProtocol) {
-        switch (targetProtocol) {
-            case MODEL_PROTOCOL_PREFIX.OPENAI:
-            case MODEL_PROTOCOL_PREFIX.CLAUDE:
-            case MODEL_PROTOCOL_PREFIX.GEMINI:
-                return this.toOpenAIRequest(data);
-            default:
-                throw new Error(`Unsupported target protocol: ${targetProtocol}`);
-        }
-    }
-
-    /**
-     * 转换响应（其他协议 -> Ollama）
-     *
-     * @param {Object} data - 响应数据
-     * @param {string} sourceProtocol - 源协议
-     * @param {string} model - 模型名称
-     * @returns {Object} 转换后的响应
-     */
-    convertResponse(data, sourceProtocol, model) {
-        return this.toOllamaChatResponse(data, model);
-    }
-
-    /**
-     * 转换流式响应块（其他协议 -> Ollama）
-     *
-     * @param {Object} chunk - 流式响应块
-     * @param {string} sourceProtocol - 源协议
-     * @param {string} model - 模型名称
-     * @param {boolean} [isDone=false] - 是否结束
-     * @returns {Object} 转换后的流式响应块
-     */
-    convertStreamChunk(chunk, sourceProtocol, model, isDone = false) {
-        return this.toOllamaStreamChunk(chunk, model, isDone);
-    }
-
-    /**
-     * 转换模型列表（其他协议 -> Ollama）
+     * 转换模型列表（Ollama -> 其他协议）
      *
      * @param {Object} data - 模型列表数据
-     * @param {string} sourceProtocol - 源协议
+     * @param {string} targetProtocol - 目标协议
      * @returns {Object} 转换后的模型列表
      */
-    convertModelList(data, sourceProtocol) {
-        return this.toOllamaTags(data, sourceProtocol);
+    convertModelList(data, targetProtocol) {
+        // Ollama 只导出模型列表，不转换其他协议的模型列表
+        throw new Error('Ollama does not support converting other protocol model lists');
     }
 
     // =========================================================================

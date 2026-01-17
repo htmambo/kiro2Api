@@ -54,7 +54,8 @@ const DEFAULT_CONFIG = {
     USE_SQLITE_POOL: false,
     SQLITE_DB_PATH: "data/kiro2api.db",
     HEALTH_CHECK_CONCURRENCY: 5,
-    USAGE_QUERY_CONCURRENCY: 10
+    USAGE_QUERY_CONCURRENCY: 10,
+    LOG_UNMATCHED_ROUTES: false
 };
 
 /**
@@ -270,6 +271,13 @@ export async function initializeConfig(args = process.argv.slice(2), configFileP
         currentConfig.ACCOUNT_POOL_FILE_PATH = 'configs/account_pool.json';
     }
 
+    if (currentConfig.LOG_UNMATCHED_ROUTES === undefined) {
+        const envValue = process.env.LOG_UNMATCHED_ROUTES;
+        if (envValue !== undefined) {
+            currentConfig.LOG_UNMATCHED_ROUTES = envValue.toLowerCase() === 'true';
+        }
+    }
+
     // 根据配置生成 PROMPT_LOG_FILENAME
     if (currentConfig.PROMPT_LOG_MODE === 'file') {
         const now = new Date();
@@ -277,10 +285,9 @@ export async function initializeConfig(args = process.argv.slice(2), configFileP
         const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
         PROMPT_LOG_FILENAME = `${currentConfig.PROMPT_LOG_BASE_NAME}-${timestamp}.log`;
     } else {
-        PROMPT_LOG_FILENAME = ''; // 未启用文件日志则清空
+        PROMPT_LOG_FILENAME = '';
     }
 
-    // 写回导出的 CONFIG
     Object.assign(CONFIG, currentConfig);
     return CONFIG;
 }

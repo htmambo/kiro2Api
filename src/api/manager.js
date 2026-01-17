@@ -34,7 +34,7 @@ const logger = createLogger('api:manager');
 export async function handleAPIRequests(method, path, req, res, currentConfig, apiService, poolManager, promptLogFilename) {
     // 路由内容生成请求
     if (method === 'POST') {
-        if (path === '/v1/messages' || path === '/v1/stream') {
+        if (path === '/v1/messages') {
             await handleContentGenerationRequest(req, res, apiService, ENDPOINT_TYPE.CLAUDE_MESSAGE, currentConfig, promptLogFilename, poolManager, currentConfig.uuid);
             return true;
         }

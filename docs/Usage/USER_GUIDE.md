@@ -73,9 +73,6 @@ REQUIRED_API_KEY=your-secret-key
 # 模型配置
 MODEL_PROVIDER=claude-kiro-oauth
 
-# 账号池配置
-ACCOUNT_POOL_MODE=legacy
-
 # 超时配置
 KIRO_REQUEST_TIMEOUT_MS=120000
 KIRO_STREAM_TIMEOUT_MS=180000
@@ -858,9 +855,7 @@ MODEL_PROVIDER=claude-kiro-oauth
 KIRO_OAUTH_CREDS_FILE_PATH=./configs/kiro/kiro-auth-token.json
 
 # 账号池配置
-ACCOUNT_POOL_MODE=legacy
 ACCOUNT_POOL_FILE_PATH=configs/account_pool.json
-
 # 超时配置 (毫秒)
 KIRO_REQUEST_TIMEOUT_MS=120000
 KIRO_STREAM_TIMEOUT_MS=180000

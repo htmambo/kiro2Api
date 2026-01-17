@@ -17,6 +17,7 @@
  * 依赖：
  * - ../tools.js: CC_TO_KIRO_TOOL_MAPPING, normalizeToolName, isZodSchema
  * - ../lib/logger.js: createLogger
+ * - ../../utils/schema-cleaner.js: cleanSchema, SCHEMA_CLEANER_STRATEGY
  *
  * @module kiro/converters/tool-converter
  */
@@ -24,6 +25,7 @@
 import { CC_TO_KIRO_TOOL_MAPPING, normalizeToolName } from '../tools.js';
 import { isZodSchema } from '../utils.js';
 import { createLogger } from '../../lib/logger.js';
+import { cleanSchema, SCHEMA_CLEANER_STRATEGY } from '../../utils/schema-cleaner.js';
 
 const logger = createLogger('kiro:tool-converter');
 
@@ -37,7 +39,7 @@ const UNSUPPORTED_SCHEMA_KEYS = new Set([
     // JSON Schema 元信息（纯元数据，无功能）
     '$schema', '$id', '$defs', 'definitions',
     // 文档字段（保留 title 和 default，它们对理解有帮助）
-    'examples',  // 只移除 examples，保留 title 和 default
+    'examples',
     // 组合逻辑（AWS不支持复杂schema组合）
     'allOf', 'anyOf', 'oneOf', 'not', 'if', 'then', 'else',
     // 评估相关（AWS不支持）
@@ -47,48 +49,16 @@ const UNSUPPORTED_SCHEMA_KEYS = new Set([
 ]);
 
 /**
- * 清理 inputSchema - 只移除 AWS CodeWhisperer 明确不支持的元数据和文档字段
+ * 压缩 inputSchema - 只移除 AWS CodeWhisperer 明确不支持的元数据和文档字段
  *
- * 保守策略：保留所有 validation 字段（minLength, maxLength, pattern, minimum, maximum等）
- * 仿照官方 Kiro：不压缩 description，保持 schema 的功能完整性。
+ * 使用统一的 Schema 清理器，策略为 AWS_CODEWHISPERER。
+ * 兼容性包装：保留原有函数签名，内部调用新实现。
  *
  * @param {Object} schema - 原始 schema
  * @returns {Object} 压缩后的 schema
  */
 export function compressInputSchema(schema) {
-    if (!schema || typeof schema !== 'object') return schema;
-
-    // 处理数组
-    if (Array.isArray(schema)) {
-        return schema.map(item => compressInputSchema(item));
-    }
-
-    // 深拷贝并移除不支持的字段
-    const compressed = {};
-
-    for (const [key, value] of Object.entries(schema)) {
-        // 跳过黑名单中的字段
-        if (UNSUPPORTED_SCHEMA_KEYS.has(key)) {
-            continue;
-        }
-
-        // 处理需要递归的字段
-        if (key === 'properties' && typeof value === 'object' && !Array.isArray(value)) {
-            compressed.properties = {};
-            for (const [propKey, propValue] of Object.entries(value)) {
-                compressed.properties[propKey] = compressInputSchema(propValue);
-            }
-        } else if (key === 'items') {
-            compressed.items = compressInputSchema(value);
-        } else if (key === 'additionalProperties' && typeof value === 'object') {
-            compressed.additionalProperties = compressInputSchema(value);
-        } else {
-            // 保留所有其他字段（包括description、type、required、enum、validation字段等）
-            compressed[key] = value;
-        }
-    }
-
-    return compressed;
+    return cleanSchema(schema, SCHEMA_CLEANER_STRATEGY.AWS_CODEWHISPERER);
 }
 
 /**
@@ -131,7 +101,7 @@ export function convertToQTool(tool, compressInputSchemaFn = compressInputSchema
         return tool;  // 内置工具原样传递
     }
 
-    // 格式 1：OpenAI 风格 { function: { name, description, parameters } }
+    // 格式 1：OpenAI 风格 - { function: { name, description, parameters } }
     if (tool.function && typeof tool.function === 'object') {
         const schema = compressInputSchemaFn(tool.function.parameters || {});
         let desc = tool.function.description || "";
@@ -157,7 +127,7 @@ export function convertToQTool(tool, compressInputSchemaFn = compressInputSchema
         return tool;
     }
 
-    // 格式 3：Anthropic/Claude 格式 { name, description, input_schema }
+    // 格式 3：Anthropic/Claude 格式 - { name, description, input_schema }
     if (tool.name && 'description' in tool && (tool.input_schema || tool.schema)) {
         let schema = tool.input_schema || tool.schema || {};
 
@@ -183,7 +153,7 @@ export function convertToQTool(tool, compressInputSchemaFn = compressInputSchema
         };
     }
 
-    // 格式 4：带 id 和 parameters { id, description, parameters }
+    // 格式 4：带 id 和 parameters - { id, description, parameters }
     if (tool.id && 'description' in tool && tool.parameters) {
         let schema = tool.parameters;
         if (isZodSchema(schema)) {
@@ -205,7 +175,7 @@ export function convertToQTool(tool, compressInputSchemaFn = compressInputSchema
         };
     }
 
-    // 格式 5：带 id 和 schema { id, description, schema }
+    // 格式 5：带 id 和 schema - { id, description, schema }
     if (tool.id && 'description' in tool && tool.schema) {
         let schema = tool.schema;
         if (isZodSchema(schema)) {
@@ -238,7 +208,7 @@ export function convertToQTool(tool, compressInputSchemaFn = compressInputSchema
  * Kiro 优化：使用映射表转换工具，优先使用 CC_TO_KIRO_TOOL_MAPPING 中的 Kiro 官方 schema。
  * 如果没有映射，则降级到原始的 convertToQTool。
  *
- * @param {Object} tool - 工具定义
+ * @param {Object} tool - 工具定义（多种格式之一）
  * @param {Function} [compressInputSchemaFn=compressInputSchema] - schema 压缩函数
  * @param {number} [maxDescLength=500] - 描述最大长度
  * @returns {Object} toolSpecification 格式的工具定义
@@ -286,7 +256,6 @@ export function convertToQToolWithMapping(tool, compressInputSchemaFn = compress
             : desc;
 
         // logger.error(`Mapped tool: ${toolName} → ${mapping.kiroTool} (keeping original CC toolName)`);
-
         return {
             toolSpecification: {
                 name: toolName,  // ⚠️ 保留原始 CC 工具名，参数映射在 mapToolUseParams 中进行
