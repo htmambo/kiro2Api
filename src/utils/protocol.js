@@ -1,7 +1,7 @@
 /**
  * 协议前缀/解析工具（用于协议转换）
  *
- * 注意：该文件必须保持“无业务依赖”，避免与 `src/utils/common.js` / `src/utils/convert.js`
+ * 注意：该文件必须保持“无业务依赖”，避免与 `src/utils/content-generator.js` / `src/utils/convert.js`
  * 形成循环依赖，导致 ESM 初始化期崩溃。
  *
  * @module utils/protocol
@@ -16,8 +16,6 @@ export const MODEL_PROTOCOL_PREFIX = {
     OPENAI: 'openai',
     OPENAI_RESPONSES: 'openaiResponses',
     CLAUDE: 'claude',
-    GEMINI: 'gemini',
-    OLLAMA: 'ollama',
 };
 
 /**

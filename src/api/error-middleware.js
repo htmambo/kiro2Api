@@ -10,7 +10,7 @@
  * @module error-middleware
  */
 
-import { createErrorResponse } from '../utils/common.js';
+import { createErrorResponse } from '../utils/response-wrapper.js';
 import { logError } from '../utils/error-logger.js';
 import { createLogger } from '../lib/logger.js';
 

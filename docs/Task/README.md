@@ -7,6 +7,9 @@
 当前无活跃任务。
 
 ## 已完成任务 (Archive)
+### 2026-01
+- ✅ [Adapter and Common Utils Split Plan](Archive/2026-01/ADAPTER_AND_COMMON_SPLIT_PLAN.md) - 完成时间: 2026-01-18
+
 
 ### 2026-01
 

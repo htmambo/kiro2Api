@@ -2,7 +2,7 @@
  * 协议转换入口（主实现）
  *
  * 说明：
- * - 当前项目已有调用点：`src/utils/common.js` 会 import `./convert.js`
+ * - 当前项目已有调用点：`src/utils/content-generator.js` 会 import `./convert.js`
  * - 转换器主体迁入：`src/converters/**`
  * - 这里作为薄封装层，负责：
  *   1) 初始化注册（避免循环依赖）

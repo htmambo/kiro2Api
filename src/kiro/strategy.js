@@ -5,7 +5,7 @@
  *
  * @module kiro/strategy
  */
-import { extractSystemPromptFromRequestBody } from '../utils/common.js';
+import { extractSystemPromptFromRequestBody } from '../utils/prompt-utils.js';
 import { createLogger } from '../lib/logger.js';
 import { KIRO_MODELS } from '../kiro/constants.js';
 

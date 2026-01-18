@@ -61,8 +61,7 @@
 
 ## 低覆盖文件（有注释但 <50%）
 
-1. **src/converters/strategies/GeminiConverter.js** (1/5 = 20%)
-2. **src/api/request-handler.js** (1/4 = 25%) - 含 15 行英文注释
+1. **src/api/request-handler.js** (1/4 = 25%) - 含 15 行英文注释
 3. **src/api/server.js** (1/3 = 33%) - 含 8 行英文注释
 4. **src/domain/oauth/index.js** (1/3 = 33%)
 5. **src/utils/common.js** (5/13 = 38%) - 含 59 行英文注释
@@ -73,7 +72,6 @@
 
 | 文件 | 英文注释行数 | 总注释行数 |
 |------|-------------|-----------|
-| src/converters/strategies/OllamaConverter.js | 60 | 106 |
 | src/utils/common.js | 59 | 127 |
 | src/converters/strategies/OpenAIConverter.js | 47 | 231 |
 | src/ui/router/handlers/upload.handlers.js | 25 | 124 |
@@ -125,6 +123,5 @@
 2. lib 模块（覆盖率 25.0%）
 
 ### 第四优先级：英文注释中文化
-1. OllamaConverter.js (60 行)
-2. common.js (59 行)
-3. OpenAIConverter.js (47 行)
+1. common.js (59 行)
+2. OpenAIConverter.js (47 行)

@@ -8,33 +8,18 @@
 import { v4 as uuidv4 } from 'uuid';
 import { BaseConverter } from '../BaseConverter.js';
 import {
-    extractAndProcessSystemMessages as extractSystemMessages,
-    extractTextFromMessageContent as extractText,
-    safeParseJSON,
     checkAndAssignOrDefault,
-    extractThinkingFromOpenAIText,
-    mapFinishReason,
-    cleanJsonSchemaProperties as cleanJsonSchema,
-    CLAUDE_DEFAULT_MAX_TOKENS,
-    CLAUDE_DEFAULT_TEMPERATURE,
-    CLAUDE_DEFAULT_TOP_P,
-    GEMINI_DEFAULT_MAX_TOKENS,
-    GEMINI_DEFAULT_TEMPERATURE,
-    GEMINI_DEFAULT_TOP_P,
-    OPENAI_DEFAULT_INPUT_TOKEN_LIMIT,
-    OPENAI_DEFAULT_OUTPUT_TOKEN_LIMIT
+    OPENAI_DEFAULT_MAX_TOKENS,
+    OPENAI_DEFAULT_TEMPERATURE,
+    OPENAI_DEFAULT_TOP_P
 } from '../utils.js';
+import { normalizeTokensConfig } from '../utils/param-normalizer.js';
 import { MODEL_PROTOCOL_PREFIX } from '../../utils/protocol.js';
 import {
-    generateResponseCreated,
-    generateResponseInProgress,
-    generateOutputItemAdded,
-    generateContentPartAdded,
-    generateOutputTextDone,
-    generateContentPartDone,
-    generateOutputItemDone,
-    generateResponseCompleted
-} from '../../openai/openai-responses-core.mjs';
+    buildResponsesStartEvents,
+    buildResponsesDoneEvents,
+    applyUsageToLastEvent
+} from '../utils/streaming-utils.js';
 import { createLogger } from "../../lib/logger.js";
 const logger = createLogger({ module: "OpenAIConverter" });
 
@@ -200,9 +185,11 @@ export class OpenAIConverter extends BaseConverter {
         const claudeRequest = {
             model: openaiRequest.model,
             messages: mergedClaudeMessages,
-            max_tokens: checkAndAssignOrDefault(openaiRequest.max_tokens, CLAUDE_DEFAULT_MAX_TOKENS),
-            temperature: checkAndAssignOrDefault(openaiRequest.temperature, CLAUDE_DEFAULT_TEMPERATURE),
-            top_p: checkAndAssignOrDefault(openaiRequest.top_p, CLAUDE_DEFAULT_TOP_P),
+            ...normalizeTokensConfig(openaiRequest, {
+                max_tokens: CLAUDE_DEFAULT_MAX_TOKENS,
+                temperature: CLAUDE_DEFAULT_TEMPERATURE,
+                top_p: CLAUDE_DEFAULT_TOP_P
+            })
         };
 
         if (systemInstruction) {
@@ -1141,9 +1128,6 @@ export class OpenAIConverter extends BaseConverter {
     }
 
     /**
-     * 构建Gemini工具配置
-     */
-    /**
      * 构建 Gemini 工具配置
      *
      * @param {Object|string} toolChoice - 工具选择配置
@@ -1160,9 +1144,6 @@ export class OpenAIConverter extends BaseConverter {
     }
 
     /**
-     * 构建Gemini生成配置
-     */
-    /**
      * 构建 Gemini 生成配置
      *
      * @param {Object} config - 生成配置
@@ -1171,9 +1152,9 @@ export class OpenAIConverter extends BaseConverter {
      */
     buildGeminiGenerationConfig({ temperature, max_tokens, top_p, stop, tools, response_format }, model) {
         const config = {};
-        config.temperature = checkAndAssignOrDefault(temperature, GEMINI_DEFAULT_TEMPERATURE);
-        config.maxOutputTokens = checkAndAssignOrDefault(max_tokens, GEMINI_DEFAULT_MAX_TOKENS);
-        config.topP = checkAndAssignOrDefault(top_p, GEMINI_DEFAULT_TOP_P);
+        config.temperature = checkAndAssignOrDefault(temperature, OPENAI_DEFAULT_TEMPERATURE);
+        config.maxOutputTokens = checkAndAssignOrDefault(max_tokens, OPENAI_DEFAULT_MAX_TOKENS);
+        config.topP = checkAndAssignOrDefault(top_p, OPENAI_DEFAULT_TOP_P);
         if (stop !== undefined) config.stopSequences = Array.isArray(stop) ? stop : [stop];
 
         // 处理 response_format
@@ -1192,10 +1173,10 @@ export class OpenAIConverter extends BaseConverter {
         // 但在使用 tools 时不能加该参数（会导致 400 错误）
         const hasTools = tools && Array.isArray(tools) && tools.length > 0;
         if (!hasTools && model && (model.includes('2.5') || model.includes('thinking') || model.includes('2.0-flash-thinking'))) {
-            logger.info(`[OpenAI->Gemini] Adding responseModalities: ["TEXT"] for model: ${model}`);
+            logger.debug(`[OpenAI->Gemini] Adding responseModalities: ["TEXT"] for model: ${model}`);
             config.responseModalities = ["TEXT"];
         } else if (hasTools && model && (model.includes('2.5') || model.includes('thinking') || model.includes('2.0-flash-thinking'))) {
-            logger.info(`[OpenAI->Gemini] Skipping responseModalities for model ${model} because tools are present`);
+            logger.debug(`[OpenAI->Gemini] Skipping responseModalities for model ${model} because tools are present`);
         }
 
         return config;
@@ -1513,12 +1494,7 @@ export class OpenAIConverter extends BaseConverter {
 
         // 第一个chunk - role为assistant时调用 getOpenAIResponsesStreamChunkBegin
         if (delta.role === 'assistant') {
-            events.push(
-                generateResponseCreated(responseId, model || openaiChunk.model || 'unknown'),
-                generateResponseInProgress(responseId),
-                generateOutputItemAdded(responseId),
-                generateContentPartAdded(responseId)
-            );
+            events.push(...buildResponsesStartEvents(responseId, model || openaiChunk.model || 'unknown'));
         }
 
         // 处理 reasoning_content（推理内容）
@@ -1579,29 +1555,20 @@ export class OpenAIConverter extends BaseConverter {
 
         // 处理完成状态 - 调用 getOpenAIResponsesStreamChunkEnd
         if (choice.finish_reason) {
-            events.push(
-                generateOutputTextDone(responseId),
-                generateContentPartDone(responseId),
-                generateOutputItemDone(responseId),
-                generateResponseCompleted(responseId)
-            );
+            events.push(...buildResponsesDoneEvents(responseId));
 
-            // 如果有 usage 信息，更新最后一个事件
             if (openaiChunk.usage && events.length > 0) {
-                const lastEvent = events[events.length - 1];
-                if (lastEvent.response) {
-                    lastEvent.response.usage = {
-                        input_tokens: openaiChunk.usage.prompt_tokens || 0,
-                        input_tokens_details: {
-                            cached_tokens: openaiChunk.usage.prompt_tokens_details?.cached_tokens || 0
-                        },
-                        output_tokens: openaiChunk.usage.completion_tokens || 0,
-                        output_tokens_details: {
-                            reasoning_tokens: openaiChunk.usage.completion_tokens_details?.reasoning_tokens || 0
-                        },
-                        total_tokens: openaiChunk.usage.total_tokens || 0
-                    };
-                }
+                applyUsageToLastEvent(events, {
+                    input_tokens: openaiChunk.usage.prompt_tokens || 0,
+                    input_tokens_details: {
+                        cached_tokens: openaiChunk.usage.prompt_tokens_details?.cached_tokens || 0
+                    },
+                    output_tokens: openaiChunk.usage.completion_tokens || 0,
+                    output_tokens_details: {
+                        reasoning_tokens: openaiChunk.usage.completion_tokens_details?.reasoning_tokens || 0
+                    },
+                    total_tokens: openaiChunk.usage.total_tokens || 0
+                });
             }
         }
 

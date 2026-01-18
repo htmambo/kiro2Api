@@ -235,7 +235,7 @@ export function sanitizeMessages(messages, verboseLogging = false) {
                     return true;
                 } catch (e) {
                     // 无法解析，说明是不完整的 JSON，过滤掉
-                    logger.info(
+                    logger.debug(
                         `Filtered invalid JSON content at message ${index}: ${content.substring(0, 50)}...`
                     );
                     return false;
@@ -310,7 +310,7 @@ export function sanitizeMessages(messages, verboseLogging = false) {
 
     // 只在有实际修改时输出一次汇总信息(减少日志噪音)
     if (sanitizeActions.length > 0 && verboseLogging) {
-        logger.info(`Message sanitization: ${sanitizeActions.join(', ')}`);
+        logger.debug(`Message sanitization: ${sanitizeActions.join(', ')}`);
     }
 
     return alternating;
@@ -545,6 +545,6 @@ export function sanitizeMessageHistory(history, currentToolResults) {
     }
 
     if (fixCount > 0) {
-        logger.info(`Applied ${fixCount} fixes to message history`);
+        logger.debug(`Applied ${fixCount} fixes to message history`);
     }
 }

@@ -188,8 +188,6 @@
 - [`ConverterFactory.js`](../../src/converters/ConverterFactory.js) - 工厂模式
 - **策略模式实现** (`strategies/`)
   - [`ClaudeConverter.js`](../../src/converters/strategies/ClaudeConverter.js)
-  - [`GeminiConverter.js`](../../src/converters/strategies/GeminiConverter.js)
-  - [`OllamaConverter.js`](../../src/converters/strategies/OllamaConverter.js)
   - [`OpenAIConverter.js`](../../src/converters/strategies/OpenAIConverter.js)
   - [`OpenAIResponsesConverter.js`](../../src/converters/strategies/OpenAIResponsesConverter.js)
 
@@ -457,8 +455,6 @@ REDIS_PORT=6379
 ```javascript
 // 不同 AI 提供商的转换策略
 - ClaudeConverter
-- GeminiConverter
-- OllamaConverter
 - OpenAIConverter
 - OpenAIResponsesConverter
 ```

@@ -243,7 +243,7 @@ export function extractUsefulInformation(messages) {
  * @returns {Promise<string|null>} 摘要文本，失败返回 null
  */
 export async function generateConversationSummary(messages, kiroApiInstance) {
-    logger.info('Starting AI summarization...');
+    logger.warn('Starting AI summarization...');
     logger.debug('Input messages count:', { count: messages.length });
 
     // 使用 Kiro 风格的提取函数
@@ -278,8 +278,8 @@ ${userQueries}`;
         if (summaryResponse && summaryResponse.content) {
             // 添加 user queries 到摘要末尾（和 Kiro 一样）
             const fullSummary = summaryResponse.content + (userQueries || '');
-            logger.info('Summary generated successfully');
-            logger.debug('Summary length:', { length: fullSummary.length, unit: 'chars' });
+    logger.warn('Summary generated successfully');
+    logger.debug('Summary length:', { length: fullSummary.length, unit: 'chars' });
             return fullSummary;
         }
     } catch (error) {
@@ -287,7 +287,7 @@ ${userQueries}`;
     }
 
     // 降级：如果 AI 摘要失败，返回 null
-    logger.info('Falling back to simple truncation');
+    logger.warn('Falling back to simple truncation');
     return null;
 }
 

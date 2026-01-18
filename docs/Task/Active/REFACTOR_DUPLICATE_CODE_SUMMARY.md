@@ -21,7 +21,7 @@
 ## 二、任务 1: BaseConverter 路由优化 ✅
 
 ### 问题
-所有转换器（OpenAIConverter、ClaudeConverter、GeminiConverter、OllamaConverter、OpenAIResponsesConverter）都实现了相同的 switch-case 路由逻辑。
+所有转换器（OpenAIConverter、ClaudeConverter、OpenAIResponsesConverter）都实现了相同的 switch-case 路由逻辑。
 
 每个转换器的 4 个方法（`convertRequest`、`convertResponse`、`convertStreamChunk`、`convertModelList`）都包含约 50 行重复代码。
 
@@ -41,8 +41,6 @@
 **删除文件**:
 - `src/converters/strategies/OpenAIConverter.js` - 删除路由逻辑（-82 行）
 - `src/converters/strategies/ClaudeConverter.js` - 删除路由逻辑（-82 行）
-- `src/converters/strategies/GeminiConverter.js` - 删除路由逻辑（-82 行）
-- `src/converters/strategies/OllamaConverter.js` - 删除路由逻辑（-75 行）
 - `src/converters/strategies/OpenAIResponsesConverter.js` - 删除路由逻辑（-82 行）
 
 ### 收益
@@ -135,7 +133,7 @@
 src/converters/strategies/
 ├── OpenAIConverter.js (含重复路由逻辑)
 ├── ClaudeConverter.js (含重复路由逻辑)
-├── GeminiConverter.js (含重复路由逻辑)
+├── OpenAIResponsesConverter.js (含重复路由逻辑)
 └── ...
 
 src/utils/

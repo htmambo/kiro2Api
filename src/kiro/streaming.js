@@ -9,8 +9,9 @@
 
 import { initializeAuth } from './auth.js';
 import { createLogger } from '../lib/logger.js';
-import { getRetryConfig } from './request-utils.js';
+import { getRequestUrl, getRetryConfig } from './request-utils.js';
 import { executeKiroRequest } from './request-executor.js';
+import { logUnmatchedRoute } from '../utils/unmatched-route-logger.js';
 
 const logger = createLogger('streaming');
 
@@ -456,22 +457,63 @@ export async function* streamApiReal(
           for (let idx = 0; idx < reqState.history.length; idx++) {
             const h = reqState.history[idx];
             if (h.userInputMessage) {
-              logger.error(
-                `History[${idx}] user.content len:`,
-                h.userInputMessage.content?.length || 0
-              );
+              logger.error(`History[${idx}] user.content`, {
+                length: h.userInputMessage.content?.length || 0,
+              });
             }
             if (h.assistantResponseMessage) {
-              logger.error(
-                `History[${idx}] assistant.content len:`,
-                h.assistantResponseMessage.content?.length || 0,
-                `hasToolUses: ${!!h.assistantResponseMessage.toolUses}`
-              );
+              logger.error(`History[${idx}] assistant.content`, {
+                length: h.assistantResponseMessage.content?.length || 0,
+                hasToolUses: !!h.assistantResponseMessage.toolUses,
+              });
             }
           }
         }
       } catch (debugError) {
         logger.error("Error printing debug info:", { error: debugError.message });
+      }
+
+      try {
+        const requestUrl = getRequestUrl(service, model);
+        let pathname = requestUrl;
+        try {
+          pathname = new URL(requestUrl).pathname || requestUrl;
+        } catch {
+          pathname = requestUrl;
+        }
+
+        const logPayload = JSON.stringify(
+          {
+            reason: "Streaming 400 Bad Request",
+            model,
+            requestUrl,
+            requestData,
+          },
+          null,
+          2
+        );
+
+        const logPath = logUnmatchedRoute(
+          {
+            url: requestUrl,
+            headers: {
+              "user-agent": "kiro-streaming",
+              "content-type": "application/json",
+            },
+            socket: { remoteAddress: "internal" },
+          },
+          "POST",
+          pathname,
+          logPayload
+        );
+
+        if (logPath) {
+          logger.error("Streaming 400 request logged to file", { path: logPath });
+        }
+      } catch (logError) {
+        logger.error("Failed to log streaming request via logUnmatchedRoute", {
+          error: logError.message,
+        });
       }
     };
 
@@ -751,35 +793,28 @@ export async function* streamApiReal(
           reqState?.currentMessage?.userInputMessage?.userInputMessageContext
             ?.toolResults;
         if (toolResults && toolResults.length > 0) {
-          logger.error(
-            "ToolResults structure:",
-            JSON.stringify(
-              toolResults.map((tr) => ({
-                toolUseId: tr.toolUseId,
-                status: tr.status,
-                hasContent: !!tr.content,
-                contentType: Array.isArray(tr.content)
-                  ? "array"
-                  : typeof tr.content,
-                contentLength: tr.content
-                  ? Array.isArray(tr.content)
-                    ? tr.content.length
-                    : String(tr.content).length
-                  : 0,
-                // 新增：打印 content 详细结构
-                contentDetail: Array.isArray(tr.content)
-                  ? tr.content.map((c) => ({
-                      type: typeof c,
-                      hasText: !!c?.text,
-                      textLen: c?.text?.length || 0,
-                      textPreview: c?.text?.substring(0, 100) || "",
-                    }))
-                  : null,
-              })),
-              null,
-              2
-            )
-          );
+          logger.error("ToolResults structure", {
+            toolResults: toolResults.map((tr) => ({
+              toolUseId: tr.toolUseId,
+              status: tr.status,
+              hasContent: !!tr.content,
+              contentType: Array.isArray(tr.content) ? "array" : typeof tr.content,
+              contentLength: tr.content
+                ? Array.isArray(tr.content)
+                  ? tr.content.length
+                  : String(tr.content).length
+                : 0,
+              // 新增：打印 content 详细结构
+              contentDetail: Array.isArray(tr.content)
+                ? tr.content.map((c) => ({
+                    type: typeof c,
+                    hasText: !!c?.text,
+                    textLen: c?.text?.length || 0,
+                    textPreview: c?.text?.substring(0, 100) || "",
+                  }))
+                : null,
+            })),
+          });
         }
 
         // ⚠️ 关键调试：打印 history 中的 toolUses
@@ -787,33 +822,28 @@ export async function* streamApiReal(
           for (let idx = 0; idx < reqState.history.length; idx++) {
             const h = reqState.history[idx];
             if (h.userInputMessage) {
-              logger.error(
-                `History[${idx}] userInputMessage.content length:`,
-                h.userInputMessage.content?.length || 0
-              );
+              logger.error(`History[${idx}] userInputMessage.content`, {
+                length: h.userInputMessage.content?.length || 0,
+              });
             }
             if (h.assistantResponseMessage) {
-              logger.error(
-                `History[${idx}] assistantResponseMessage.content length:`,
-                h.assistantResponseMessage.content?.length || 0
-              );
+              logger.error(`History[${idx}] assistantResponseMessage.content`, {
+                length: h.assistantResponseMessage.content?.length || 0,
+              });
               if (h.assistantResponseMessage.toolUses) {
                 // ⚠️ 增强调试：打印完整的 toolUse 结构，检查是否有 input 字段
-                logger.error(
-                  `History[${idx}] toolUses:`,
-                  JSON.stringify(
-                    h.assistantResponseMessage.toolUses.map((tu) => ({
-                      toolUseId: tu.toolUseId,
-                      name: tu.name,
-                      hasInput: tu.input !== undefined,
-                      inputType: typeof tu.input,
-                      inputKeys:
-                        tu.input && typeof tu.input === "object"
-                          ? Object.keys(tu.input)
-                          : null,
-                    }))
-                  )
-                );
+                logger.error(`History[${idx}] toolUses`, {
+                  toolUses: h.assistantResponseMessage.toolUses.map((tu) => ({
+                    toolUseId: tu.toolUseId,
+                    name: tu.name,
+                    hasInput: tu.input !== undefined,
+                    inputType: typeof tu.input,
+                    inputKeys:
+                      tu.input && typeof tu.input === "object"
+                        ? Object.keys(tu.input)
+                        : null,
+                  })),
+                });
               }
             }
           }

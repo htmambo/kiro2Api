@@ -117,7 +117,7 @@
   - [x] api-client.js, utils.js, search.js, summarization.js, request-utils.js ✅
 - [x] 4.10 完善 `converters` 模块注释（数据转换）✅
   - [x] register-converters.js, BaseConverter.js, ConverterFactory.js, utils.js ✅
-  - [x] strategies/OllamaConverter.js, OpenAIConverter.js, GeminiConverter.js ✅
+  - [x] strategies/OpenAIConverter.js ✅
   - [x] strategies/OpenAIResponsesConverter.js, ClaudeConverter.js ✅
 
 ### 阶段四：基础模块注释完善 ✅

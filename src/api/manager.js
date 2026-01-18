@@ -7,10 +7,8 @@
  * @module manager
  */
 
-import {
-    handleContentGenerationRequest,
-    ENDPOINT_TYPE
-} from '../utils/common.js';
+import { handleContentGenerationRequest } from '../utils/content-generator.js';
+import { ENDPOINT_TYPE } from '../utils/constants.js';
 import { createLogger } from '../lib/logger.js';
 
 const logger = createLogger('api:manager');

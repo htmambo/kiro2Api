@@ -33,16 +33,23 @@ backup/
 out/
 /static/
 
+# Vue/Vite build output
+frontend-vue/dist/
+dist/
+
 # Temporary/Runtime files
 *.pid
 *.seed
 *.tmp
 *.temp
+*.new
 
 # Project config files
 configs/kiro
+configs/runtime/
+!configs/runtime/.gitkeep
 configs/*.json
 configs/*.txt
 
-1-参考项目
+docs/Archive/Reference/1-参考项目
 .ace-tool/

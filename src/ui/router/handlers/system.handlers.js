@@ -92,7 +92,7 @@ export async function getSystemInfo({ res }) {
     const memUsage = process.memoryUsage();
     const { join } = await import('path');
     const { existsSync, readFileSync } = await import('fs');
-    const { getCpuUsagePercent } = await import('../../../utils/common.js');
+    const { getCpuUsagePercent } = await import('../../../utils/system-metrics.js');
     // 读取版本号
     let appVersion = 'unknown';
     try {

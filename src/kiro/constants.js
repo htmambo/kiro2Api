@@ -72,7 +72,7 @@ export const KIRO_CONSTANTS = {
   DEVICE_GRANT_TYPE: "urn:ietf:params:oauth:grant-type:device_code",
   // Kiro 风格的上下文窗口管理配置
   // 测试结果: AWS 实际限制约 223K tokens (720K chars 失败，710K chars 成功)
-  MAX_CONTEXT_TOKENS: 200000, // 200K（AWS 限制 ~223K，留缓冲）
+  MAX_CONTEXT_TOKENS: 173000, // 200K（AWS 限制 ~223K，留缓冲）
   AUTO_SUMMARIZE_THRESHOLD: 0.8, // 80% = 160K 时开始 pruning
   CONTEXT_FILE_LIMIT: 0.75, // 上下文文件限制为 75% 窗口（和 Kiro 一致）
   MIN_MESSAGES_TO_KEEP: 5, // 摘要时保留最近的消息数量

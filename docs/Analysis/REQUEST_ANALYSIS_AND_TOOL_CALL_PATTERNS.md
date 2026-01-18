@@ -104,19 +104,19 @@ classDiagram
     class ClaudeConverter {
         +toOpenAIRequest()
         +toOpenAIResponse()
-        +toGeminiRequest()
+        +toOpenAIResponsesRequest()
     }
     class OpenAIConverter {
         +toClaudeRequest()
         +toClaudeResponse()
     }
-    class GeminiConverter {
+    class OpenAIResponsesConverter {
         +toClaudeRequest()
         +toClaudeResponse()
     }
     BaseConverter <|-- ClaudeConverter
     BaseConverter <|-- OpenAIConverter
-    BaseConverter <|-- GeminiConverter
+    BaseConverter <|-- OpenAIResponsesConverter
 ```
 
 ### 3.2 工具调用转换的相似模式

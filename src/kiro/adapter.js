@@ -13,25 +13,23 @@ import * as https from 'https';
 import { KIRO_MODELS, KIRO_CONSTANTS } from "./constants.js";
 import { sanitizeMessageHistory, getContentText, sanitizeMessages } from './message-sanitizer.js';
 import { promises as fs } from 'fs';
-import {getMacAddressSha256, generateRandomUserAgentComponents, getOriginalMacAddressSha256} from './utils.js';
-import { createLogger } from '../lib/logger.js';
-import { countMessageTokens, countTextTokens } from './utils/token-counter.js';
-
-// 导入搜索模块
-import { executeWebSearch, formatSearchResults } from './search.js';
+import { getMacAddressSha256, generateRandomUserAgentComponents, getOriginalMacAddressSha256 } from './utils.js';
 import { streamApiReal } from './streaming.js';
+import { buildMessagesWithSummary, SUMMARIZATION_CONFIG } from './summarization.js';
+import { countMessageTokens, countTextTokens } from './utils/token-counter.js';
+import { createLogger } from '../lib/logger.js';
+import {
+    extractMetadata,
+    extractSupplementalContext,
+    summarizeMessage,
+    pruneChatHistory,
+    pruneChatHistoryWithAI
+} from './adapter/helpers.js';
 
 // 导入工具转换模块
 import {
-    convertToQTool,
     convertToQToolWithMapping
 } from './converters/tool-converter.js';
-
-// 导入公共摘要模块
-import {
-    buildMessagesWithSummary,
-    SUMMARIZATION_CONFIG
-} from './summarization.js';
 
 // 导入认证模块
 import {
@@ -111,9 +109,9 @@ export class KiroService {
         this.useSystemProxy = config?.USE_SYSTEM_PROXY_KIRO ?? false;
         // 详细日志开关（默认关闭，只显示简洁日志）
         this.verboseLogging = config?.ENABLE_VERBOSE_LOGGING ?? false;
-        logger.info(`System proxy ${this.useSystemProxy ? 'enabled' : 'disabled'}`);
-        logger.info(`Verbose logging ${this.verboseLogging ? 'enabled' : 'disabled'}`);
-        logger.info(`ENABLE_THINKING_BY_DEFAULT in config: ${config.ENABLE_THINKING_BY_DEFAULT}`);
+        logger.debug(`System proxy ${this.useSystemProxy ? 'enabled' : 'disabled'}`);
+        logger.debug(`Verbose logging ${this.verboseLogging ? 'enabled' : 'disabled'}`);
+        logger.debug(`ENABLE_THINKING_BY_DEFAULT in config: ${config.ENABLE_THINKING_BY_DEFAULT}`);
 
         // 将 kiro-oauth-creds-base64 与 kiro-oauth-creds-file 注入配置
         if (config.KIRO_OAUTH_CREDS_BASE64) {
@@ -277,351 +275,6 @@ export class KiroService {
     }
 
     /**
-     * 反向映射 schema 参数名（Kiro → CC）
-     *
-     * 用于将 Kiro schema 的参数名转换回 Claude Code 期望的参数名。
-     *
-     * @param {Object} schema - Kiro schema
-     * @param {Object} paramMap - 参数映射表（CC → Kiro）
-     * @returns {Object} 反向映射后的 schema
-     */
-    reverseMapSchema(schema, paramMap) {
-        if (!schema || typeof schema !== 'object') {
-            return schema;
-        }
-
-        // 创建反向映射表（Kiro → CC）
-        const reverseMap = {};
-        for (const [ccParam, kiroParam] of Object.entries(paramMap)) {
-            reverseMap[kiroParam] = ccParam;
-        }
-
-        // 深拷贝 schema
-        const newSchema = { ...schema };
-
-        // 反向映射 properties 中的参数名
-        if (newSchema.properties && typeof newSchema.properties === 'object') {
-            const newProperties = {};
-            for (const [key, value] of Object.entries(newSchema.properties)) {
-                const newKey = reverseMap[key] || key;  // 如果有反向映射，使用 CC 参数名
-                newProperties[newKey] = value;
-            }
-            newSchema.properties = newProperties;
-        }
-
-        // 反向映射 required 数组中的参数名
-        if (Array.isArray(newSchema.required)) {
-            newSchema.required = newSchema.required.map(param => reverseMap[param] || param);
-        }
-
-        return newSchema;
-    }
-
-    /**
-     * Kiro 优化：提取消息元数据
-     *
-     * 参考 Kiro 源码 extension.js:707749，
-     * 从消息的 additional_kwargs 中提取元数据（conversationId, continuationId, taskType）。
-     *
-     * @param {Array} messages - 消息数组
-     * @param {string} key - 元数据键名
-     * @returns {*|null} 元数据值或 null
-     */
-    extractMetadata(messages, key) {
-        if (!messages || messages.length === 0) return null;
-
-        // 从后往前查找（最新消息优先）
-        for (let i = messages.length - 1; i >= 0; i--) {
-            const msg = messages[i];
-            if (msg.additional_kwargs && msg.additional_kwargs[key]) {
-                logger.debug(`Extracted ${key}:`, { value: msg.additional_kwargs[key] });
-                return msg.additional_kwargs[key];
-            }
-        }
-        return null;
-    }
-
-    /**
-     * Kiro 优化：提取补充上下文
-     *
-     * 参考 Kiro 源码 extension.js:578750-578780，
-     * 从消息的 additional_kwargs 中提取工作区上下文信息。
-     *
-     * @param {Object} message - 消息对象
-     * @returns {Array} 补充上下文数组
-     */
-    extractSupplementalContext(message) {
-        const supplementalContexts = [];
-
-        if (!message || !message.additional_kwargs) {
-            return supplementalContexts;
-        }
-
-        const kwargs = message.additional_kwargs;
-
-        // 1. 提取最近编辑的文件（recentlyEditedFiles）
-        if (kwargs.recentlyEditedFiles && Array.isArray(kwargs.recentlyEditedFiles)) {
-            kwargs.recentlyEditedFiles.forEach(file => {
-                if (file.filepath && file.contents) {
-                    supplementalContexts.push({
-                        filePath: file.filepath,
-                        content: file.contents
-                    });
-                }
-            });
-        }
-
-        // 2. 提取最近编辑的范围（recentlyEditedRanges）
-        if (kwargs.recentlyEditedRanges && Array.isArray(kwargs.recentlyEditedRanges)) {
-            kwargs.recentlyEditedRanges.forEach(range => {
-                if (range.filepath && range.lines) {
-                    supplementalContexts.push({
-                        filePath: range.filepath,
-                        content: Array.isArray(range.lines) ? range.lines.join('\n') : range.lines
-                    });
-                }
-            });
-        }
-
-        // 3. 提取光标上下文（cursorContext）
-        if (kwargs.cursorContext) {
-            const ctx = kwargs.cursorContext;
-            if (ctx.filepath && ctx.content) {
-                supplementalContexts.push({
-                    filePath: ctx.filepath,
-                    content: ctx.content
-                });
-            }
-        }
-
-        return supplementalContexts;
-    }
-
-    /**
-     * Kiro 官方的 pruneStringFromTop 实现：使用 tokenizer 精确裁剪
-     *
-     * 保留字符串的最后 maxTokens 个 token。
-     *
-     * @param {string} text - 原始文本
-     * @param {number} maxTokens - 最大 token 数
-     * @returns {string} 裁剪后的文本
-     */
-    pruneStringFromTop(text, maxTokens) {
-        try {
-            const tokens = this.tokenizer.encode(text);
-            if (tokens.length <= maxTokens) {
-                return text;
-            }
-            // 保留最后 maxTokens 个 token
-            const prunedTokens = tokens.slice(tokens.length - maxTokens);
-            return this.tokenizer.decode(prunedTokens);
-        } catch (error) {
-            // 回退：字符估算
-            logger.warn('Tokenizer failed, using character estimation');
-            const estimatedChars = Math.floor(maxTokens * 3.5);
-            return text.substring(text.length - estimatedChars);
-        }
-    }
-
-    /**
-     * Kiro 官方的 summarize 实现：智能摘要消息内容
-     *
-     * ⚠️ 关键：保留 tool_result 和 tool_use 的结构，只截断其内容。
-     *
-     * @param {Object} message - 消息对象
-     * @returns {Object|string|Array} 摘要后的内容
-     */
-    summarizeMessage(message) {
-        const content = message.content;
-        // ⚠️ 优化：提高截断阈值，减少信息丢失
-        // 对于工具结果（代码、文件内容），保留更多内容
-        const TEXT_TRUNCATE_LENGTH = 1000;      // 普通文本：1000 字符
-        const TOOL_RESULT_TRUNCATE_LENGTH = 2000;  // 工具结果：2000 字符（代码更重要）
-
-        if (Array.isArray(content)) {
-            // ⚠️ 关键修复：保留 tool_result 和 tool_use 结构，只截断内容
-            const summarizedContent = [];
-            let hasToolParts = false;
-
-            for (const part of content) {
-                if (part.type === 'text' && part.text) {
-                    // 截断文本内容
-                    const truncated = part.text.length > TEXT_TRUNCATE_LENGTH
-                        ? part.text.substring(0, TEXT_TRUNCATE_LENGTH) + '...'
-                        : part.text;
-                    summarizedContent.push({ type: 'text', text: truncated });
-                } else if (part.type === 'tool_result') {
-                    hasToolParts = true;
-                    // 保留 tool_result 结构，但截断内容（保留更多）
-                    const truncatedResult = {
-                        type: 'tool_result',
-                        tool_use_id: part.tool_use_id
-                    };
-                    if (part.content) {
-                        if (typeof part.content === 'string') {
-                            truncatedResult.content = part.content.length > TOOL_RESULT_TRUNCATE_LENGTH
-                                ? part.content.substring(0, TOOL_RESULT_TRUNCATE_LENGTH) + '...[truncated]'
-                                : part.content;
-                        } else {
-                            truncatedResult.content = '[content truncated]';
-                        }
-                    }
-                    if (part.is_error) {
-                        truncatedResult.is_error = part.is_error;
-                    }
-                    summarizedContent.push(truncatedResult);
-                } else if (part.type === 'tool_use') {
-                    hasToolParts = true;
-                    // 保留 tool_use 结构
-                    summarizedContent.push({
-                        type: 'tool_use',
-                        id: part.id,
-                        name: part.name,
-                        input: part.input  // 保留完整的 input
-                    });
-                } else {
-                    // 其他类型直接保留
-                    summarizedContent.push(part);
-                }
-            }
-
-            return summarizedContent.length > 0 ? summarizedContent : [{ type: 'text', text: '...' }];
-        }
-
-        // 字符串格式，直接截断（使用 TEXT_TRUNCATE_LENGTH，并保留未截断的原文）但是这里的字符串有可能是json字符串，直接截断会出问题
-        if (typeof content === 'string') {
-            return content.length > TEXT_TRUNCATE_LENGTH
-                ? content.substring(0, TEXT_TRUNCATE_LENGTH) + '...'
-                : content;
-        }
-        return String(content).substring(0, TEXT_TRUNCATE_LENGTH) + '...';
-    }
-
-    /**
-     * 使用 AI 进行智能摘要（异步方法）- 流式版本
-     *
-     * 优先尝试 AI 摘要，失败后降级到传统裁剪。
-     * 优化：使用流式请求复用现有连接，避免建立新连接的开销。
-     *
-     * @param {Array} messages - 消息数组
-     * @param {number} contextLength - 上下文长度限制
-     * @param {number} reservedTokens - 预留 token 数
-     * @returns {Promise<Array>} 处理后的消息数组
-     */
-    async pruneChatHistoryWithAI(messages, contextLength, reservedTokens) {
-        const minKeep = SUMMARIZATION_CONFIG.MIN_MESSAGES_TO_KEEP || 5;
-        const minMessagesForSummary = SUMMARIZATION_CONFIG.MIN_MESSAGES_FOR_SUMMARY || 8;
-
-        // 如果消息数量不足，直接使用传统裁剪
-        if (messages.length < minMessagesForSummary) {
-            return this.pruneChatHistory(messages, contextLength, reservedTokens);
-        }
-
-        // 检查冷却时间（避免频繁摘要）
-        const now = Date.now();
-        const cooldown = SUMMARIZATION_CONFIG.SUMMARIZATION_COOLDOWN_MS || 3 * 60 * 1000;
-        if (this._lastSummarizationTime && (now - this._lastSummarizationTime) < cooldown) {
-            return this.pruneChatHistory(messages, contextLength, reservedTokens);
-        }
-
-        try {
-            // 分离：需要摘要的消息 vs 保留的最近消息
-            const messagesToSummarize = messages.slice(0, -minKeep);
-            const recentMessages = messages.slice(-minKeep);
-
-            if (messagesToSummarize.length <= 3) {
-                return this.pruneChatHistory(messages, contextLength, reservedTokens);
-            }
-
-            // 提取对话信息用于摘要
-            const extractedInfo = this._extractConversationInfo(messagesToSummarize);
-
-            // 限制总长度避免摘要请求本身超限
-            let conversationData = extractedInfo;
-            if (conversationData.length > 50000) {
-                conversationData = conversationData.substring(0, 50000) + '\n[...truncated for summarization...]';
-            }
-
-            // 构建摘要请求
-            const summaryPrompt = `[SYSTEM NOTE: Context limit reached. Create a structured summary.]
-
-You are preparing a summary for a new agent instance who will pick up this conversation.
-
-Organize the summary by TASKS/REQUESTS. For each distinct task:
-- **SHORT DESCRIPTION**: Brief description of the task
-- **STATUS**: done | in-progress | not-started | abandoned
-- **DETAILS**: Key context, decisions made, current state
-- **NEXT STEPS**: If in-progress, list remaining work
-- **FILEPATHS**: Related files (use \`code\` formatting)
-
-CONVERSATION DATA TO SUMMARIZE:
-${conversationData}`;
-
-            // ✅ 优化：使用流式请求，复用现有连接
-            const summaryRequestBody = {
-                messages: [{ role: 'user', content: summaryPrompt }],
-                system: null,
-                tools: null  // 摘要请求不需要工具
-            };
-
-            const summaryModel = SUMMARIZATION_CONFIG.SUMMARIZATION_MODEL || 'claude-sonnet-4-5-20250929';
-
-            // ⚠️ 修复：增加超时时间到 60 秒（流式请求需要更多时间处理大量内容）
-            // 之前 10 秒太短，导致摘要全部超时失败
-            const SUMMARY_TIMEOUT_MS = 60000;
-            let timeoutId;
-            let aborted = false;
-
-            logger.info('Starting streaming summarization...');
-            logger.debug(`Conversation data length: ${conversationData.length} chars`);
-            const streamStartTime = Date.now();
-
-            const summaryPromise = (async () => {
-                const chunks = [];
-                try {
-                    for await (const event of streamApiReal(this, '', summaryModel, summaryRequestBody)) {
-                        if (aborted) break;
-                        if (event.type === 'content' && event.content) {
-                            chunks.push(event.content);
-                        }
-                    }
-                    return chunks.join('');
-                } catch (streamError) {
-                    if (!aborted) throw streamError;
-                    return null;
-                }
-            })();
-
-            const timeoutPromise = new Promise((_, reject) => {
-                timeoutId = setTimeout(() => {
-                    aborted = true;
-                    reject(new Error('Summary timeout after 60s'));
-                }, SUMMARY_TIMEOUT_MS);
-            });
-
-            const summary = await Promise.race([summaryPromise, timeoutPromise]);
-            clearTimeout(timeoutId);
-
-            const streamDuration = Date.now() - streamStartTime;
-            logger.info(`Streaming completed in ${streamDuration}ms`);
-
-            if (summary) {
-                // 使用摘要 + 最近消息构建新的消息历史
-                const originalCount = messages.length;
-                const newMessages = buildMessagesWithSummary(summary, recentMessages, originalCount);
-                this._lastSummarizationTime = now;
-                logger.info(`Success! Summary length: ${summary.length} chars`);
-                return newMessages;
-            }
-        } catch (error) {
-            logger.error(`Failed:`, { error: error.message });
-        }
-
-        // 降级：AI 摘要失败，使用传统裁剪
-        return this.pruneChatHistory(messages, contextLength, reservedTokens);
-    }
-
-    /**
      * 提取对话信息用于摘要（内部辅助方法）
      * @param {Array} messages - 消息数组
      * @returns {string} - 提取的对话信息
@@ -671,207 +324,6 @@ ${conversationData}`;
 
         return sections.join('\n');
     }
-
-    /**
-     * Kiro 风格的消息历史修剪策略（传统方法，作为降级方案）
-     * 参考: Kiro extension.js:161281-1340
-     *
-     * 多阶段策略：
-     * 1. 修剪超长消息（> contextLength/3）
-     * 2. 保留最后 5 条消息，摘要前面的消息
-     * 3. 删除最旧的消息（保留至少 5 条）
-     * 4. 继续摘要剩余消息
-     * 5. 继续删除旧消息（保留至少 1 条）
-     * 6. 最终修剪第一条消息
-     */
-    /**
-     * 传统裁剪对话历史
-     *
-     * @param {Array} messages - 消息数组
-     * @param {number} contextLength - 上下文长度限制
-     * @param {number} tokensForCompletion - 预留 token 数
-     * @returns {Array} 裁剪后的消息数组
-     */
-    pruneChatHistory(messages, contextLength, tokensForCompletion) {
-        // 深拷贝消息副本，避免修改原数组（特别是 content 数组）
-        const chatHistory = messages.map(msg => ({
-            ...msg,
-            content: Array.isArray(msg.content)
-                ? msg.content.map(part => ({ ...part }))  // 深拷贝 content 数组
-                : msg.content  // 字符串直接复制
-        }));
-
-        // ⚠️ 关键修复：使用 getFullMessageTokens 计算完整 token 数（包括 tool_result）
-        let totalTokens = tokensForCompletion + chatHistory.reduce((acc, message) => {
-            return acc + countMessageTokens(message, true);
-        }, 0);
-
-        // 如果不超限，直接返回
-        if (totalTokens <= contextLength) {
-            return chatHistory;
-        }
-
-        // 阶段 1: 处理超长消息（> contextLength/3 的消息）
-        const longestMessages = [...chatHistory];
-        longestMessages.sort((a, b) => {
-            // 使用完整 token 计算进行排序
-            return countMessageTokens(b, true) - countMessageTokens(a, true);
-        });
-
-        const longerThanOneThird = longestMessages.filter(message => {
-            return countMessageTokens(message, true) > contextLength / 3;
-        });
-
-        for (const message of longerThanOneThird) {
-            const messageTokens = countMessageTokens(message, true);
-            const deltaNeeded = totalTokens - contextLength;
-            const distanceFromThird = messageTokens - contextLength / 3;
-            const delta = Math.min(deltaNeeded, distanceFromThird);
-
-            // ⚠️ 优化：如果消息包含 tool_result，直接清空 tool_result 内容而不是截断
-            if (Array.isArray(message.content)) {
-                let hasToolResult = false;
-                for (const part of message.content) {
-                    if (part.type === 'tool_result') {
-                        hasToolResult = true;
-                        // 截断 tool_result 内容
-                        if (typeof part.content === 'string' && part.content.length > 500) {
-                            part.content = part.content.substring(0, 500) + '\n[... content truncated for context limit ...]';
-                        } else if (Array.isArray(part.content)) {
-                            part.content = [{ type: 'text', text: '[... content truncated for context limit ...]' }];
-                        }
-                    }
-                }
-                if (hasToolResult) {
-                    // 重新计算 token 并更新 totalTokens
-                    const newTokens = countMessageTokens(message, true);
-                    totalTokens -= (messageTokens - newTokens);
-                    if (totalTokens <= contextLength) {
-                        return chatHistory;
-                    }
-                    continue;
-                }
-            }
-
-            // 对于纯文本消息，从顶部修剪
-            const content = getContentText(message);
-            const targetTokens = messageTokens - delta;
-            const estimatedChars = Math.floor(targetTokens * 3.5);  // 粗略估算字符数
-            const prunedText = content.substring(content.length - estimatedChars);
-
-            // ⚠️ 保持原始格式：数组就保持数组，字符串就保持字符串
-            if (Array.isArray(message.content)) {
-                message.content = [{ type: 'text', text: prunedText }];
-            } else {
-                message.content = prunedText;
-            }
-            totalTokens -= delta;
-
-            if (totalTokens <= contextLength) {
-                return chatHistory;
-            }
-        }
-
-        // 阶段 2: 保留最后 5 条消息，摘要前面的消息
-        let i = 0;
-        while (totalTokens > contextLength && i < chatHistory.length - 5) {
-            const message = chatHistory[i];
-            // ⚠️ 关键修复：使用完整 token 计算
-            const oldTokens = countMessageTokens(message, true);
-            const summarized = this.summarizeMessage(message);  // 传入整个 message
-            const newTokens = countTextTokens(getContentText({ content: summarized }), true);
-
-            message.content = summarized;  // summarized 已经是正确格式（数组或字符串）
-            totalTokens = totalTokens - oldTokens + newTokens;
-            i++;
-        }
-
-        if (totalTokens <= contextLength) {
-            return chatHistory;
-        }
-
-        // 阶段 3: 删除最旧的消息（保留至少 5 条）
-        while (chatHistory.length > 5 && totalTokens > contextLength) {
-            const message = chatHistory.shift();
-            // ⚠️ 关键修复：使用完整 token 计算
-            totalTokens -= countMessageTokens(message, true);
-        }
-
-        if (totalTokens <= contextLength) {
-            return chatHistory;
-        }
-
-        // 阶段 4: 继续摘要剩余消息（除了最后一条）
-        i = 0;
-        while (totalTokens > contextLength && chatHistory.length > 0 && i < chatHistory.length - 1) {
-            const message = chatHistory[i];
-            const content = getContentText(message);
-
-            // 如果已经是摘要，跳过
-            if (content.endsWith('...') && content.length <= 103) {
-                i++;
-                continue;
-            }
-
-            // ⚠️ 关键修复：使用完整 token 计算
-            const oldTokens = countMessageTokens(message, true);
-            const summarized = this.summarizeMessage(message);  // 传入整个 message
-            const newTokens = countTextTokens(getContentText({ content: summarized }), true);
-
-            message.content = summarized;  // summarized 已经是正确格式
-            totalTokens = totalTokens - oldTokens + newTokens;
-            i++;
-        }
-
-        if (totalTokens <= contextLength) {
-            return chatHistory;
-        }
-
-        // 阶段 5: 继续删除旧消息（保留至少 1 条）
-        while (totalTokens > contextLength && chatHistory.length > 1) {
-            const message = chatHistory.shift();
-            // ⚠️ 关键修复：使用完整 token 计算
-            totalTokens -= countMessageTokens(message, true);
-        }
-
-        if (totalTokens <= contextLength) {
-            return chatHistory;
-        }
-
-        // 阶段 6: 最终修剪第一条消息
-        if (totalTokens > contextLength && chatHistory.length > 0) {
-            const message = chatHistory[0];
-            // ⚠️ 关键修复：使用完整 token 计算
-            const currentMessageTokens = countMessageTokens(message, true);
-
-            // ⚠️ FIX: 正确计算需要删除多少 tokens
-            const tokensToRemove = totalTokens - contextLength;
-            const targetMessageTokens = Math.max(100, currentMessageTokens - tokensToRemove); // 至少保留100 tokens
-
-            // 如果消息包含 tool_result，直接截断
-            if (Array.isArray(message.content)) {
-                for (const part of message.content) {
-                    if (part.type === 'tool_result') {
-                        part.content = '[... content truncated ...]';
-                    }
-                }
-            }
-
-            const content = getContentText(message);
-            const estimatedChars = Math.floor(targetMessageTokens * 3.5);
-            const prunedText = content.substring(content.length - estimatedChars);
-
-            // ⚠️ 保持原始格式：数组就保持数组，字符串就保持字符串
-            if (Array.isArray(message.content)) {
-                message.content = [{ type: 'text', text: prunedText }];
-            } else {
-                message.content = prunedText;
-            }
-        }
-
-        return chatHistory;
-    }
-
 
     /**
      * 构建 CodeWhisperer 请求体
@@ -945,11 +397,11 @@ ${conversationData}`;
         // 如果超过阈值，触发消息修剪
         const thresholdPct = Math.round(KIRO_CONSTANTS.AUTO_SUMMARIZE_THRESHOLD * 100);
         if (currentTokens > autoSummarizeThreshold) {
-            logger.debug(
-                `Auto-Pruning Token usage: ${currentTokens}/${contextLength} (${Math.round(currentTokens/contextLength*100)}%) > ${thresholdPct}% threshold - TRIGGERING PRUNING`
+            logger.warn(
+                `🔥 Auto-Pruning TRIGGERED: ${currentTokens}/${contextLength} tokens (${Math.round(currentTokens/contextLength*100)}%) > ${thresholdPct}% threshold`
             );
-            logger.debug(
-                `Token Detail: messages=${messages.length}, sysTokens=${systemPrompt ? countTextTokens(systemPrompt, true) : 0}, toolsTokens=${toolsTokens}`
+            logger.warn(
+                `📊 Token Detail: messages=${messages.length}, sysTokens=${systemPrompt ? countTextTokens(systemPrompt, true) : 0}, toolsTokens=${toolsTokens}`
             );
         } else {
             // ⚠️ 每10条消息打印一次详细日志
@@ -972,24 +424,25 @@ ${conversationData}`;
 
             // 执行修剪（优先使用 AI 摘要，失败则降级到传统裁剪）
             const pruneStartTime = Date.now();
-            messages = await this.pruneChatHistoryWithAI(messages, contextLength, reservedTokens);
+            messages = await pruneChatHistoryWithAI(this, messages, contextLength, reservedTokens);
             const pruneDuration = Date.now() - pruneStartTime;
-            logger.debug(`pruneChatHistoryWithAI took ${pruneDuration}ms`);
+            logger.warn(`pruneChatHistoryWithAI took ${pruneDuration}ms`);
 
             // 修剪后重新计算 token 数（使用完整 token 计算方法）
             const prunedTokens = messages.reduce((acc, message) => {
                 return acc + countMessageTokens(message, true);
             }, 0);
-            logger.debug(
-                `Auto-Pruning Completed: ${prunedTokens}/${contextLength} (${Math.round(prunedTokens/contextLength*100)}%)`
+            const compressionRatio = ((currentTokens - prunedTokens) / currentTokens * 100).toFixed(2);
+            logger.error(
+                `📉 Compression Complete: ${currentTokens} → ${prunedTokens} tokens (${Math.round(prunedTokens/contextLength*100)}% of limit) | Compression Ratio: ${compressionRatio}%`
             );
         }
 
         // Kiro 优化 2：提取 conversationId 和 continuationId（多轮对话优化）
         // 从消息历史中提取（如果客户端提供），否则生成新的
-        const conversationId = this.extractMetadata(messages, 'conversationId') || uuidv4();
-        const continuationId = this.extractMetadata(messages, 'continuationId');  // 可选
-        const taskType = this.extractMetadata(messages, 'taskType');  // 可选
+        const conversationId = extractMetadata(messages, 'conversationId') || uuidv4();
+        const continuationId = extractMetadata(messages, 'continuationId');  // 可选
+        const taskType = extractMetadata(messages, 'taskType');  // 可选
         const processedMessages = messages;
 
         if (processedMessages.length === 0) {
@@ -1032,7 +485,7 @@ ${conversationData}`;
                         lastMsg.content = [{ type: 'text', text: lastMsg.content }, ...currentMsg.content];
                     }
                     if (this.verboseLogging) {
-                        logger.info(`Merged adjacent ${currentMsg.role} messages`);
+                        logger.debug(`Merged adjacent ${currentMsg.role} messages`);
                     }
                 } else {
                     mergedMessages.push(currentMsg);
@@ -1142,7 +595,7 @@ ${conversationData}`;
             const mapping = CC_TO_KIRO_TOOL_MAPPING[name];
             if (mapping?.remove) {
                 if (this.verboseLogging) {
-                    logger.info(`Removing unsupported tool: ${name} (${mapping.reason || 'not supported'})`);
+                    logger.debug(`Removing unsupported tool: ${name} (${mapping.reason || 'not supported'})`);
                 }
                 return true;
             }
@@ -1155,7 +608,7 @@ ${conversationData}`;
             filteredTools = tools.filter(tool => {
                 const isBuiltin = isBuiltinTool(tool);
                 if (isBuiltin && this.verboseLogging) {
-                    logger.info(`Filtering out builtin tool: ${tool.name} (not supported by AWS CodeWhisperer)`);
+                    logger.debug(`Filtering out builtin tool: ${tool.name} (not supported by AWS CodeWhisperer)`);
                 }
                 return !isBuiltin;
             });
@@ -1175,7 +628,7 @@ ${conversationData}`;
                     tools: filteredTools.map(tool => convertToQToolWithMapping(tool, compressInputSchema, DESCRIPTION_MAX_LENGTH))
                 };
                 if (this.verboseLogging) {
-                    logger.info(`Processed ${filteredTools.length} tools (original: ${tools.length})`);
+                    logger.debug(`Processed ${filteredTools.length} tools (original: ${tools.length})`);
                 }            }
         }
 
@@ -1216,7 +669,7 @@ ${conversationData}`;
 
         // 日志输出工具裁剪信息
         if (tools && tools.length > MAX_TOOL_COUNT) {
-            logger.info(`Tool trimming info: kept ${keptToolNames.size} tools, mapped ${toolUseIdToName.size} toolUseIds`);
+            logger.debug(`Tool trimming info: kept ${keptToolNames.size} tools, mapped ${toolUseIdToName.size} toolUseIds`);
         }
 
         const history = [];
@@ -1271,7 +724,7 @@ ${conversationData}`;
                             const toolName = toolUseIdToName.get(part.tool_use_id);
                             if (keptToolNames.size > 0 && toolName && !keptToolNames.has(toolName)) {
                                 if (this.verboseLogging) {
-                                    logger.info(`Filtering out tool_result for trimmed tool: ${toolName} (toolUseId: ${part.tool_use_id})`);
+                    logger.debug(`Filtering out tool_result for trimmed tool: ${toolName} (toolUseId: ${part.tool_use_id})`);
                                 }
                                 continue; // 跳过这个 tool_result
                             }
@@ -1349,7 +802,7 @@ ${conversationData}`;
                             const normalizedToolName = normalizeToolName(part.name);
                             if (keptToolNames.size > 0 && !keptToolNames.has(normalizedToolName)) {
                                 if (this.verboseLogging) {
-                                    logger.info(`Filtering out tool_use for trimmed tool: ${part.name}`);
+                                    logger.debug(`Filtering out tool_use for trimmed tool: ${part.name}`);
                                 }
                                 continue; // 跳过这个 tool_use
                             }
@@ -1397,7 +850,7 @@ ${conversationData}`;
         // 如果最后一条消息是 assistant，需要将其加入 history，然后创建一个 user 类型的 currentMessage
         // 因为 CodeWhisperer API 的 currentMessage 必须是 userInputMessage 类型
         if (currentMessage.role === 'assistant') {
-            logger.info('Last message is assistant, moving it to history and creating user currentMessage');
+            logger.debug('Last message is assistant, moving it to history and creating user currentMessage');
             
             // 构建 assistant 消息并加入 history
             let assistantResponseMessage = {
@@ -1413,7 +866,7 @@ ${conversationData}`;
                         const normalizedToolName = normalizeToolName(part.name);
                         if (keptToolNames.size > 0 && !keptToolNames.has(normalizedToolName)) {
                             if (this.verboseLogging) {
-                                logger.info(`Filtering out tool_use for trimmed tool: ${part.name}`);
+                                logger.debug(`Filtering out tool_use for trimmed tool: ${part.name}`);
                             }
                             continue;
                         }
@@ -1457,7 +910,7 @@ ${conversationData}`;
                         const toolName = toolUseIdToName.get(part.tool_use_id);
                         if (keptToolNames.size > 0 && toolName && !keptToolNames.has(toolName)) {
                             if (this.verboseLogging) {
-                                logger.info(`Filtering out tool_result for trimmed tool: ${toolName} (toolUseId: ${part.tool_use_id})`);
+                                logger.debug(`Filtering out tool_result for trimmed tool: ${toolName} (toolUseId: ${part.tool_use_id})`);
                             }
                             continue;
                         }
@@ -1479,7 +932,7 @@ ${conversationData}`;
                         const normalizedToolName = normalizeToolName(part.name);
                         if (keptToolNames.size > 0 && !keptToolNames.has(normalizedToolName)) {
                             if (this.verboseLogging) {
-                                logger.info(`Filtering out tool_use for trimmed tool: ${part.name}`);
+                                logger.debug(`Filtering out tool_use for trimmed tool: ${part.name}`);
                             }
                             continue;
                         }
@@ -1522,7 +975,7 @@ ${conversationData}`;
             // 之前只裁剪了 history，但 currentMessage 没有被裁剪
             const MAX_CURRENT_CONTENT_LENGTH = 32000;  // 32KB 限制
             if (currentContent.length > MAX_CURRENT_CONTENT_LENGTH) {
-                logger.info(`⚠️ currentContent too long (${currentContent.length} chars), truncating to ${MAX_CURRENT_CONTENT_LENGTH}`);
+                logger.debug(`⚠️ currentContent too long (${currentContent.length} chars), truncating to ${MAX_CURRENT_CONTENT_LENGTH}`);
 
                 // 智能截断：移除 <system-reminder> 块以保留更多有用内容
                 let truncatedContent = currentContent;
@@ -1541,7 +994,7 @@ ${conversationData}`;
                 }
 
                 currentContent = truncatedContent;
-                logger.info(`currentContent truncated to ${currentContent.length} chars`);
+                logger.debug(`currentContent truncated to ${currentContent.length} chars`);
             }
         }
 
@@ -1604,7 +1057,7 @@ ${conversationData}`;
 
         // ⭐ Kiro 优化：补充上下文（supplementalContext）
         // 从最后一条消息的 additional_kwargs 中提取工作区上下文
-        const supplementalContext = this.extractSupplementalContext(currentMessage);
+        const supplementalContext = extractSupplementalContext(currentMessage);
         if (supplementalContext && supplementalContext.length > 0) {
             userInputMessageContext.supplementalContexts = supplementalContext;
         }

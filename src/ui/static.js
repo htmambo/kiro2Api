@@ -23,12 +23,10 @@ export async function serveStaticFiles(pathParam, res) {
     } else if (pathParam === '/favicon.ico') {
         relativePath = 'favicon.ico';
     } else if (
-        pathParam.startsWith('/_next/') ||
         pathParam.startsWith('/assets/') ||
         pathParam.startsWith('/dashboard') ||
         pathParam.startsWith('/login') ||
         pathParam.startsWith('/app/')) {
-        // Next.js 静态资源直接使用路径（去掉开头的 /）
         relativePath = pathParam.substring(1);
     } else if (pathParam.startsWith('/')) {
         // 其他以 / 开头的路径，去掉开头的 /

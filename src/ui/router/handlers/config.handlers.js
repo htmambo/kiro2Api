@@ -71,7 +71,7 @@ export async function updateConfig({ req, res, currentConfig }) {
         }
 
         // 保存到 config.json
-        const configPath = 'configs/config.json';
+        const configPath = 'configs/runtime/config.json';
         try {
             writeFileSync(configPath, JSON.stringify(currentConfig, null, 2), 'utf8');
         } catch (error) {
@@ -101,7 +101,7 @@ export async function reloadConfig({ res }) {
 
         broadcastEvent('config_update', {
             action: 'reload',
-            filePath: 'configs/config.json',
+            filePath: 'configs/runtime/config.json',
             timestamp: new Date().toISOString()
         });
 

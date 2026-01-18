@@ -175,33 +175,28 @@ export async function callApi(
         reqState?.currentMessage?.userInputMessage?.userInputMessageContext
           ?.toolResults;
       if (toolResults && toolResults.length > 0) {
-        logger.error(
-          "ToolResults structure:",
-          JSON.stringify(
-            toolResults.map((tr) => ({
-              toolUseId: tr.toolUseId,
-              status: tr.status,
-              hasContent: !!tr.content,
-              contentType: Array.isArray(tr.content) ? "array" : typeof tr.content,
-              contentLength: tr.content
-                ? Array.isArray(tr.content)
-                  ? tr.content.length
-                  : String(tr.content).length
-                : 0,
-              // 新增：打印 content 详细结构
-              contentDetail: Array.isArray(tr.content)
-                ? tr.content.map((c) => ({
-                    type: typeof c,
-                    hasText: !!c?.text,
-                    textLen: c?.text?.length || 0,
-                    textPreview: c?.text?.substring(0, 100) || "",
-                  }))
-                : null,
-            })),
-            null,
-            2
-          )
-        );
+        logger.error("ToolResults structure", {
+          toolResults: toolResults.map((tr) => ({
+            toolUseId: tr.toolUseId,
+            status: tr.status,
+            hasContent: !!tr.content,
+            contentType: Array.isArray(tr.content) ? "array" : typeof tr.content,
+            contentLength: tr.content
+              ? Array.isArray(tr.content)
+                ? tr.content.length
+                : String(tr.content).length
+              : 0,
+            // 新增：打印 content 详细结构
+            contentDetail: Array.isArray(tr.content)
+              ? tr.content.map((c) => ({
+                  type: typeof c,
+                  hasText: !!c?.text,
+                  textLen: c?.text?.length || 0,
+                  textPreview: c?.text?.substring(0, 100) || "",
+                }))
+              : null,
+          })),
+        });
       }
 
       // ⚠️ 关键调试：打印 history 中的 toolUses
@@ -209,33 +204,28 @@ export async function callApi(
         for (let idx = 0; idx < reqState.history.length; idx++) {
           const h = reqState.history[idx];
           if (h.userInputMessage) {
-            logger.error(
-              `History[${idx}] userInputMessage.content length:`,
-              h.userInputMessage.content?.length || 0
-            );
+            logger.error(`History[${idx}] userInputMessage.content`, {
+              length: h.userInputMessage.content?.length || 0,
+            });
           }
           if (h.assistantResponseMessage) {
-            logger.error(
-              `History[${idx}] assistantResponseMessage.content length:`,
-              h.assistantResponseMessage.content?.length || 0
-            );
+            logger.error(`History[${idx}] assistantResponseMessage.content`, {
+              length: h.assistantResponseMessage.content?.length || 0,
+            });
             if (h.assistantResponseMessage.toolUses) {
               // ⚠️ 增强调试：打印完整的 toolUse 结构，检查是否有 input 字段
-              logger.error(
-                `History[${idx}] toolUses:`,
-                JSON.stringify(
-                  h.assistantResponseMessage.toolUses.map((tu) => ({
-                    toolUseId: tu.toolUseId,
-                    name: tu.name,
-                    hasInput: tu.input !== undefined,
-                    inputType: typeof tu.input,
-                    inputKeys:
-                      tu.input && typeof tu.input === "object"
-                        ? Object.keys(tu.input)
-                        : null,
-                  }))
-                )
-              );
+              logger.error(`History[${idx}] toolUses`, {
+                toolUses: h.assistantResponseMessage.toolUses.map((tu) => ({
+                  toolUseId: tu.toolUseId,
+                  name: tu.name,
+                  hasInput: tu.input !== undefined,
+                  inputType: typeof tu.input,
+                  inputKeys:
+                    tu.input && typeof tu.input === "object"
+                      ? Object.keys(tu.input)
+                      : null,
+                })),
+              });
             }
           }
         }
@@ -276,16 +266,16 @@ export async function callApi(
 
     // 简洁模式：只显示关键信息
     if (!service.verboseLogging) {
-      logger.info(`📥 RESPONSE [${response.status}] [${requestDuration}s]`);
+      logger.debug(`📥 RESPONSE [${response.status}] [${requestDuration}s]`);
     } else {
       // 详细模式：显示所有信息
-      logger.info("\n" + "=".repeat(60));
-      logger.info(
+      logger.debug("\n" + "=".repeat(60));
+      logger.debug(
         `📥 RESPONSE [${response.status} ${response.statusText}] [${requestDuration}s]`
       );
-      logger.info("=".repeat(60));
-      logger.info(`Response Size: ${responseSizeKB} KB`);
-      logger.info("=".repeat(60) + "\n");
+      logger.debug("=".repeat(60));
+      logger.debug(`Response Size: ${responseSizeKB} KB`);
+      logger.debug("=".repeat(60) + "\n");
     }
 
     return response;
@@ -314,7 +304,7 @@ function processApiResponse(response) {
     const rawResponseText = Buffer.isBuffer(response.data) ? response.data.toString('utf8') : String(response.data);
     //logger.info(`Raw response length: ${rawResponseText.length}`);
     if (rawResponseText.includes("[Called")) {
-        logger.info("Raw response contains [Called marker.");
+        logger.debug("Raw response contains [Called marker.");
     }
 
     // 1. Parse structured events and bracket calls from parsed content
@@ -382,12 +372,12 @@ export async function generateContent(service, model, requestBody) {
     // Kiro 官方逻辑：如果model在MODEL_MAPPING中则使用，否则使用默认模型
     const finalModel = MODEL_MAPPING[model] ? model : service.modelName;
     if (service.verboseLogging) {
-        logger.info(`Calling generateContent with model: ${finalModel}`);
+        logger.debug(`Calling generateContent with model: ${finalModel}`);
     }
 
     // Estimate input tokens before making the API call
     const inputTokens = estimateInputTokens(requestBody);
-    logger.info(`Token] generateContent estimateInputTokens: ${inputTokens} tokens (${requestBody.messages?.length || 0} messages)`);
+    logger.debug(`Token] generateContent estimateInputTokens: ${inputTokens} tokens (${requestBody.messages?.length || 0} messages)`);
 
     const response = await callApi(service, '', finalModel, requestBody);
 
@@ -430,7 +420,7 @@ export async function* generateContentStream(service, model, requestBody) {
         requestBody.extended_thinking === true ||
         service.config.ENABLE_THINKING_BY_DEFAULT === true;
     if (service.verboseLogging) {
-        logger.info(`Calling generateContentStream with model: ${finalModel} (real streaming, thinking: ${enableThinking})`);
+        logger.debug(`Calling generateContentStream with model: ${finalModel} (real streaming, thinking: ${enableThinking})`);
     }
 
     // ⚠️ 性能计时：token 估算
@@ -438,7 +428,7 @@ export async function* generateContentStream(service, model, requestBody) {
     const inputTokens = estimateInputTokens(requestBody);
     const tokenDuration = Date.now() - tokenStartTime;
     // ⚠️ 调试：打印 token 计算结果
-    logger.info(`Token estimateInputTokens: ${inputTokens} tokens (${requestBody.messages?.length || 0} messages, ${tokenDuration}ms)`);
+    logger.debug(`Token estimateInputTokens: ${inputTokens} tokens (${requestBody.messages?.length || 0} messages, ${tokenDuration}ms)`);
     const messageId = `${uuidv4()}`;
 
     try {
@@ -724,7 +714,7 @@ export async function* generateContentStream(service, model, requestBody) {
                         // ⭐ 服务端执行 webSearch 工具
                         if (currentToolCall.name === 'webSearch') {
                             if (serviceverboseLogging) {
-                                logger.info('Detected webSearch tool call, executing on server...');
+                                logger.debug('Detected webSearch tool call, executing on server...');
                             }
                             currentToolCall.serverSideExecute = true;  // 标记为服务端执行
                         }
@@ -748,7 +738,7 @@ export async function* generateContentStream(service, model, requestBody) {
                 if (references && references.length > 0) {
                     codeReferences.push(...references);
                     if (service.verboseLogging) {
-                        logger.info(`Code references detected: ${references.length} sources`);
+                        logger.debug(`Code references detected: ${references.length} sources`);
                     }
                 }
             }
@@ -832,7 +822,7 @@ export async function* generateContentStream(service, model, requestBody) {
 
         if (serverSideTools.length > 0) {
             if (service.verboseLogging) {
-                logger.info(`WebSearch Processing ${serverSideTools.length} server-side tool calls...`);
+                logger.debug(`WebSearch Processing ${serverSideTools.length} server-side tool calls...`);
             }
 
             let searchResultsContent = '';
@@ -869,7 +859,7 @@ export async function* generateContentStream(service, model, requestBody) {
 
                 totalContent += searchResultsContent;
                 if (service.verboseLogging) {
-                    logger.info('Search results added to response');
+                    logger.debug('Search results added to response');
                 }
             }
         }
@@ -1241,7 +1231,7 @@ export async function getUsageLimits(service) {
 
     try {
         const response = await service.axiosInstance.get(fullUrl, { headers });
-        logger.info('Usage limits fetched successfully');
+        logger.debug('Usage limits fetched successfully');
         return response.data;
     } catch (error) {
         // 如果是 403 错误，尝试刷新 token 后重试

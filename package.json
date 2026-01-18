@@ -20,15 +20,10 @@
   },
   "devDependencies": {
     "@babel/preset-env": "^7.28.0",
-    "@jest/globals": "^29.7.0",
-    "babel-jest": "^30.0.5",
     "babel-plugin-transform-import-meta": "^2.3.3",
     "concurrently": "^9.1.2",
     "http-proxy": "^1.18.1",
-    "jest": "^29.7.0",
-    "jest-environment-node": "^29.7.0",
-    "nodemon": "^3.1.4",
-    "supertest": "^6.3.3"
+    "nodemon": "^3.1.4"
   },
   "scripts": {
     "start": "node --max-old-space-size=120 src/api/server.js",
@@ -42,14 +37,6 @@
     "pm2:delete": "pm2 delete kiro2api",
     "pm2:logs": "pm2 logs kiro2api",
     "pm2:status": "pm2 status",
-    "pm2:monit": "pm2 monit",
-    "test": "jest",
-    "test:watch": "jest --watch",
-    "test:coverage": "jest --coverage",
-    "test:verbose": "jest --verbose",
-    "test:silent": "jest --silent",
-    "test:unit": "node run-tests.js --unit",
-    "test:integration": "node run-tests.js --integration",
-    "test:summary": "node test-summary.js"
+    "pm2:monit": "pm2 monit"
   }
 }

@@ -8,25 +8,19 @@
  */
 
 import deepmerge from 'deepmerge';
-import * as fs from 'fs';
-import * as path from 'path';
-import { fileURLToPath } from 'url';
-import { isAuthorized } from '../utils/common.js';
+import { isAuthorized } from '../utils/auth-utils.js';
 import { handleUIApiRequests, serveStaticFiles } from '../ui-manager.js';
 import { proxyViteRequest, shouldProxyToVitePath } from '../ui/vite-dev-proxy.js';
 import { handleAPIRequests } from './manager.js';
 import { getApiService } from '../services/manager.js';
 import { getAccountPoolManager } from '../services/manager.js';
-import { MODEL_PROVIDER } from '../utils/common.js';
+import { MODEL_PROVIDER } from '../utils/constants.js';
 import { PROMPT_LOG_FILENAME } from '../config/manager.js';
 import { errorMiddleware, createError } from './error-middleware.js';
 import { checkRateLimit, isRateLimitWhitelisted } from './rate-limiter.js';
 import { createLogger } from '../lib/logger.js';
 import { readRequestBody as readBody } from '../utils/request-body.js';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const UNMATCHED_ROUTES_LOG_DIR = path.resolve(__dirname, '../../logs/unmatched-routes');
+import { logUnmatchedRoute } from '../utils/unmatched-route-logger.js';
 
 const logger = createLogger('api:request-handler');
 
@@ -72,78 +66,6 @@ function isApiKeyProtectedPath(pathname) {
     if (pathname.startsWith('/v1/')) return true;
     if (pathname === '/stats') return true;
     return false;
-}
-
-/**
- * 获取客户端真实 IP 地址
- * 
- * @param {http.IncomingMessage} req - HTTP 请求对象
- * @returns {string} 客户端 IP 地址
- */
-function getClientIp(req) {
-    const xForwardedFor = req.headers['x-forwarded-for'];
-    if (xForwardedFor) {
-        const ips = xForwardedFor.split(',').map(ip => ip.trim());
-        return ips[0];
-    }
-    
-    const xRealIp = req.headers['x-real-ip'];
-    if (xRealIp) {
-        return xRealIp;
-    }
-    
-    return req.socket.remoteAddress || 'unknown';
-}
-
-async function logUnmatchedRoute(req, method, pathname, body) {
-    try {
-        if (!fs.existsSync(UNMATCHED_ROUTES_LOG_DIR)) {
-            fs.mkdirSync(UNMATCHED_ROUTES_LOG_DIR, { recursive: true });
-        }
-
-        const timestamp = Date.now();
-        const randomSuffix = String(Math.floor(Math.random() * 1000)).padStart(3, '0');
-        const filename = `${timestamp}-${randomSuffix}.txt`;
-        const filepath = path.join(UNMATCHED_ROUTES_LOG_DIR, filename);
-
-        const clientIp = getClientIp(req);
-        const userAgent = req.headers['user-agent'] || 'unknown';
-        const referer = req.headers['referer'] || req.headers['referrer'] || 'none';
-        const contentType = req.headers['content-type'] || 'none';
-        const contentLength = req.headers['content-length'] || '0';
-
-        const logContent = [
-            `=== Unmatched Route Request ===`,
-            `Time: ${new Date().toISOString()}`,
-            `Timestamp: ${timestamp}`,
-            ``,
-            `--- Request Info ---`,
-            `Method: ${method}`,
-            `URL: ${req.url}`,
-            `Path: ${pathname}`,
-            ``,
-            `--- Client Info ---`,
-            `IP: ${clientIp}`,
-            `User-Agent: ${userAgent}`,
-            `Referer: ${referer}`,
-            ``,
-            `--- Headers ---`,
-            ...Object.entries(req.headers).map(([key, value]) => `${key}: ${value}`),
-            ``,
-            `--- Request Body ---`,
-            `Content-Type: ${contentType}`,
-            `Content-Length: ${contentLength}`,
-            `Body:`,
-            body || '(empty)',
-            ``,
-            `=== End of Request ===`
-        ].join('\n');
-
-        fs.writeFileSync(filepath, logContent, 'utf-8');
-        logger.debug(`Unmatched route logged to: ${filepath}`);
-    } catch (error) {
-        logger.error(`Failed to log unmatched route: ${error.message}`);
-    }
 }
 
 async function safeReadRequestBody(req) {
@@ -217,11 +139,12 @@ export function createRequestHandler(config, accountPoolManager) {
             return;
         }
 
-        // 提供 UI 静态资源（登录页面无需认证）
-        if (shouldProxyToVitePath(path)) {
+        const isProduction = process.env.NODE_ENV === 'production';
+
+        if (!isProduction && shouldProxyToVitePath(path)) {
             const proxied = await proxyViteRequest(req, res);
             if (proxied) return;
-        } else if (
+        } else if (isProduction && (
             path.startsWith('/static/') ||
             path.startsWith('/assets/') ||
             path.startsWith('/static-site/') ||
@@ -232,12 +155,11 @@ export function createRequestHandler(config, accountPoolManager) {
             path.startsWith('/login/') ||
             path === '/login.html' ||
             path.startsWith('/app/') ||
-            path.startsWith('/_next/') ||
             path.startsWith('/dashboard') ||
             path.endsWith('.png') ||
             path.endsWith('.jpg') ||
             path.endsWith('.svg')
-        ) {
+        )) {
             const served = await serveStaticFiles(path, res);
             if (served) return;
         }
@@ -254,8 +176,8 @@ export function createRequestHandler(config, accountPoolManager) {
         const uiHandled = await handleUIApiRequests(method, path, req, res, currentConfig, accountPoolManager);
         if (uiHandled) return;
 
-        logger.info(`\n${new Date().toLocaleString()}`);
-        logger.info(`Received request: ${req.method} http://${host}${sanitizeUrlForLogs(req.url)}`);
+        logger.debug(`\n${new Date().toLocaleString()}`);
+        logger.debug(`Received request: ${req.method} http://${host}${sanitizeUrlForLogs(req.url)}`);
 
         if (method === 'GET' && path === '/health') {
             res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -294,7 +216,7 @@ export function createRequestHandler(config, accountPoolManager) {
         }
 
         if (path.includes('/count_tokens')) {
-            logger.info(`Ignoring count_tokens request: ${path}`);
+            logger.debug(`Ignoring count_tokens request: ${path}`);
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
                 tokens: 0,

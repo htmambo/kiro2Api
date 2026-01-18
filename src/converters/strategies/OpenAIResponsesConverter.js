@@ -12,9 +12,10 @@ import {
     extractAndProcessSystemMessages as extractSystemMessages,
     extractTextFromMessageContent as extractText,
     CLAUDE_DEFAULT_MAX_TOKENS,
-    GEMINI_DEFAULT_INPUT_TOKEN_LIMIT,
-    GEMINI_DEFAULT_OUTPUT_TOKEN_LIMIT
+    OPENAI_DEFAULT_INPUT_TOKEN_LIMIT,
+    OPENAI_DEFAULT_OUTPUT_TOKEN_LIMIT
 } from '../utils.js';
+import { normalizeTokensConfig } from '../utils/param-normalizer.js';
 import { createLogger } from '../../lib/logger.js';
 const logger = createLogger('OpenAIResponsesConverter');
 
@@ -185,7 +186,11 @@ export class OpenAIResponsesConverter extends BaseConverter {
         const claudeRequest = {
             model: responsesRequest.model,
             messages: [],
-            max_tokens: responsesRequest.max_tokens || CLAUDE_DEFAULT_MAX_TOKENS,
+            ...normalizeTokensConfig(responsesRequest, {
+                max_tokens: CLAUDE_DEFAULT_MAX_TOKENS,
+                temperature: undefined,
+                top_p: undefined
+            }),
             stream: responsesRequest.stream || false
         };
 
@@ -557,8 +562,9 @@ export class OpenAIResponsesConverter extends BaseConverter {
                 version: m.version || "1.0.0",
                 displayName: m.displayName || m.id || m.name,
                 description: m.description || `A generative model for text and chat generation. ID: ${m.id || m.name}`,
-                inputTokenLimit: m.inputTokenLimit || GEMINI_DEFAULT_INPUT_TOKEN_LIMIT,
-                outputTokenLimit: m.outputTokenLimit || GEMINI_DEFAULT_OUTPUT_TOKEN_LIMIT,
+    inputTokenLimit: m.inputTokenLimit || OPENAI_DEFAULT_INPUT_TOKEN_LIMIT,
+    outputTokenLimit: m.outputTokenLimit || OPENAI_DEFAULT_OUTPUT_TOKEN_LIMIT,
+
                 supportedGenerationMethods: m.supportedGenerationMethods || ["generateContent", "streamGenerateContent"]
             }))
         };

@@ -8,6 +8,8 @@
 
 import { MODEL_PROTOCOL_PREFIX } from '../utils/protocol.js';
 import { ConverterFactory } from './ConverterFactory.js';
+import './ContentProcessorFactory.js';
+import './ToolProcessorFactory.js';
 import { OpenAIConverter } from './strategies/OpenAIConverter.js';
 import { OpenAIResponsesConverter } from './strategies/OpenAIResponsesConverter.js';
 import { ClaudeConverter } from './strategies/ClaudeConverter.js';

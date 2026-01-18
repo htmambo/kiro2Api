@@ -7,7 +7,7 @@
  */
 import * as fs from 'fs';
 import { promises as pfs } from 'fs';
-import { INPUT_SYSTEM_PROMPT_FILE, MODEL_PROVIDER } from '../utils/common.js';
+import { INPUT_SYSTEM_PROMPT_FILE, MODEL_PROVIDER } from '../utils/constants.js';
 import { createLogger } from '../lib/logger.js';
 
 export let CONFIG = {}; // 导出全局 CONFIG 供其他模块使用
@@ -22,7 +22,7 @@ const DEFAULT_CONFIG = {
     SERVER_PORT: 8088,
     HOST: '0.0.0.0',
     MODEL_PROVIDER: MODEL_PROVIDER.KIRO_API,
-    ACCOUNT_POOL_FILE_PATH: "./configs/account_pool.json",
+    ACCOUNT_POOL_FILE_PATH: "./configs/runtime/account_pool.json",
     KIRO_OAUTH_CREDS_BASE64: null,
     SYSTEM_PROMPT_FILE_PATH: INPUT_SYSTEM_PROMPT_FILE,
     SYSTEM_PROMPT_MODE: 'overwrite',
@@ -107,17 +107,14 @@ function normalizeConfiguredProviders(config) {
  * 从 config.json 与命令行参数初始化配置
  *
  * @param {string[]} args - 命令行参数
- * @param {string} [configFilePath='configs/config.json'] - 配置文件路径
- * @returns {Object} 初始化后的配置对象
+ * @param {string} [configFilePath='configs/runtime/config.json'] - 配置文件路径
  */
-export async function initializeConfig(args = process.argv.slice(2), configFilePath = 'configs/config.json') {
+export async function initializeConfig(args = process.argv.slice(2), configFilePath = 'configs/runtime/config.json') {
     let currentConfig = {};
-    let configFileExists = false;
 
     try {
         const configData = fs.readFileSync(configFilePath, 'utf8');
         currentConfig = JSON.parse(configData);
-        configFileExists = true;
         logger.info('Loaded configuration from config.json');
     } catch (error) {
         if (error.code === 'ENOENT') {
@@ -125,8 +122,8 @@ export async function initializeConfig(args = process.argv.slice(2), configFileP
 
             // 尝试从 config.json.example 复制
             try {
-                if (fs.existsSync('configs/config.json.example')) {
-                    const exampleData = fs.readFileSync('configs/config.json.example', 'utf8');
+                if (fs.existsSync('configs/templates/config.json.example')) {
+                    const exampleData = fs.readFileSync('configs/templates/config.json.example', 'utf8');
                     currentConfig = JSON.parse(exampleData);
 
                     // 创建 config.json
@@ -268,7 +265,7 @@ export async function initializeConfig(args = process.argv.slice(2), configFileP
     currentConfig.SYSTEM_PROMPT_CONTENT = await getSystemPromptFileContent(currentConfig.SYSTEM_PROMPT_FILE_PATH);
 
     if (!currentConfig.ACCOUNT_POOL_FILE_PATH) {
-        currentConfig.ACCOUNT_POOL_FILE_PATH = 'configs/account_pool.json';
+        currentConfig.ACCOUNT_POOL_FILE_PATH = 'configs/runtime/account_pool.json';
     }
 
     if (currentConfig.LOG_UNMATCHED_ROUTES === undefined) {

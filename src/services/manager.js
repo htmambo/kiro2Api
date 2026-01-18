@@ -141,7 +141,7 @@ export const serviceInstances = {};
  * @returns {KiroService} 服务适配器
  */
 export function getServiceAdapter(config) {
-    logger.info(`getServiceAdapter, provider: ${config.MODEL_PROVIDER}, uuid: ${config.uuid}`);
+    logger.debug(`getServiceAdapter, provider: ${config.MODEL_PROVIDER}, uuid: ${config.uuid}`);
     const provider = config.MODEL_PROVIDER;
     const providerKey = config.uuid ? provider + config.uuid : provider;
 

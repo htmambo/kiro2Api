@@ -19,11 +19,11 @@ export const ROUTER_CONFIG = {
 };
 
 // Token存储到本地文件中
-const TOKEN_STORE_FILE = './configs/token-store.json';
+const TOKEN_STORE_FILE = './configs/runtime/token-store.json';
 
 // 用量缓存文件路径
-const USAGE_CACHE_FILE = './configs/usage-cache.json';
-const ACCOUNT_POOL_FILE = './configs/account_pool.json';
+const USAGE_CACHE_FILE = './configs/runtime/usage-cache.json';
+const ACCOUNT_POOL_FILE = './configs/runtime/account_pool.json';
 export const DEFAULT_PROVIDER_TYPE_FOR_ACCOUNTS = DEFAULT_PROVIDER_TYPE;
 const logger = createLogger('ui:manager');
 
@@ -485,7 +485,7 @@ export async function reloadConfig() {
         const { initializeConfig } = await import('./config/manager.js');
 
         // Reload main config
-        const newConfig = await initializeConfig(process.argv.slice(2), './configs/config.json');
+        const newConfig = await initializeConfig(process.argv.slice(2), './configs/runtime/config.json');
 
         // Update global CONFIG
         Object.assign(CONFIG, newConfig);

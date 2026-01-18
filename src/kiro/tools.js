@@ -489,7 +489,7 @@ export function getAdaptiveTimeout(model, baseTimeout) {
     for (const slowModel of KIRO_CONSTANTS.SLOW_MODELS) {
         if (modelLower.includes(slowModel.toLowerCase())) {
             const adaptiveTimeout = baseTimeout * KIRO_CONSTANTS.SLOW_MODEL_TIMEOUT_MULTIPLIER;
-            logger.info(`Slow model detected (${model}), timeout: ${baseTimeout}ms -> ${adaptiveTimeout}ms`);
+            logger.debug(`Slow model detected (${model}), timeout: ${baseTimeout}ms -> ${adaptiveTimeout}ms`);
             return adaptiveTimeout;
         }
     }
@@ -590,7 +590,7 @@ function splitLongText(text) {
         }
     }
 
-    logger.info(`Split long document into ${chunks.length} chunks (total: ${text.length} chars)`);
+    logger.debug(`Split long document into ${chunks.length} chunks (total: ${text.length} chars)`);
     return chunks;
 }
 
@@ -651,7 +651,7 @@ export function deduplicateToolCalls(toolCalls) {
             const currentArgs = tc.function?.arguments || tc.input || '{}';
 
             if (currentArgs !== '{}' && (existingArgs === '{}' || currentArgs.length > existingArgs.length)) {
-                logger.info(`Replacing tool call ${tcId} with better arguments: ${existingArgs.length} -> ${currentArgs.length} chars`);
+                logger.debug(`Replacing tool call ${tcId} with better arguments: ${existingArgs.length} -> ${currentArgs.length} chars`);
                 byId.set(tcId, tc);
             }
         }
@@ -670,12 +670,12 @@ export function deduplicateToolCalls(toolCalls) {
             seen.add(key);
             uniqueToolCalls.push(tc);
         } else {
-            logger.info(`Skipping duplicate tool call: ${name}`);
+            logger.debug(`Skipping duplicate tool call: ${name}`);
         }
     }
 
     if (toolCalls.length !== uniqueToolCalls.length) {
-        logger.info(`Deduplicated tool calls: ${toolCalls.length} -> ${uniqueToolCalls.length}`);
+        logger.debug(`Deduplicated tool calls: ${toolCalls.length} -> ${uniqueToolCalls.length}`);
     }
     return uniqueToolCalls;
 }

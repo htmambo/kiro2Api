@@ -15,23 +15,16 @@ import {
     OPENAI_DEFAULT_MAX_TOKENS,
     OPENAI_DEFAULT_TEMPERATURE,
     OPENAI_DEFAULT_TOP_P,
-    GEMINI_DEFAULT_MAX_TOKENS,
-    GEMINI_DEFAULT_TEMPERATURE,
-    GEMINI_DEFAULT_TOP_P,
-    GEMINI_DEFAULT_INPUT_TOKEN_LIMIT,
-    GEMINI_DEFAULT_OUTPUT_TOKEN_LIMIT
+    OPENAI_DEFAULT_INPUT_TOKEN_LIMIT,
+    OPENAI_DEFAULT_OUTPUT_TOKEN_LIMIT
 } from '../utils.js';
+import { normalizeTokensConfig } from '../utils/param-normalizer.js';
 import { MODEL_PROTOCOL_PREFIX } from '../../utils/protocol.js';
 import {
-    generateResponseCreated,
-    generateResponseInProgress,
-    generateOutputItemAdded,
-    generateContentPartAdded,
-    generateOutputTextDone,
-    generateContentPartDone,
-    generateOutputItemDone,
-    generateResponseCompleted
-} from '../../openai/openai-responses-core.mjs';
+    buildResponsesStartEvents,
+    buildResponsesDoneEvents,
+    applyUsageToLastEvent
+} from '../utils/streaming-utils.js';
 import { createLogger } from '../../lib/logger.js';
 const logger = createLogger({ module: 'ClaudeConverter' });
 
@@ -161,9 +154,11 @@ export class ClaudeConverter extends BaseConverter {
         const openaiRequest = {
             model: claudeRequest.model,
             messages: openaiMessages,
-            max_tokens: checkAndAssignOrDefault(claudeRequest.max_tokens, OPENAI_DEFAULT_MAX_TOKENS),
-            temperature: checkAndAssignOrDefault(claudeRequest.temperature, OPENAI_DEFAULT_TEMPERATURE),
-            top_p: checkAndAssignOrDefault(claudeRequest.top_p, OPENAI_DEFAULT_TOP_P),
+            ...normalizeTokensConfig(claudeRequest, {
+                max_tokens: OPENAI_DEFAULT_MAX_TOKENS,
+                temperature: OPENAI_DEFAULT_TEMPERATURE,
+                top_p: OPENAI_DEFAULT_TOP_P
+            }),
             stream: claudeRequest.stream,
         };
 
@@ -596,8 +591,8 @@ export class ClaudeConverter extends BaseConverter {
                 version: m.version || "1.0.0",
                 displayName: m.displayName || m.id || m.name,
                 description: m.description || `A generative model for text and chat generation. ID: ${m.id || m.name}`,
-                inputTokenLimit: m.inputTokenLimit || GEMINI_DEFAULT_INPUT_TOKEN_LIMIT,
-                outputTokenLimit: m.outputTokenLimit || GEMINI_DEFAULT_OUTPUT_TOKEN_LIMIT,
+            inputTokenLimit: m.inputTokenLimit || OPENAI_DEFAULT_INPUT_TOKEN_LIMIT,
+            outputTokenLimit: m.outputTokenLimit || OPENAI_DEFAULT_OUTPUT_TOKEN_LIMIT,
                 supportedGenerationMethods: m.supportedGenerationMethods || ["generateContent", "streamGenerateContent"]
             }))
         };
@@ -1427,12 +1422,7 @@ export class ClaudeConverter extends BaseConverter {
 
         // message_start 事件 - 流开始
         if (claudeChunk.type === 'message_start') {
-            events.push(
-                generateResponseCreated(responseId, model || 'unknown'),
-                generateResponseInProgress(responseId),
-                generateOutputItemAdded(responseId),
-                generateContentPartAdded(responseId)
-            );
+            events.push(...buildResponsesStartEvents(responseId, model || 'unknown'));
         }
 
         // content_block_start 事件
@@ -1504,40 +1494,24 @@ export class ClaudeConverter extends BaseConverter {
 
         // message_delta 事件 - 流结束
         if (claudeChunk.type === 'message_delta') {
-            // events.push(
-            //     generateOutputTextDone(responseId),
-            //     generateContentPartDone(responseId),
-            //     generateOutputItemDone(responseId),
-            //     generateResponseCompleted(responseId)
-            // );
-            
-            // 如果有 usage 信息，更新最后一个事件
             if (claudeChunk.usage && events.length > 0) {
-                const lastEvent = events[events.length - 1];
-                if (lastEvent.response) {
-                    lastEvent.response.usage = {
-                        input_tokens: claudeChunk.usage.input_tokens || 0,
-                        input_tokens_details: {
-                            cached_tokens: claudeChunk.usage.cache_read_input_tokens || 0
-                        },
-                        output_tokens: claudeChunk.usage.output_tokens || 0,
-                        output_tokens_details: {
-                            reasoning_tokens: 0
-                        },
-                        total_tokens: (claudeChunk.usage.input_tokens || 0) + (claudeChunk.usage.output_tokens || 0)
-                    };
-                }
+                applyUsageToLastEvent(events, {
+                    input_tokens: claudeChunk.usage.input_tokens || 0,
+                    input_tokens_details: {
+                        cached_tokens: claudeChunk.usage.cache_read_input_tokens || 0
+                    },
+                    output_tokens: claudeChunk.usage.output_tokens || 0,
+                    output_tokens_details: {
+                        reasoning_tokens: 0
+                    },
+                    total_tokens: (claudeChunk.usage.input_tokens || 0) + (claudeChunk.usage.output_tokens || 0)
+                });
             }
         }
 
         // message_stop 事件
         if (claudeChunk.type === 'message_stop') {
-            events.push(
-                generateOutputTextDone(responseId),
-                generateContentPartDone(responseId),
-                generateOutputItemDone(responseId),
-                generateResponseCompleted(responseId)
-            );
+            events.push(...buildResponsesDoneEvents(responseId));
         }
 
         return events;

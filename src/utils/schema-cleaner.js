@@ -11,18 +11,6 @@
  */
 export const SCHEMA_CLEANER_STRATEGY = {
     /**
-     * Gemini API 策略
-     *
-     * Gemini 只支持有限的 JSON Schema 属性，不支持：
-     * - exclusiveMinimum, exclusiveMaximum, minimum, maximum
-     * - minLength, maxLength, minItems, maxItems
-     * - pattern, format, default, const
-     * - additionalProperties, $schema, $ref, $id
-     * - allOf, anyOf, oneOf, not
-     */
-    GEMINI: 'gemini',
-
-    /**
      * AWS CodeWhisperer API 策略
      *
      * AWS CodeWhisperer 不支持：
@@ -36,19 +24,6 @@ export const SCHEMA_CLEANER_STRATEGY = {
      */
     AWS_CODEWHISPERER: 'aws-codewhisperer'
 };
-
-/**
- * Gemini 策略的允许字段列表
- */
-const GEMINI_ALLOWED_KEYS = [
-    "type",
-    "description",
-    "properties",
-    "required",
-    "enum",
-    "items",
-    "nullable"
-];
 
 /**
  * AWS CodeWhisperer 策略的不支持字段列表
@@ -85,48 +60,11 @@ export function cleanSchema(schema, strategy = SCHEMA_CLEANER_STRATEGY.AWS_CODEW
 
     // 根据策略选择清理方式
     switch (strategy) {
-        case SCHEMA_CLEANER_STRATEGY.GEMINI:
-            return _cleanForGemini(schema);
         case SCHEMA_CLEANER_STRATEGY.AWS_CODEWHISPERER:
             return _cleanForAWSCodeWhisperer(schema);
         default:
             throw new Error(`Unknown schema cleaner strategy: ${strategy}`);
     }
-}
-
-/**
- * 为 Gemini API 清理 Schema
- *
- * @private
- * @param {Object} schema - 原始 schema
- * @returns {Object} 清理后的 schema
- */
-function _cleanForGemini(schema) {
-    const sanitized = {};
-
-    for (const [key, value] of Object.entries(schema)) {
-        // 只保留允许的字段
-        if (!GEMINI_ALLOWED_KEYS.includes(key)) {
-            continue;
-        }
-
-        // 对于需要递归处理的属性
-        if (key === 'properties' && typeof value === 'object' && value !== null && !Array.isArray(value)) {
-            sanitized.properties = {};
-            for (const [propName, propSchema] of Object.entries(value)) {
-                sanitized.properties[propName] = _cleanForGemini(propSchema);
-            }
-        } else if (key === 'items') {
-            sanitized.items = _cleanForGemini(value);
-        } else if (key === 'additionalProperties' && typeof value === 'object') {
-            sanitized.additionalProperties = _cleanForGemini(value);
-        } else {
-            // 保留其他字段（如 description, type, required, enum）
-            sanitized[key] = value;
-        }
-    }
-
-    return sanitized;
 }
 
 /**

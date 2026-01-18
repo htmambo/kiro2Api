@@ -39,8 +39,6 @@ export class BaseConverter {
         const methodMap = {
             [MODEL_PROTOCOL_PREFIX.OPENAI]: 'toOpenAIRequest',
             [MODEL_PROTOCOL_PREFIX.CLAUDE]: 'toClaudeRequest',
-            [MODEL_PROTOCOL_PREFIX.GEMINI]: 'toGeminiRequest',
-            [MODEL_PROTOCOL_PREFIX.OLLAMA]: 'toOllamaRequest',
             [MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES]: 'toOpenAIResponsesRequest'
         };
 
@@ -71,8 +69,6 @@ export class BaseConverter {
         const methodMap = {
             [MODEL_PROTOCOL_PREFIX.OPENAI]: 'toOpenAIResponse',
             [MODEL_PROTOCOL_PREFIX.CLAUDE]: 'toClaudeResponse',
-            [MODEL_PROTOCOL_PREFIX.GEMINI]: 'toGeminiResponse',
-            [MODEL_PROTOCOL_PREFIX.OLLAMA]: 'toOllamaResponse',
             [MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES]: 'toOpenAIResponsesResponse'
         };
 
@@ -103,8 +99,6 @@ export class BaseConverter {
         const methodMap = {
             [MODEL_PROTOCOL_PREFIX.OPENAI]: 'toOpenAIStreamChunk',
             [MODEL_PROTOCOL_PREFIX.CLAUDE]: 'toClaudeStreamChunk',
-            [MODEL_PROTOCOL_PREFIX.GEMINI]: 'toGeminiStreamChunk',
-            [MODEL_PROTOCOL_PREFIX.OLLAMA]: 'toOllamaStreamChunk',
             [MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES]: 'toOpenAIResponsesStreamChunk'
         };
 
@@ -134,8 +128,6 @@ export class BaseConverter {
         const methodMap = {
             [MODEL_PROTOCOL_PREFIX.OPENAI]: 'toOpenAIModelList',
             [MODEL_PROTOCOL_PREFIX.CLAUDE]: 'toClaudeModelList',
-            [MODEL_PROTOCOL_PREFIX.GEMINI]: 'toGeminiModelList',
-            [MODEL_PROTOCOL_PREFIX.OLLAMA]: 'toOllamaModelList',
             [MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES]: 'toOpenAIResponsesModelList'
         };
 
