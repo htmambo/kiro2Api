@@ -3,43 +3,38 @@
 # 前端自动部署脚本（Vue/Vite）
 # 功能：编译前端 -> 复制到 static 目录 -> 重启服务
 
-set -e
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR" && pwd)"
+FRONTEND_DIR="$ROOT_DIR/frontend-vue"
+STATIC_DIR="$ROOT_DIR/static"
 
 echo "=========================================="
 echo "🚀 开始前端部署流程"
 echo "=========================================="
 
-# 1. 进入前端目录并编译
 echo ""
 echo "📦 步骤 1/3: 编译前端..."
-cd frontend-vue
+cd "$FRONTEND_DIR"
 npm run build
 
-# 2. 复制编译结果到 static 目录
 echo ""
 echo "📂 步骤 2/3: 复制文件到 static 目录..."
-cd ..
+mkdir -p "$STATIC_DIR"
 
-# 删除旧的 static 目录内容（保留目录本身）
-if [ -d "static" ]; then
-    echo "   清理旧文件..."
-    rm -rf static/*
-else
-    echo "   创建 static 目录..."
-    mkdir -p static
-fi
+echo "   清理旧文件..."
+find "$STATIC_DIR" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 
-# 复制新的编译结果
 echo "   复制新文件..."
-cp -r frontend-vue/dist/* static/
+cp -R "$FRONTEND_DIR/dist/." "$STATIC_DIR/"
 echo "   ✅ 文件复制完成"
 
-# 3. 重启服务
 echo ""
 echo "🔄 步骤 3/3: 重启服务..."
+cd "$ROOT_DIR"
 
-# 检查是否使用 PM2
-if command -v pm2 &> /dev/null && pm2 list | grep -q "kiro2api"; then
+if command -v pm2 >/dev/null 2>&1 && pm2 list | grep -q "kiro2api"; then
     echo "   使用 PM2 重启..."
     npm run pm2:restart
     echo "   ✅ PM2 服务已重启"
@@ -56,5 +51,5 @@ echo ""
 echo "📊 部署统计:"
 echo "   - 编译输出: frontend-vue/dist/"
 echo "   - 部署目录: static/"
-echo "   - 文件数量: $(find static -type f | wc -l | xargs)"
+echo "   - 文件数量: $(find "$STATIC_DIR" -type f | wc -l | xargs)"
 echo ""

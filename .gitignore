@@ -17,6 +17,9 @@ Thumbs.db
 .vscode/
 .idea/
 .claude/
+.codex/
+.omc/
+openspec/
 
 # Logs
 *.log

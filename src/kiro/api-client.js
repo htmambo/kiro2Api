@@ -1,29 +1,20 @@
 /**
- * Kiro API 客户端模块
+ * Kiro API Client Module
  *
- * 提取自 core.js 的 API 调用相关函数，
- * 包含请求发送、响应处理、流式传输与 token 计数等功能。
- *
- * @module kiro/api-client
+ * 提取自 core.js 的 API 调用相关函数
+ * 包含：请求发送、响应处理、流式传输、token 计数等功能
  */
 
 import axios from 'axios';
 import { v4 as uuidv4 } from 'uuid';
+import { countTokens } from '@anthropic-ai/tokenizer';
 import { streamApiReal } from './streaming.js';
-import { executeKiroRequest } from './request-executor.js';
-import {
-  reverseMapToolInput,
-  parseBracketToolCalls,
-  deduplicateToolCalls,
-  mapToolNameToCC,
-} from "./tools.js";
+import { parseBracketToolCalls, deduplicateToolCalls } from './tools.js';
 import { executeWebSearch, formatSearchResults } from './search.js';
 import { MODEL_MAPPING } from './adapter.js';
-import { refreshAccessTokenIfNeeded, initializeAuth } from './auth.js';
-import { KIRO_CONSTANTS } from './constants.js';
+import { KIRO_CONSTANTS, refreshAccessTokenIfNeeded, initializeAuth } from './auth.js';
 import { unescapeHTML } from './utils.js';
 import { createLogger } from '../lib/logger.js';
-import { estimateInputTokens, countTextTokens } from "./utils/token-counter.js";
 
 const logger = createLogger('kiro:api-client');
 
@@ -74,7 +65,7 @@ function parseEventStreamChunk(rawData) {
 
                         currentToolCall = {
                             toolUseId: tc.toolUseId,
-                            name: mapToolNameToCC(tc.name || 'unknown'),
+                            name: tc.name || 'unknown',
                             input: ''
                         };
                     }
@@ -120,176 +111,240 @@ function parseEventStreamChunk(rawData) {
  * 调用 Kiro API（带重试和错误处理）
  *
  * @param {KiroService} service - KiroService 实例
- * @param {string} method - 请求方法（保留参数）
+ * @param {string} conversationId - 对话 ID
  * @param {string} model - 模型名称
- * @param {Object} body - 请求体
- * @param {boolean} [isRetry=false] - 是否为重试
- * @param {number} [retryCount=0] - 当前重试次数
+ * @param {Object} requestBody - 请求体
+ * @param {boolean} isStreaming - 是否流式请求
  * @returns {Promise<Object>} API 响应
  */
-export async function callApi(
-  service,
-  method,
-  model,
-  body,
-  isRetry = false,
-  retryCount = 0
-) {
-  const logBadRequest = (error, requestData) => {
-    logger.error("❌ 400 Bad Request Error - Request format issue detected");
-    const errorData = JSON.stringify(error.response.data).substring(0, 500);
-    logger.error("Error details:", {
-      status: error.response.status,
-      statusText: error.response.statusText,
-      data: errorData,
-      headers: error.response.headers,
-    });
+export async function callApi(service, method, model, body, isRetry = false, retryCount = 0) {
+    if (!service.isInitialized) await service.initialize();
+    const maxRetries = service.config.REQUEST_MAX_RETRIES || 3;
+    const baseDelay = service.config.REQUEST_BASE_DELAY || 1000; // 1 second base delay
 
-    // 打印请求体的关键信息
-    try {
-      const reqState = requestData?.conversationState;
-      logger.error("Request debug info:", {
-        historyLength: reqState?.history?.length || 0,
-        hasCurrentMessage: !!reqState?.currentMessage,
-        currentMsgType: reqState?.currentMessage?.userInputMessage
-          ? "userInputMessage"
-          : "unknown",
-        currentMsgContentLen:
-          reqState?.currentMessage?.userInputMessage?.content?.length || 0,
-        hasTools:
-          !!reqState?.currentMessage?.userInputMessage
-            ?.userInputMessageContext?.tools,
-        toolsCount:
-          reqState?.currentMessage?.userInputMessage?.userInputMessageContext
-            ?.tools?.length || 0,
-        hasToolResults:
-          !!reqState?.currentMessage?.userInputMessage
-            ?.userInputMessageContext?.toolResults,
-        toolResultsCount:
-          reqState?.currentMessage?.userInputMessage?.userInputMessageContext
-            ?.toolResults?.length || 0,
-      });
+    // 检查是否启用 thinking（从 body 或配置中读取）
+    const enableThinking = body.thinking?.type === 'enabled' ||
+        body.extended_thinking === true ||
+        service.config.ENABLE_THINKING_BY_DEFAULT === true;
 
-      // ⚠️ 关键调试：打印 toolResults 结构
-      const toolResults =
-        reqState?.currentMessage?.userInputMessage?.userInputMessageContext
-          ?.toolResults;
-      if (toolResults && toolResults.length > 0) {
-        logger.error("ToolResults structure", {
-          toolResults: toolResults.map((tr) => ({
-            toolUseId: tr.toolUseId,
-            status: tr.status,
-            hasContent: !!tr.content,
-            contentType: Array.isArray(tr.content) ? "array" : typeof tr.content,
-            contentLength: tr.content
-              ? Array.isArray(tr.content)
-                ? tr.content.length
-                : String(tr.content).length
-              : 0,
-            // 新增：打印 content 详细结构
-            contentDetail: Array.isArray(tr.content)
-              ? tr.content.map((c) => ({
-                  type: typeof c,
-                  hasText: !!c?.text,
-                  textLen: c?.text?.length || 0,
-                  textPreview: c?.text?.substring(0, 100) || "",
-                }))
-              : null,
-          })),
-        });
-      }
-
-      // ⚠️ 关键调试：打印 history 中的 toolUses
-      if (reqState?.history) {
-        for (let idx = 0; idx < reqState.history.length; idx++) {
-          const h = reqState.history[idx];
-          if (h.userInputMessage) {
-            logger.error(`History[${idx}] userInputMessage.content`, {
-              length: h.userInputMessage.content?.length || 0,
-            });
-          }
-          if (h.assistantResponseMessage) {
-            logger.error(`History[${idx}] assistantResponseMessage.content`, {
-              length: h.assistantResponseMessage.content?.length || 0,
-            });
-            if (h.assistantResponseMessage.toolUses) {
-              // ⚠️ 增强调试：打印完整的 toolUse 结构，检查是否有 input 字段
-              logger.error(`History[${idx}] toolUses`, {
-                toolUses: h.assistantResponseMessage.toolUses.map((tu) => ({
-                  toolUseId: tu.toolUseId,
-                  name: tu.name,
-                  hasInput: tu.input !== undefined,
-                  inputType: typeof tu.input,
-                  inputKeys:
-                    tu.input && typeof tu.input === "object"
-                      ? Object.keys(tu.input)
-                      : null,
-                })),
-              });
-            }
-          }
-        }
-      }
-    } catch (debugError) {
-      logger.error("Error printing debug info:", {
-        error: debugError.message,
-      });
+    // 🔍 性能诊断：记录请求构建时间
+    const buildStartTime = Date.now();
+    const requestData = await service.buildCodewhispererRequest(body.messages, model, body.tools, body.system, enableThinking);
+    const buildDuration = Date.now() - buildStartTime;
+    if (buildDuration > 100) {
+        logger.warn(`buildCodewhispererRequest took ${buildDuration}ms (messages: ${body.messages?.length || 0})`);
     }
-  };
-
-  try {
-    const { response, requestStartTime } = await executeKiroRequest({
-      service,
-      model,
-      body,
-      isRetry,
-      retryCount,
-      logger,
-      compactLabel: "REQUEST",
-      detailLabel: "REQUEST",
-      compactLevel: "info",
-      detailLevel: "info",
-      buildLogLevel: "warn",
-      retryOn5xx: true,
-      wrapRateLimitError: true,
-      onBadRequest: logBadRequest,
-    });
 
     // ========================================
-    // 📥 响应日志
+    // 📤 请求日志
     // ========================================
-    const requestDuration = ((Date.now() - requestStartTime) / 1000).toFixed(2);
-    const responseSize = response.data
-      ? Buffer.byteLength(JSON.stringify(response.data))
-      : 0;
-    const responseSizeKB = (responseSize / 1024).toFixed(2);
+    const requestStartTime = Date.now();
+    const requestJson = JSON.stringify(requestData);
+    const requestSizeKB = (requestJson.length / 1024).toFixed(2);
+    const conversationState = requestData?.conversationState;
+
+    // 提取当前消息内容预览
+    const currentContent = conversationState?.currentMessage?.userInputMessage?.content || '';
+    const contentPreview = currentContent.length > 60
+        ? currentContent.substring(0, 60) + '...'
+        : currentContent;
 
     // 简洁模式：只显示关键信息
     if (!service.verboseLogging) {
-      logger.debug(`📥 RESPONSE [${response.status}] [${requestDuration}s]`);
+        logger.info(`📤 REQUEST [${model}] - ${new Date().toISOString()}`);
     } else {
-      // 详细模式：显示所有信息
-      logger.debug("\n" + "=".repeat(60));
-      logger.debug(
-        `📥 RESPONSE [${response.status} ${response.statusText}] [${requestDuration}s]`
-      );
-      logger.debug("=".repeat(60));
-      logger.debug(`Response Size: ${responseSizeKB} KB`);
-      logger.debug("=".repeat(60) + "\n");
+        // 详细模式：显示所有信息
+        logger.info('\n' + '='.repeat(60));
+        logger.info(`📤 REQUEST [${model}]${isRetry ? ' (retry ' + retryCount + ')' : ''}`);
+        logger.info('='.repeat(60));
+        logger.info(`Timestamp: ${new Date().toISOString()}`);
+        logger.info(`URL: ${model.startsWith('amazonq') ? service.amazonQUrl : service.baseUrl}`);
+        logger.info(`Messages: ${(conversationState?.history?.length || 0) + 1} | Tools: ${conversationState?.currentMessage?.userInputMessage?.userInputMessageContext?.tools?.length || 0} | System: ${body.system ? 'yes' : 'no'}`);
+        logger.info(`Request Size: ${requestSizeKB} KB | Thinking: ${enableThinking ? 'enabled' : 'disabled'}`);
+        if (conversationState?.conversationId) {
+            logger.info(`Conversation ID: ${conversationState.conversationId}`);
+        }
+        logger.info(`Message Preview: ${contentPreview}`);
+        logger.info('='.repeat(60));
     }
 
-    return response;
-  } catch (error) {
-    logger.error("API call failed:", error.message);
-    if (error.response) {
-      logger.error("Response status:", error.response.status);
-      logger.error(
-        "Response data:",
-        JSON.stringify(error.response.data).substring(0, 300)
-      );
+    try {
+        const token = service.accessToken; // Use the already initialized token
+        const headers = {
+            'Authorization': `Bearer ${token}`,
+            'amz-sdk-invocation-id': `${uuidv4()}`,
+        };
+
+        // 当 model 以 kiro-amazonq 开头时，使用 amazonQUrl，否则使用 baseUrl
+        const requestUrl = model.startsWith('amazonq') ? service.amazonQUrl : service.baseUrl;
+        const response = await service.axiosInstance.post(requestUrl, requestData, { headers });
+
+        // ========================================
+        // 📥 响应日志
+        // ========================================
+        const requestDuration = ((Date.now() - requestStartTime) / 1000).toFixed(2);
+        const responseSize = response.data ? Buffer.byteLength(JSON.stringify(response.data)) : 0;
+        const responseSizeKB = (responseSize / 1024).toFixed(2);
+
+        // 简洁模式：只显示关键信息
+        if (!service.verboseLogging) {
+            logger.info(`📥 RESPONSE [${response.status}] [${requestDuration}s]`);
+        } else {
+            // 详细模式：显示所有信息
+            logger.info('\n' + '='.repeat(60));
+            logger.info(`📥 RESPONSE [${response.status} ${response.statusText}] [${requestDuration}s]`);
+            logger.info('='.repeat(60));
+            logger.info(`Response Size: ${responseSizeKB} KB`);
+            logger.info('='.repeat(60) + '\n');
+        }
+
+        return response;
+    } catch (error) {
+        // ⚠️ Socket 错误处理（UND_ERR_SOCKET, ECONNRESET 等）
+        // 这些错误通常是连接池中的连接失效导致的
+        const isSocketError = !error.response && (
+            error.code === 'ECONNRESET' ||
+            error.code === 'ETIMEDOUT' ||
+            error.code === 'ENOTFOUND' ||
+            error.code === 'UND_ERR_SOCKET' ||
+            error.code === 'UND_ERR_CONNECT_TIMEOUT' ||
+            error.message?.includes('socket') ||
+            error.message?.includes('ECONNRESET')
+        );
+
+        if (isSocketError && retryCount < maxRetries) {
+            logger.info(`Socket error detected: ${error.code || error.message}`);
+            logger.info(`Resetting connection pool and retrying... (attempt ${retryCount + 1}/${maxRetries})`);
+
+            // 重置连接池
+            await service.resetConnectionPool();
+
+            // 短暂延迟后重试
+            const delay = 1000;
+            await new Promise(resolve => setTimeout(resolve, delay));
+
+            return callApi(service, method, model, body, isRetry, retryCount + 1);
+        } else if (isSocketError) {
+            logger.error('Socket error after max retries:', error.code || error.message);
+            throw new Error(`Connection failed: ${error.message}. Please check your network or try restarting the service.`);
+        }
+
+        // 403 错误处理
+        if (error.response?.status === 403 && !isRetry) {
+            logger.info('Received 403. Attempting token refresh and retrying...');
+            try {
+                await initializeAuth(service, true); // Force refresh token
+                return callApi(service, method, model, body, true, retryCount);
+            } catch (refreshError) {
+                logger.error('Token refresh failed during 403 retry:', refreshError.message);
+                throw refreshError;
+            }
+        }
+
+        // 400 错误详细日志(帮助调试请求格式问题)
+        if (error.response?.status === 400) {
+            logger.error('❌ 400 Bad Request Error - Request format issue detected');
+            logger.error('Error details:', {
+                status: error.response.status,
+                statusText: error.response.statusText,
+                data: JSON.stringify(error.response.data).substring(0, 500),
+                headers: error.response.headers
+            });
+            // 打印请求体的关键信息帮助调试
+            try {
+                const reqState = requestData?.conversationState;
+                logger.error('Request debug info:', {
+                    historyLength: reqState?.history?.length || 0,
+                    hasCurrentMessage: !!reqState?.currentMessage,
+                    currentMsgType: reqState?.currentMessage?.userInputMessage ? 'userInputMessage' : 'unknown',
+                    currentMsgContentLen: reqState?.currentMessage?.userInputMessage?.content?.length || 0,
+                    hasTools: !!(reqState?.currentMessage?.userInputMessage?.userInputMessageContext?.tools),
+                    toolsCount: reqState?.currentMessage?.userInputMessage?.userInputMessageContext?.tools?.length || 0,
+                    hasToolResults: !!(reqState?.currentMessage?.userInputMessage?.userInputMessageContext?.toolResults),
+                    toolResultsCount: reqState?.currentMessage?.userInputMessage?.userInputMessageContext?.toolResults?.length || 0,
+                });
+
+                // ⚠️ 关键调试：打印 toolResults 结构
+                const toolResults = reqState?.currentMessage?.userInputMessage?.userInputMessageContext?.toolResults;
+                if (toolResults && toolResults.length > 0) {
+                    logger.error('ToolResults structure:', JSON.stringify(toolResults.map(tr => ({
+                        toolUseId: tr.toolUseId,
+                        status: tr.status,
+                        hasContent: !!tr.content,
+                        contentType: Array.isArray(tr.content) ? 'array' : typeof tr.content,
+                        contentLength: tr.content ? (Array.isArray(tr.content) ? tr.content.length : String(tr.content).length) : 0,
+                        // 新增：打印 content 详细结构
+                        contentDetail: Array.isArray(tr.content) ? tr.content.map(c => ({
+                            type: typeof c,
+                            hasText: !!c?.text,
+                            textLen: c?.text?.length || 0,
+                            textPreview: c?.text?.substring(0, 100) || ''
+                        })) : null
+                    })), null, 2));
+                }
+
+                // ⚠️ 关键调试：打印 history 中的 toolUses
+                if (reqState?.history) {
+                    for (let idx = 0; idx < reqState.history.length; idx++) {
+                        const h = reqState.history[idx];
+                        if (h.userInputMessage) {
+                            logger.error(`History[${idx}] userInputMessage.content length:`, h.userInputMessage.content?.length || 0);
+                        }
+                        if (h.assistantResponseMessage) {
+                            logger.error(`History[${idx}] assistantResponseMessage.content length:`, h.assistantResponseMessage.content?.length || 0);
+                            if (h.assistantResponseMessage.toolUses) {
+                                // ⚠️ 增强调试：打印完整的 toolUse 结构，检查是否有 input 字段
+                                logger.error(`History[${idx}] toolUses:`, JSON.stringify(h.assistantResponseMessage.toolUses.map(tu => ({
+                                    toolUseId: tu.toolUseId,
+                                    name: tu.name,
+                                    hasInput: tu.input !== undefined,
+                                    inputType: typeof tu.input,
+                                    inputKeys: tu.input && typeof tu.input === 'object' ? Object.keys(tu.input) : null
+                                }))));
+                            }
+                        }
+                    }
+                }
+            } catch (debugErr) {
+                logger.error('Failed to log request debug info:', debugErr.message);
+            }
+            // 400 错误是请求格式问题,属于致命错误,直接抛出(会被health check捕获)
+            throw error;
+        }
+
+        // 429 限流错误处理(暂时性错误,不应标记为不健康)
+        if (error.response?.status === 429) {
+            if (retryCount < maxRetries) {
+                const delay = baseDelay * Math.pow(2, retryCount);
+                retryCount = retryCount + 1;
+                logger.info(`Received 429 (Rate Limit). Retrying ${retryCount}/${maxRetries} in ${delay}ms...`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+                return callApi(service, method, model, body, isRetry, retryCount);
+            } else {
+                // 429 重试次数用尽,包装成特殊错误类型
+                const rateLimitError = new Error('RATE_LIMIT_EXCEEDED');
+                rateLimitError.isRateLimitError = true;  // 标记为限流错误
+                rateLimitError.retryable = true;  // 标记为可重试(不应标记账号不健康)
+                throw rateLimitError;
+            }
+        }
+
+        // 5xx 服务器错误处理(可重试)
+        if (error.response?.status >= 500 && error.response?.status < 600 && retryCount < maxRetries) {
+            const delay = baseDelay * Math.pow(2, retryCount);
+            logger.info(`Received ${error.response.status} server error. Retrying in ${delay}ms... (attempt ${retryCount + 1}/${maxRetries})`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            return callApi(service, method, model, body, isRetry, retryCount + 1);
+        }
+
+        // 其他错误
+        logger.error('API call failed:', error.message);
+        if (error.response) {
+            logger.error('Response status:', error.response.status);
+            logger.error('Response data:', JSON.stringify(error.response.data).substring(0, 300));
+        }
+        throw error;
     }
-    throw error;
-  }
 }
 
 /**
@@ -304,7 +359,7 @@ function processApiResponse(response) {
     const rawResponseText = Buffer.isBuffer(response.data) ? response.data.toString('utf8') : String(response.data);
     //logger.info(`Raw response length: ${rawResponseText.length}`);
     if (rawResponseText.includes("[Called")) {
-        logger.debug("Raw response contains [Called marker.");
+        logger.info("Raw response contains [Called marker.");
     }
 
     // 1. Parse structured events and bracket calls from parsed content
@@ -351,14 +406,6 @@ function processApiResponse(response) {
  * @param {Object} requestBody - 请求体
  * @returns {Promise<Object>} 生成的内容
  */
-/**
- * 生成非流式内容
- *
- * @param {Object} service - KiroService 实例
- * @param {string} model - 模型名称
- * @param {Object} requestBody - 请求体
- * @returns {Promise<Object>} 生成结果
- */
 export async function generateContent(service, model, requestBody) {
     if (typeof service?.initialize !== 'function') {
         throw new Error('Service does not support initialize()');
@@ -372,12 +419,12 @@ export async function generateContent(service, model, requestBody) {
     // Kiro 官方逻辑：如果model在MODEL_MAPPING中则使用，否则使用默认模型
     const finalModel = MODEL_MAPPING[model] ? model : service.modelName;
     if (service.verboseLogging) {
-        logger.debug(`Calling generateContent with model: ${finalModel}`);
+        logger.info(`Calling generateContent with model: ${finalModel}`);
     }
 
     // Estimate input tokens before making the API call
     const inputTokens = estimateInputTokens(requestBody);
-    logger.debug(`Token] generateContent estimateInputTokens: ${inputTokens} tokens (${requestBody.messages?.length || 0} messages)`);
+    logger.info(`Token] generateContent estimateInputTokens: ${inputTokens} tokens (${requestBody.messages?.length || 0} messages)`);
 
     const response = await callApi(service, '', finalModel, requestBody);
 
@@ -399,14 +446,6 @@ export async function generateContent(service, model, requestBody) {
  * @param {Object} requestBody - 请求体
  * @returns {AsyncGenerator} 事件流
  */
-/**
- * 生成流式内容
- *
- * @param {Object} service - KiroService 实例
- * @param {string} model - 模型名称
- * @param {Object} requestBody - 请求体
- * @yields {Object} 流式事件
- */
 export async function* generateContentStream(service, model, requestBody) {
     if (!service.isInitialized) await service.initialize();
 
@@ -420,7 +459,7 @@ export async function* generateContentStream(service, model, requestBody) {
         requestBody.extended_thinking === true ||
         service.config.ENABLE_THINKING_BY_DEFAULT === true;
     if (service.verboseLogging) {
-        logger.debug(`Calling generateContentStream with model: ${finalModel} (real streaming, thinking: ${enableThinking})`);
+        logger.info(`Calling generateContentStream with model: ${finalModel} (real streaming, thinking: ${enableThinking})`);
     }
 
     // ⚠️ 性能计时：token 估算
@@ -428,7 +467,7 @@ export async function* generateContentStream(service, model, requestBody) {
     const inputTokens = estimateInputTokens(requestBody);
     const tokenDuration = Date.now() - tokenStartTime;
     // ⚠️ 调试：打印 token 计算结果
-    logger.debug(`Token estimateInputTokens: ${inputTokens} tokens (${requestBody.messages?.length || 0} messages, ${tokenDuration}ms)`);
+    logger.info(`Token estimateInputTokens: ${inputTokens} tokens (${requestBody.messages?.length || 0} messages, ${tokenDuration}ms)`);
     const messageId = `${uuidv4()}`;
 
     try {
@@ -693,7 +732,7 @@ export async function* generateContentStream(service, model, requestBody) {
                         // 创建新的 currentToolCall（设置 id/name）
                         currentToolCall = {
                             toolUseId: tc.toolUseId,
-                            name: mapToolNameToCC(tc.name || 'unknown'),
+                            name: tc.name || 'unknown',
                             input: ''
                         };
                     }
@@ -714,7 +753,7 @@ export async function* generateContentStream(service, model, requestBody) {
                         // ⭐ 服务端执行 webSearch 工具
                         if (currentToolCall.name === 'webSearch') {
                             if (serviceverboseLogging) {
-                                logger.debug('Detected webSearch tool call, executing on server...');
+                                logger.info('Detected webSearch tool call, executing on server...');
                             }
                             currentToolCall.serverSideExecute = true;  // 标记为服务端执行
                         }
@@ -738,7 +777,7 @@ export async function* generateContentStream(service, model, requestBody) {
                 if (references && references.length > 0) {
                     codeReferences.push(...references);
                     if (service.verboseLogging) {
-                        logger.debug(`Code references detected: ${references.length} sources`);
+                        logger.info(`Code references detected: ${references.length} sources`);
                     }
                 }
             }
@@ -822,7 +861,7 @@ export async function* generateContentStream(service, model, requestBody) {
 
         if (serverSideTools.length > 0) {
             if (service.verboseLogging) {
-                logger.debug(`WebSearch Processing ${serverSideTools.length} server-side tool calls...`);
+                logger.info(`WebSearch Processing ${serverSideTools.length} server-side tool calls...`);
             }
 
             let searchResultsContent = '';
@@ -859,7 +898,7 @@ export async function* generateContentStream(service, model, requestBody) {
 
                 totalContent += searchResultsContent;
                 if (service.verboseLogging) {
-                    logger.debug('Search results added to response');
+                    logger.info('Search results added to response');
                 }
             }
         }
@@ -910,12 +949,12 @@ export async function* generateContentStream(service, model, requestBody) {
                     content_block: {
                         type: "tool_use",
                         id: tc.toolUseId || `tool_${uuidv4()}`,
-                        name: mapToolNameToCC(tc.name),
+                        name: tc.name,
                         input: {}
                     }
                 };
 
-                const reversedInput = reverseMapToolInput(tc.name, toolInput);
+                const reversedInput = service.reverseMapToolInput(tc.name, toolInput);
                 const inputJson = JSON.stringify(reversedInput);
 
                 yield {
@@ -987,6 +1026,97 @@ export async function* generateContentStream(service, model, requestBody) {
 
 
 /**
+ * 计算文本的 token 数
+ *
+ * @param {string} text - 文本内容
+ * @param {boolean} fast - 是否使用快速估算
+ * @returns {number} token 数量
+ */
+export function countTextTokens(text, fast = false) {
+    if (!text) return 0;
+
+    // 快速模式：使用字符估算
+    if (fast) {
+        // Claude tokenizer 实测：中文约 2.5 token/字，英文约 0.35 token/字符
+        const chineseCharCount = (text.match(/[\u4e00-\u9fff]/g) || []).length;
+        const totalLength = text.length;
+        const nonChineseLength = totalLength - chineseCharCount;
+        return Math.ceil(chineseCharCount * 2.5 + nonChineseLength * 0.35);
+    }
+
+    try {
+        return countTokens(text);
+    } catch (error) {
+        // Fallback to estimation if tokenizer fails
+        return Math.ceil((text || '').length / 4);
+    }
+}
+
+/**
+ * 估算请求的输入 token 数
+ *
+ * @param {Object} requestBody - 请求体
+ * @param {boolean} fast - 是否使用快速估算
+ * @returns {number} 估算的 token 数
+ */
+export function estimateInputTokens(requestBody, fast = true) {
+    let totalTokens = 0;
+
+    // 计算系统提示词 tokens
+    if (requestBody.system) {
+        const systemText = typeof requestBody.system === 'string'
+            ? requestBody.system
+            : JSON.stringify(requestBody.system);
+        totalTokens += countTextTokens(systemText, fast);
+    }
+
+    // 计算消息 tokens
+    if (requestBody.messages && Array.isArray(requestBody.messages)) {
+        for (const message of requestBody.messages) {
+            if (typeof message.content === 'string') {
+                totalTokens += countTextTokens(message.content, fast);
+            } else if (Array.isArray(message.content)) {
+                for (const part of message.content) {
+                    if (part.type === 'text' && part.text) {
+                        totalTokens += countTextTokens(part.text, fast);
+                    } else if (part.type === 'tool_result' && part.content) {
+                        const toolResultText = typeof part.content === 'string'
+                            ? part.content
+                            : JSON.stringify(part.content);
+                        totalTokens += countTextTokens(toolResultText, fast);
+                    } else if (part.type === 'tool_use' && part.input) {
+                        totalTokens += countTextTokens(JSON.stringify(part.input), fast);
+                    } else if (part.type === 'image') {
+                        totalTokens += 1500; // 图片约 1500 tokens
+                    }
+                }
+            }
+        }
+    }
+
+    // 计算工具定义 tokens
+    if (requestBody.tools && Array.isArray(requestBody.tools)) {
+        if (fast) {
+            let toolTokens = 0;
+            for (const tool of requestBody.tools) {
+                toolTokens += 80; // 基础元数据
+                if (tool.description) {
+                    toolTokens += countTextTokens(tool.description, true);
+                }
+                if (tool.input_schema?.properties) {
+                    toolTokens += Object.keys(tool.input_schema.properties).length * 50;
+                }
+            }
+            totalTokens += toolTokens;
+        } else {
+            totalTokens += countTextTokens(JSON.stringify(requestBody.tools), false);
+        }
+    }
+
+    return totalTokens;
+}
+
+/**
  * 构建 Claude 兼容的响应对象
  *
  * @param {string} content - 响应内容
@@ -996,17 +1126,6 @@ export async function* generateContentStream(service, model, requestBody) {
  * @param {Array} toolCalls - 工具调用列表
  * @param {number} inputTokens - 输入 token 数
  * @returns {Object|Array} Claude 格式的响应
- */
-/**
- * 构造 Claude 风格响应
- *
- * @param {string|Array} content - 响应内容
- * @param {boolean} [isStream=false] - 是否为流式响应
- * @param {string} [role='assistant'] - 角色
- * @param {string} model - 模型名称
- * @param {Array|null} [toolCalls=null] - 工具调用
- * @param {number} [inputTokens=0] - 输入 token 数
- * @returns {Object} Claude 风格响应对象
  */
 export function buildClaudeResponse(content, isStream = false, role = 'assistant', model, toolCalls = null, inputTokens = 0) {
     const messageId = `${uuidv4()}`;
@@ -1093,7 +1212,7 @@ export function buildClaudeResponse(content, isStream = false, role = 'assistant
                     content_block: {
                         type: "tool_use",
                         id: tc.id,
-                        name: mapToolNameToCC(tc.function.name),
+                        name: tc.function.name,
                         input: {}
                     }
                 });
@@ -1158,7 +1277,7 @@ export function buildClaudeResponse(content, isStream = false, role = 'assistant
                 contentArray.push({
                     type: "tool_use",
                     id: tc.id,
-                    name: mapToolNameToCC(tc.function.name),
+                    name: tc.function.name,
                     input: inputObject
                 });
                 outputTokens += countTextTokens(JSON.stringify(inputObject));
@@ -1194,12 +1313,6 @@ export function buildClaudeResponse(content, isStream = false, role = 'assistant
  * @param {KiroService} service - KiroService 实例
  * @returns {Promise<Object>} 用量限制信息
  */
-/**
- * 获取使用额度限制
- *
- * @param {Object} service - KiroService 实例
- * @returns {Promise<Object>} 使用额度信息
- */
 export async function getUsageLimits(service) {
     if (!service.isInitialized) await service.initialize();
 
@@ -1231,7 +1344,7 @@ export async function getUsageLimits(service) {
 
     try {
         const response = await service.axiosInstance.get(fullUrl, { headers });
-        logger.debug('Usage limits fetched successfully');
+        logger.info('Usage limits fetched successfully');
         return response.data;
     } catch (error) {
         // 如果是 403 错误，尝试刷新 token 后重试

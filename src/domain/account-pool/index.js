@@ -9,6 +9,7 @@ import { EventEmitter } from 'node:events';
 import { v4 as uuidv4 } from 'uuid';
 import { createLogger } from '../../lib/logger.js';
 import { sqliteDB } from '../../lib/sqlite-db.js';
+import { getRedisClient } from '../../lib/redis-client.js';
 
 import { getAccountPoolManager as getJsonAccountPoolManager } from './json-store.js';
 import { SQLiteAccountPoolManager } from './sqlite-store.js';
@@ -61,6 +62,53 @@ export class AccountPoolFacade extends EventEmitter {
         this.manager = manager;
         this.config = config || null;
         this.logger = createLogger('domain:account-pool');
+        this.redis = getRedisClient();
+        this.cacheEnabled = config?.REDIS_ENABLED === true;
+    }
+
+    _cacheKey(accountId) {
+        return `account:${accountId}`;
+    }
+
+    async _getFromCache(accountId) {
+        if (!this.cacheEnabled || !this.redis.isHealthy()) {
+            return null;
+        }
+        try {
+            const cached = await this.redis.get(this._cacheKey(accountId));
+            if (cached) {
+                return JSON.parse(cached);
+            }
+        } catch (err) {
+            this.logger.debug('Cache get error', { accountId, message: err.message });
+        }
+        return null;
+    }
+
+    async _setInCache(accountId, accountData, ttlSeconds = 300) {
+        if (!this.cacheEnabled || !this.redis.isHealthy()) {
+            return false;
+        }
+        try {
+            await this.redis.set(this._cacheKey(accountId), JSON.stringify(accountData), ttlSeconds);
+            return true;
+        } catch (err) {
+            this.logger.debug('Cache set error', { accountId, message: err.message });
+            return false;
+        }
+    }
+
+    async _invalidateCache(accountId) {
+        if (!this.cacheEnabled || !this.redis.isHealthy()) {
+            return false;
+        }
+        try {
+            await this.redis.del(this._cacheKey(accountId));
+            return true;
+        } catch (err) {
+            this.logger.debug('Cache invalidate error', { accountId, message: err.message });
+            return false;
+        }
     }
 
     /**
@@ -128,10 +176,18 @@ export class AccountPoolFacade extends EventEmitter {
      * 通过账号 ID 获取账号
      *
      * @param {string} accountId - 账号 UUID
-     * @returns {Object|null} 账号对象或 null
+     * @returns {Promise<Object|null>} 账号对象或 null
      */
-    _getAccountById(accountId) {
+    async _getAccountById(accountId) {
         if (!accountId) return null;
+
+        const cached = await this._getFromCache(accountId);
+        if (cached) {
+            this.logger.debug('Account cache hit', { accountId });
+            return cached;
+        }
+
+        let account = null;
 
         if (this.mode === 'sqlite') {
             if (typeof sqliteDB.getAccountByUuid !== 'function') return null;
@@ -139,7 +195,7 @@ export class AccountPoolFacade extends EventEmitter {
             if (!row) return null;
 
             const base = (row.config && typeof row.config === 'object') ? row.config : {};
-            return {
+            account = {
                 ...base,
                 uuid: row.uuid,
                 isHealthy: row.isHealthy,
@@ -157,17 +213,17 @@ export class AccountPoolFacade extends EventEmitter {
                     ? row.notSupportedModels
                     : (Array.isArray(base.notSupportedModels) ? base.notSupportedModels : [])
             };
+        } else if (this.manager && typeof this.manager.getAccount === 'function') {
+            account = this.manager.getAccount(accountId);
+        } else if (this.manager && typeof this.manager.listAccounts === 'function') {
+            account = this.manager.listAccounts().find((a) => a && a.uuid === accountId) || null;
         }
 
-        if (this.manager && typeof this.manager.getAccount === 'function') {
-            return this.manager.getAccount(accountId);
+        if (account) {
+            await this._setInCache(accountId, account);
         }
 
-        if (this.manager && typeof this.manager.listAccounts === 'function') {
-            return this.manager.listAccounts().find((a) => a && a.uuid === accountId) || null;
-        }
-
-        return null;
+        return account;
     }
 
     /**

@@ -63,6 +63,7 @@ const THINKING_PROMPT_TEMPLATE = `在回复之前，请在 <thinking>...</thinki
 // 完整的模型映射表 - Anthropic 官方模型 ID 到 AWS CodeWhisperer 模型 ID
 // 注意：AWS CodeWhisperer 模型 ID 使用点号分隔版本号（如 claude-opus-4.5）
 const FULL_MODEL_MAPPING = {
+    // "claude-opus-4-6": "claude-opus-4.6",
     // Opus 4.5 映射（AWS使用点号格式）
     "claude-opus-4-5": "claude-opus-4.5",
     "claude-opus-4-5-20251101": "claude-opus-4.5",
@@ -130,12 +131,13 @@ export class KiroService {
         this.modelName = KIRO_CONSTANTS.DEFAULT_MODEL_NAME;
         this.axiosInstance = null; // 延迟在异步初始化中创建
     }
- 
+
     /**
      * 检查 token 是否临近过期并触发刷新
      *
      * @returns {Promise<void>}
      */
+
     async checkToken() {
         if (this.isExpiryDateNear() === true) {
             logger.info(`Expiry date is near, refreshing token...`);
@@ -204,12 +206,12 @@ export class KiroService {
                 'user-agent': randomizedUserAgent
             },
         };
-        
+
         // 根据 useSystemProxy 配置代理设置
         if (!this.useSystemProxy) {
             axiosConfig.proxy = false;
         }
-        
+
         this.axiosInstance = axios.create(axiosConfig);
         this.isInitialized = true;
     }
@@ -462,12 +464,12 @@ export class KiroService {
         const mergedMessages = [];
         for (let i = 0; i < processedMessages.length; i++) {
             const currentMsg = processedMessages[i];
-            
+
             if (mergedMessages.length === 0) {
                 mergedMessages.push(currentMsg);
             } else {
                 const lastMsg = mergedMessages[mergedMessages.length - 1];
-                
+
                 // 判断当前消息和上一条消息是否为相同 role
                 if (currentMsg.role === lastMsg.role) {
                     // 合并消息内容
@@ -492,7 +494,7 @@ export class KiroService {
                 }
             }
         }
-        
+
         // 用合并后的消息替换原消息数组
         processedMessages.length = 0;
         processedMessages.push(...mergedMessages);
@@ -564,7 +566,7 @@ export class KiroService {
         // 因此我们只做工具压缩（减少 description 长度），不做格式转换。
 
         // ⚠️ 关键修复：限制工具总大小以避免 CONTENT_LENGTH_EXCEEDS_THRESHOLD 错误
-        const MAX_TOOL_COUNT = 25;  // 限制工具数量
+        const MAX_TOOL_COUNT = 20;  // 限制工具数量
         const DESCRIPTION_MAX_LENGTH = 500;  // 工具描述最大长度（减少以降低请求体大小）
         let toolsContext = {};
 
@@ -714,7 +716,7 @@ export class KiroService {
                 };
                 let images = [];
                 let toolResults = [];
-                
+
                 if (Array.isArray(message.content)) {
                     for (const part of message.content) {
                         if (part.type === 'text') {
@@ -763,7 +765,7 @@ export class KiroService {
                 } else {
                     userInputMessage.content = getContentText(message);
                 }
-                
+
                 // 只添加非空字段，API 不接受空数组或空对象
                 if (images.length > 0) {
                     userInputMessage.images = images;
@@ -792,7 +794,7 @@ export class KiroService {
                     content: ''
                 };
                 let toolUses = [];
-                
+
                 if (Array.isArray(message.content)) {
                     for (const part of message.content) {
                         if (part.type === 'text') {
@@ -825,7 +827,7 @@ export class KiroService {
                 } else {
                     assistantResponseMessage.content = getContentText(message);
                 }
-                
+
                 // 只添加非空字段
                 if (toolUses.length > 0) {
                     assistantResponseMessage.toolUses = toolUses;
@@ -851,7 +853,7 @@ export class KiroService {
         // 因为 CodeWhisperer API 的 currentMessage 必须是 userInputMessage 类型
         if (currentMessage.role === 'assistant') {
             logger.debug('Last message is assistant, moving it to history and creating user currentMessage');
-            
+
             // 构建 assistant 消息并加入 history
             let assistantResponseMessage = {
                 content: '',
@@ -896,7 +898,7 @@ export class KiroService {
                 assistantResponseMessage.content = assistantResponseMessage.toolUses ? 'Calling tools...' : '...';
             }
             history.push({ assistantResponseMessage });
-            
+
             // 设置 currentContent 为 "Continue"，因为我们需要一个 user 消息来触发 AI 继续
             currentContent = 'Continue';
         } else {
@@ -1107,7 +1109,7 @@ export class KiroService {
      * @param {Array} history - 消息历史（会被原地修改）
      * @param {Array} currentToolResults - 当前消息的 toolResults
      */
-    
+
 
     /**
      * List available models
@@ -1121,7 +1123,7 @@ export class KiroService {
         const models = KIRO_MODELS.map(id => ({
             name: id
         }));
-        
+
         return { models: models };
     }
 

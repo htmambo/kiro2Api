@@ -285,6 +285,17 @@ export async function initializeConfig(args = process.argv.slice(2), configFileP
         PROMPT_LOG_FILENAME = '';
     }
 
+    // Load Redis configuration from environment variables
+    currentConfig.REDIS_ENABLED = process.env.REDIS_ENABLED === 'true';
+    currentConfig.REDIS_HOST = process.env.REDIS_HOST || 'localhost';
+    currentConfig.REDIS_PORT = parseInt(process.env.REDIS_PORT, 10) || 6379;
+    currentConfig.REDIS_PASSWORD = process.env.REDIS_PASSWORD || '';
+    currentConfig.REDIS_DB = parseInt(process.env.REDIS_DB, 10) || 0;
+    currentConfig.REDIS_URL = process.env.REDIS_URL || '';
+    currentConfig.CORS_ALLOWED_ORIGINS = process.env.CORS_ALLOWED_ORIGINS || '';
+    currentConfig.ALLOW_WEAK_API_KEY = process.env.ALLOW_WEAK_API_KEY;
+
+    // Assign to the exported CONFIG
     Object.assign(CONFIG, currentConfig);
     return CONFIG;
 }

@@ -10,6 +10,7 @@ import { createLogger } from '../../lib/logger.js';
 import { oauthStateStore } from './state-store.js';
 import { tokenStore } from './token-store.js';
 import { withLock } from '../../utils/mutex.js';
+import { encryptToken, decryptToken, secureErase } from '../../utils/crypto.js';
 
 const logger = createLogger('OAuthFacade');
 
@@ -182,7 +183,17 @@ export class OAuthFacade {
 
                 stateData = await this.stateStore.getState(state);
                 if (!stateData) {
+                    logger.warn('OAuth callback rejected: invalid or expired state', { state });
                     const err = new Error('State 无效或已过期');
+                    await recordCompletedFailure(err.message);
+                    return fail(err, events);
+                }
+
+                const stateAge = Date.now() - (stateData.timestamp || 0);
+                const maxStateAge = 10 * 60 * 1000;
+                if (stateAge > maxStateAge) {
+                    logger.warn('OAuth callback rejected: state too old', { state, age: stateAge });
+                    const err = new Error('State 已过期（超过10分钟）');
                     await recordCompletedFailure(err.message);
                     return fail(err, events);
                 }
@@ -229,7 +240,13 @@ export class OAuthFacade {
                     createdBy: 'web-oauth'
                 };
 
-                saveInfo = await this.tokenStore.saveToken(accountNumber, tokenPayload, {
+                const encryptedTokenPayload = {
+                    ...tokenPayload,
+                    accessToken: encryptToken(tokenPayload.accessToken),
+                    refreshToken: encryptToken(tokenPayload.refreshToken)
+                };
+
+                saveInfo = await this.tokenStore.saveToken(accountNumber, encryptedTokenPayload, {
                     fileName: `kiro-auth-token-${accountNumber}.json`
                 });
                 // token 落盘成功后记录事件，便于上层审计/展示

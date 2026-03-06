@@ -61,6 +61,9 @@ class SQLiteDB {
 
         // 迁移并创建表
         this._migrateIfNeeded();
+        
+        // 创建性能优化索引
+        this._createIndexes();
         this._createTablesV2();
 
         logger.info(`[SQLiteDB] Database initialized: ${dbPath} (schema v${SCHEMA_VERSION})`);
@@ -315,6 +318,8 @@ class SQLiteDB {
         db.exec(`
             CREATE INDEX IF NOT EXISTS idx_accounts_uuid ON accounts(uuid);
             CREATE INDEX IF NOT EXISTS idx_accounts_healthy ON accounts(is_healthy, is_disabled);
+            CREATE INDEX IF NOT EXISTS idx_accounts_error_count ON accounts(error_count);
+            CREATE INDEX IF NOT EXISTS idx_accounts_last_used ON accounts(last_used);
             CREATE INDEX IF NOT EXISTS idx_usage_cache_expires ON usage_cache(expires_at);
             CREATE INDEX IF NOT EXISTS idx_health_history_uuid ON health_check_history(account_uuid);
             CREATE INDEX IF NOT EXISTS idx_health_history_time ON health_check_history(check_time);

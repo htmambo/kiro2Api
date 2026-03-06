@@ -9,6 +9,7 @@ import { existsSync } from 'fs';
 import { promises as fs } from 'fs';
 import path from 'node:path';
 import { createLogger } from '../../lib/logger.js';
+import { decryptToken, secureErase } from '../../utils/crypto.js';
 
 const logger = createLogger('token-store');
 
@@ -166,12 +167,35 @@ export class TokenStore {
      * 读取 token 文件
      *
      * @param {Object|string|number} tokenRef - token 引用（路径/相对路径/账号 ID）
+     * @param {Object} [options] - 读取选项
      * @returns {Promise<Object>} token 数据
      */
-    async loadToken(tokenRef) {
+    async loadToken(tokenRef, options = {}) {
         const filePath = await this._resolveTokenRefToPath(tokenRef);
         const content = await fs.readFile(filePath, 'utf8');
-        return JSON.parse(content);
+        const data = JSON.parse(content);
+        
+        const { decrypt = true } = options;
+        if (decrypt && data.accessToken) {
+            try {
+                data.accessToken = decryptToken(data.accessToken);
+            } catch (err) {
+                logger.debug('Token not encrypted or decryption failed', { filePath });
+            }
+        }
+        if (decrypt && data.refreshToken) {
+            try {
+                data.refreshToken = decryptToken(data.refreshToken);
+            } catch (err) {
+                logger.debug('Refresh token not encrypted or decryption failed', { filePath });
+            }
+        }
+        
+        return data;
+    }
+
+    async loadTokenDecrypted(tokenRef) {
+        return this.loadToken(tokenRef, { decrypt: true });
     }
 
     /**

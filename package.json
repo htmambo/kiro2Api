@@ -5,24 +5,23 @@
   "type": "module",
   "dependencies": {
     "@anthropic-ai/tokenizer": "^0.0.4",
-    "axios": "^1.10.0",
+    "axios": "^1.13.6",
     "better-sqlite3": "^12.5.0",
     "deepmerge": "^4.3.1",
     "dotenv": "^16.4.5",
     "google-auth-library": "^10.1.0",
-    "lodash": "^4.17.21",
-    "multer": "^2.0.2",
-    "next": "^16.1.1",
+    "lodash": "^4.17.23",
+    "multer": "^2.1.1",
     "open": "^10.2.0",
     "redis": "^4.7.0",
-    "undici": "^7.12.0",
+    "undici": "^7.22.0",
     "uuid": "^11.1.0"
   },
   "devDependencies": {
-    "@babel/preset-env": "^7.28.0",
-    "babel-plugin-transform-import-meta": "^2.3.3",
     "concurrently": "^9.1.2",
     "http-proxy": "^1.18.1",
+    "jest": "^30.2.0",
+    "jest-environment-node": "^30.2.0",
     "nodemon": "^3.1.4"
   },
   "scripts": {
@@ -37,6 +36,14 @@
     "pm2:delete": "pm2 delete kiro2api",
     "pm2:logs": "pm2 logs kiro2api",
     "pm2:status": "pm2 status",
-    "pm2:monit": "pm2 monit"
+    "pm2:monit": "pm2 monit",
+    "test": "jest --runInBand",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage --runInBand",
+    "test:verbose": "jest --verbose --runInBand",
+    "test:silent": "jest --silent --runInBand",
+    "test:unit": "jest --runInBand --testPathPattern=tests/unit",
+    "test:integration": "jest --runInBand --testPathPattern=tests/integration --passWithNoTests",
+    "test:summary": "node test-summary.js"
   }
 }

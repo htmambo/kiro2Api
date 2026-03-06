@@ -15,6 +15,7 @@ import { initializeAPIManagement } from './manager.js';
 import { createRequestHandler } from './request-handler.js';
 import { initLogger, createLogger } from '../lib/logger.js';
 import { attachViteDevProxy } from '../ui/vite-dev-proxy.js';
+import { validateServerConfig } from '../config/validation.js';
 
 import 'dotenv/config'; // 加载 dotenv 环境变量
 import { getAccountPoolManager } from '../services/manager.js';
@@ -60,6 +61,14 @@ function maskSecret(value) {
 async function startServer() {
     // 初始化配置
     await initializeConfig();
+
+    // Validate server configuration
+    const configValidation = validateServerConfig(CONFIG);
+    if (!configValidation.valid) {
+        logger.error('Configuration validation failed:');
+        configValidation.errors.forEach(error => logger.error(`  - ${error}`));
+        process.exit(1);
+    }
 
     // 生产环境禁止使用弱默认 API Key（可用 ALLOW_WEAK_API_KEY=true 覆盖）
     // 为什么：默认/弱密钥一旦被部署到公网，风险极高，宁可启动失败也不要默默放过
