@@ -56,3 +56,7 @@ configs/*.txt
 
 docs/Archive/Reference/1-参考项目
 .ace-tool/
+
+# AI helper artifacts under GitHub metadata
+.github/prompts/opsx-*.md
+.github/skills/openspec-*/
