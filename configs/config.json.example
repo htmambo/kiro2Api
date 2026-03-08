@@ -15,10 +15,16 @@
   "REQUEST_RATE_LIMIT_MAX_REQUESTS": 60,
   "REQUEST_RATE_LIMIT_WHITELIST_PATHS": [
     "/health",
+    "/api/health",
     "/favicon.ico",
-    "/public/"
+    "/public/",
+    "/static/",
+    "/assets/",
+    "/_next/",
+    "/static-site/"
   ],
   "REQUEST_RATE_LIMIT_TRUSTED_PROXIES": [],
+  "REQUEST_MAX_BODY_BYTES": 10485760,
   "KIRO_REQUEST_TIMEOUT_MS": 120000,
   "KIRO_STREAM_TIMEOUT_MS": 180000,
   "CRON_NEAR_MINUTES": 15,
@@ -26,9 +32,23 @@
   "ACCOUNT_POOL_FILE_PATH": "./configs/account_pool.json",
   "MAX_ERROR_COUNT": 5,
   "ENABLE_THINKING_BY_DEFAULT": true,
-  "REDIS_ENABLED": false,
-  "REDIS_HOST": "localhost",
-  "REDIS_PORT": 6379,
-  "REDIS_PASSWORD": "",
-  "REDIS_DB": 0
+  "OPEN_SERVER_URL": false,
+  "CORS_ALLOWED_ORIGINS": [],
+  "CORS_ALLOWED_HEADERS": [
+    "Content-Type",
+    "Authorization",
+    "x-api-key",
+    "x-goog-api-key",
+    "Model-Provider"
+  ],
+  "CORS_ALLOWED_METHODS": [
+    "GET",
+    "POST",
+    "PUT",
+    "DELETE",
+    "OPTIONS"
+  ],
+  "CORS_ALLOW_CREDENTIALS": false,
+  "USE_SQLITE_POOL": false,
+  "SQLITE_DB_PATH": "data/kiro2api.db"
 }

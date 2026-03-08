@@ -8,6 +8,7 @@
  */
 
 import { createLogger } from '../lib/logger.js';
+import { DEFAULT_SUMMARIZATION_MODEL } from './model-config.js';
 
 const logger = createLogger('kiro:summarization');
 
@@ -360,7 +361,7 @@ export function simpleMessageSummary(message) {
  */
 export const SUMMARIZATION_CONFIG = {
     MIN_MESSAGES_TO_KEEP: 5,           // 摘要时保留最近的消息数量
-    SUMMARIZATION_MODEL: 'claude-sonnet-4-5-20250929',  // 用于生成摘要的模型
+    SUMMARIZATION_MODEL: DEFAULT_SUMMARIZATION_MODEL,  // 用于生成摘要的模型
     SUMMARIZE_THRESHOLD_PERCENT: 70,   // 达到 70% 时触发摘要
     MIN_MESSAGES_FOR_SUMMARY: 8,       // 至少 8 条消息才触发 AI 摘要
     SUMMARIZATION_COOLDOWN_MS: 3 * 60 * 1000,  // 摘要冷却时间 3 分钟

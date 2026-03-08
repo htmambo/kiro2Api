@@ -14,7 +14,7 @@
   - 完成时间: 2026-01-16
   - 完成任务: 完善 src 目录下所有代码的中文注释
   - 成果: 67 个文件的注释完善，提升代码可读性和可维护性
-  - 覆盖模块: api, services, openai, domain, kiro, converters, utils, lib, config, ui
+  - 覆盖模块: api, services, domain, kiro, utils, lib, config, ui
   - Codex 审查: 多次，修复注释不一致和错误
 
 - ✅ [代码审查与优化任务计划](Archive/2026-01/CODE_REVIEW_AND_OPTIMIZATION_PLAN.md)

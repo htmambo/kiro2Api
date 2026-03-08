@@ -1,13 +1,19 @@
-import { existsSync } from 'fs';
-import { promises as fs } from 'fs';
-import path from 'path';
-import crypto from 'crypto';
 import { CONFIG } from './config/manager.js';
-import { serviceInstances, getServiceAdapter, initApiService, getAccountPoolManager } from './services/manager.js';
+import { serviceInstances, initApiService } from './services/manager.js';
 import { serveStaticFiles } from './ui/static.js';
 import { initializeUIManagement, broadcastEvent } from './ui/events.js';
 import { createLogger } from './lib/logger.js';
 import { KIRO_IDE_VERSION, DEFAULT_PROVIDER_TYPE } from './kiro/constants.js';
+import { readUsageCache, writeUsageCache, readProviderUsageCache } from './ui/usage-cache.js';
+import {
+    readTokenStore,
+    writeTokenStore,
+    generateToken,
+    getExpiryTime,
+    saveToken,
+    startTokenCleanupScheduler
+} from './ui/auth/session-store.js';
+import { checkUiPasswordOnStartup, validateCredentials } from './ui/auth/credentials.js';
 
 // 路由器相关导入
 import { createRouter } from './ui/router/index.js';
@@ -18,132 +24,10 @@ export const ROUTER_CONFIG = {
     ENABLE_ROUTER_LOGGING: true // 启用路由日志
 };
 
-// Token存储到本地文件中
-const TOKEN_STORE_FILE = './configs/token-store.json';
-
-// 用量缓存文件路径
-const USAGE_CACHE_FILE = './configs/usage-cache.json';
-const ACCOUNT_POOL_FILE = './configs/account_pool.json';
 export const DEFAULT_PROVIDER_TYPE_FOR_ACCOUNTS = DEFAULT_PROVIDER_TYPE;
 const logger = createLogger('ui:manager');
-
-// ============================================================================
-// UI 密码安全配置
-// ============================================================================
-
-/**
- * 默认 UI 密码（仅用于开发/测试环境）
- * @constant {string}
- */
-const DEFAULT_UI_PASSWORD = 'admin';
-
-/**
- * UI 密码最小长度要求
- * @constant {number}
- */
-const MIN_UI_PASSWORD_LENGTH = 8;
-
-/**
- * 警告标志：避免重复输出警告
- * @type {boolean}
- */
-let hasWarnedDefaultPassword = false;
-let hasWarnedWeakPassword = false;
-
-/**
- * 获取环境变量中的 UI 密码
- * @returns {string} 密码字符串，若未配置则返回空字符串
- */
-function getEnvUiPassword() {
-    if (typeof process.env.UI_PASSWORD !== 'string') return '';
-    return process.env.UI_PASSWORD.trim();
-}
-
-/**
- * 检测并警告默认密码使用
- * 仅警告一次，避免日志污染
- */
-function warnDefaultPasswordOnce() {
-    if (hasWarnedDefaultPassword) return;
-    hasWarnedDefaultPassword = true;
-
-    logger.warn('━'.repeat(70));
-    logger.warn('⚠️  安全警告 ⚠️');
-    logger.warn('');
-    logger.warn('检测到 UI 使用默认密码 "admin"');
-    logger.warn('默认密码存在严重安全风险，容易被未授权访问');
-    logger.warn('');
-    logger.warn('建议操作：');
-    logger.warn('  1. 设置环境变量 UI_PASSWORD 为强密码（至少 8 位）');
-    logger.warn('  2. 或使用 scrypt 哈希格式存储密码');
-    logger.warn('');
-    logger.warn('示例：export UI_PASSWORD="your-strong-password-here"');
-    logger.warn('━'.repeat(70));
-}
-
-/**
- * 检测并警告弱密码
- * 仅警告一次，避免日志污染
- * @param {string} password - 密码字符串
- */
-function warnWeakPasswordOnce(password) {
-    if (hasWarnedWeakPassword) return;
-    hasWarnedWeakPassword = true;
-
-    logger.warn('━'.repeat(70));
-    logger.warn('⚠️  密码强度不足 ⚠️');
-    logger.warn('');
-    logger.warn(`当前 UI 密码长度仅为 ${password.length} 位，低于建议的 ${MIN_UI_PASSWORD_LENGTH} 位`);
-    logger.warn('弱密码容易被暴力破解，建议使用更强的密码');
-    logger.warn('');
-    logger.warn('建议：');
-    logger.warn('  • 使用至少 8 位密码');
-    logger.warn('  • 包含大小写字母、数字和特殊字符');
-    logger.warn('  • 避免使用常见单词或模式');
-    logger.warn('━'.repeat(70));
-}
-
-/**
- * 启动时检查 UI 密码配置
- * 在应用启动时执行，提前发现安全问题
- */
-function checkUiPasswordOnStartup() {
-    const envPassword = getEnvUiPassword();
-    const isProduction = process.env.NODE_ENV === 'production';
-
-    // 检查是否使用默认密码
-    if (!envPassword || envPassword === DEFAULT_UI_PASSWORD) {
-        warnDefaultPasswordOnce();
-
-        // 生产环境强制要求配置密码
-        if (isProduction && !envPassword) {
-            logger.error('');
-            logger.error('🚨 生产环境安全要求 🚨');
-            logger.error('生产环境必须配置 UI_PASSWORD 环境变量');
-            logger.error('当前配置将导致无法登录管理界面');
-            logger.error('');
-            logger.error('请立即设置：export UI_PASSWORD="your-strong-password"');
-            logger.error('');
-        }
-    }
-
-    // 检查密码强度
-    if (envPassword && envPassword.length < MIN_UI_PASSWORD_LENGTH) {
-        warnWeakPasswordOnce(envPassword);
-
-        if (isProduction) {
-            logger.error('生产环境建议使用至少 8 位强密码');
-        }
-    }
-
-    // 输出安全提示
-    if (envPassword && envPassword !== DEFAULT_UI_PASSWORD && envPassword.length >= MIN_UI_PASSWORD_LENGTH) {
-        logger.info('✓ UI 密码已配置且符合安全建议');
-    }
-}
-
-// 执行启动时检查
 checkUiPasswordOnStartup();
+startTokenCleanupScheduler();
 
 /**
  * 生成不缓存的响应头
@@ -223,235 +107,6 @@ export const KIRO_OAUTH_CONFIG = {
  */
 export { generateOAuthResultPage } from './ui/views/oauth-result.js';
 
-/**
- * 读取用量缓存文件
- * @returns {Promise<Object|null>} 缓存的用量数据，如果不��在或读取失败则返回 null
- */
-export async function readUsageCache() {
-    try {
-        if (existsSync(USAGE_CACHE_FILE)) {
-            const content = await fs.readFile(USAGE_CACHE_FILE, 'utf8');
-            return JSON.parse(content);
-        }
-        return null;
-    } catch (error) {
-        logger.warn('Failed to read usage cache', error);
-        return null;
-    }
-}
-
-/**
- * 写入用量缓存文件
- * @param {Object} usageData - 用量数据
- */
-export async function writeUsageCache(usageData) {
-    try {
-        await fs.writeFile(USAGE_CACHE_FILE, JSON.stringify(usageData, null, 2), 'utf8');
-        logger.info(`Usage data cached to ${USAGE_CACHE_FILE}`);
-    } catch (error) {
-        logger.error('Failed to write usage cache', error);
-    }
-}
-
-/**
- * 读取特定提供商类型的用量缓存
- * @param {string} providerType - 提供商类型
- * @returns {Promise<Object|null>} 缓存的用量数据
- */
-export async function readProviderUsageCache(providerType) {
-    const cache = await readUsageCache();
-    if (cache && cache.providers && cache.providers[providerType]) {
-        return {
-            ...cache.providers[providerType],
-            cachedAt: cache.timestamp,
-            fromCache: true
-        };
-    }
-    return null;
-}
-
-/**
- * 读取token存储文件
- */
-export async function readTokenStore() {
-    try {
-        if (existsSync(TOKEN_STORE_FILE)) {
-            const content = await fs.readFile(TOKEN_STORE_FILE, 'utf8');
-            return JSON.parse(content);
-        } else {
-            // 如果文件不存在，创建一个默认的token store
-            await writeTokenStore({ tokens: {} });
-            return { tokens: {} };
-        }
-    } catch (error) {
-        logger.error('读取token存储文件失败', error);
-        return { tokens: {} };
-    }
-}
-
-/**
- * 写入token存储文件
- */
-export async function writeTokenStore(tokenStore) {
-    try {
-        await fs.writeFile(TOKEN_STORE_FILE, JSON.stringify(tokenStore, null, 2), 'utf8');
-    } catch (error) {
-        logger.error('写入token存储文件失败', error);
-    }
-}
-
-/**
- * 生成简单的token
- */
-export function generateToken() {
-    return crypto.randomBytes(32).toString('hex');
-}
-
-/**
- * 生成token过期时间
- */
-export function getExpiryTime() {
-    const now = Date.now();
-    const expiry = 60 * 60 * 1000; // 1小时
-    return now + expiry;
-}
-
-/**
- * 验证简单token（委托给 auth.middleware 的统一实现）
- *
- * Token 验证逻辑已统一到 `auth.middleware.js` 模块
- * 此处保留函数签名以维持向后兼容性
- *
- * @param {string} token - Token 字符串
- * @returns {Promise<object|null>} Token 信息，无效或过期返回 null
- */
-async function verifyToken(token) {
-    // 动态导入避免循环依赖
-    const { verifyToken: authVerifyToken } = await import('./ui/router/middleware/auth.middleware.js');
-    return authVerifyToken(token);
-}
-
-/**
- * 保存token到本地文件
- */
-export async function saveToken(token, tokenInfo) {
-    const tokenStore = await readTokenStore();
-    tokenStore.tokens[token] = tokenInfo;
-    await writeTokenStore(tokenStore);
-}
-
-/**
- * 删除token
- */
-async function deleteToken(token) {
-    const tokenStore = await readTokenStore();
-    if (tokenStore.tokens[token]) {
-        delete tokenStore.tokens[token];
-        await writeTokenStore(tokenStore);
-    }
-}
-
-/**
- * 清理过期的token
- */
-async function cleanupExpiredTokens() {
-    const tokenStore = await readTokenStore();
-    const now = Date.now();
-    let hasChanges = false;
-    
-    for (const token in tokenStore.tokens) {
-        if (now > tokenStore.tokens[token].expiryTime) {
-            delete tokenStore.tokens[token];
-            hasChanges = true;
-        }
-    }
-    
-    if (hasChanges) {
-        await writeTokenStore(tokenStore);
-    }
-}
-
-/**
- * 读取 UI 登录密码
- * @returns {Promise<string|null>} 密码字符串，不符合要求时返回 null
- */
-async function readPasswordFile() {
-    try {
-        const envPassword = getEnvUiPassword();
-        const isProduction = process.env.NODE_ENV === 'production';
-
-        // 生产环境未配置密码时拒绝使用默认值
-        if (isProduction && !envPassword) {
-            logger.error('[UI] 生产环境未配置 UI_PASSWORD，拒绝使用默认密码');
-            return null;
-        }
-
-        // 生产环境拒绝使用默认密码（即使显式配置为 admin）
-        if (isProduction && envPassword === DEFAULT_UI_PASSWORD) {
-            logger.error('[UI] 生产环境禁止使用默认密码 "admin"，请设置强密码');
-            return null;
-        }
-
-        // 生产环境检查密码最小长度
-        if (isProduction && envPassword && envPassword.length < MIN_UI_PASSWORD_LENGTH) {
-            logger.error(`[UI] 生产环境要求密码至少 ${MIN_UI_PASSWORD_LENGTH} 位，当前密码长度不足`);
-            return null;
-        }
-
-        // 使用配置的密码或默认密码
-        return envPassword || DEFAULT_UI_PASSWORD;
-    } catch (error) {
-        logger.error('读取密码文件失败', error);
-        return null;
-    }
-}
-
-/**
- * 验证登录凭据
- * @param {string} password - 用户输入的密码
- * @returns {Promise<boolean>} 验证是否通过
- */
-export async function validateCredentials(password) {
-    const storedPassword = await readPasswordFile();
-    if (!storedPassword) return false;
-    if (typeof password !== 'string') return false;
-
-    // 对于明文存储的密码，检查密码强度（仅警告，不拒绝登录以保持兼容性）
-    if (!storedPassword.startsWith('scrypt$') && storedPassword.length < MIN_UI_PASSWORD_LENGTH) {
-        warnWeakPasswordOnce(storedPassword);
-    }
-
-    // 新格式：scrypt$<saltB64>$<hashB64>
-    if (storedPassword.startsWith('scrypt$')) {
-        const parts = storedPassword.split('$');
-        if (parts.length !== 3) return false;
-        try {
-            const salt = Buffer.from(parts[1], 'base64');
-            const expected = Buffer.from(parts[2], 'base64');
-            const keylen = expected.length;
-            const derived = await new Promise((resolve, reject) => {
-                crypto.scrypt(password, salt, keylen, { N: 16384, r: 8, p: 1 }, (err, buf) => {
-                    if (err) return reject(err);
-                    resolve(buf);
-                });
-            });
-            return crypto.timingSafeEqual(Buffer.from(derived), expected);
-        } catch {
-            return false;
-        }
-    }
-
-    // 旧格式：明文（兼容）
-    try {
-        const a = Buffer.from(password);
-        const b = Buffer.from(storedPassword);
-        if (a.length !== b.length) return false;
-        return crypto.timingSafeEqual(a, b);
-    } catch {
-        return false;
-    }
-}
-
 // ============================================================================
 // 请求体解析工具（从 request-body.js 模块 re-export）
 // ============================================================================
@@ -464,9 +119,6 @@ export async function validateCredentials(password) {
  * 同时解决循环依赖问题：system.handlers 不再依赖 ui-manager
  */
 export { parseRequestBody } from './utils/request-body.js';
-
-// 定时清理过期token
-setInterval(cleanupExpiredTokens, 5 * 60 * 1000); // 每5分钟清理一次
 
 /**
  * Serve static files for the UI
@@ -572,4 +224,17 @@ export async function handleUIApiRequests(method, pathParam, req, res, currentCo
 }
 
 // 重新导出从 UI 模块导入的函数
-export { serveStaticFiles, initializeUIManagement, broadcastEvent };
+export {
+    serveStaticFiles,
+    initializeUIManagement,
+    broadcastEvent,
+    readUsageCache,
+    writeUsageCache,
+    readProviderUsageCache,
+    readTokenStore,
+    writeTokenStore,
+    generateToken,
+    getExpiryTime,
+    saveToken,
+    validateCredentials
+};

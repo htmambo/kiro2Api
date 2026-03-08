@@ -12,6 +12,27 @@
 
 ---
 
+## 📌 协议兼容说明
+
+当前版本**仅支持 Claude 协议**。
+
+### 可用端点
+
+- `POST /v1/messages`
+- `POST /cc/v1/messages`
+- `POST /v1/messages/count_tokens`
+- `POST /cc/v1/messages/count_tokens`
+- `GET /v1/models`
+
+### 已移除端点
+
+- `POST /v1/chat/completions`
+- `POST /v1/responses`
+
+如果你之前使用的是 OpenAI SDK 风格接口，请改为 Claude Messages API。
+
+---
+
 ## 🚀 快速开始
 
 ### 环境要求
@@ -69,6 +90,8 @@ LOG_LEVEL=info
 SERVER_PORT=8045
 HOST=0.0.0.0
 REQUIRED_API_KEY=your-secret-key
+OPEN_SERVER_URL=false
+CORS_ALLOWED_ORIGINS=http://localhost:5173
 
 # 模型配置
 MODEL_PROVIDER=claude-kiro-oauth
@@ -85,7 +108,7 @@ KIRO_STREAM_TIMEOUT_MS=180000
 
 **开发模式**:
 ```bash
-npm start
+npm run dev
 ```
 
 **生产模式 (使用 PM2)**:
@@ -100,25 +123,33 @@ npm run pm2:start
 curl http://localhost:8045/health
 ```
 
+**检查 Claude 接口可用性**:
+```bash
+curl http://localhost:8045/v1/messages \
+  -H "content-type: application/json" \
+  -H "x-api-key: your-secret-key" \
+  -d '{"model":"claude-sonnet-4-5","max_tokens":64,"messages":[{"role":"user","content":"hello"}]}'
+```
+
 **预期输出**:
 ```json
 {
-  "status": "ok",
-  "timestamp": "2026-01-08T12:00:00.000Z"
+  "status": "healthy",
+  "timestamp": "2026-01-08T12:00:00.000Z",
+  "provider": "claude-kiro-oauth"
 }
 ```
 
 #### 6. 访问管理界面
 
-打开浏览器访问: `http://localhost:8045/login.html`
+打开浏览器访问: `http://localhost:8045/login`
 
-登录密码: 项目根目录的 `pwd` 文件内容（不会提交到 git）
+登录密码仅从 `UI_PASSWORD` 环境变量读取。
 
-首次启动请先创建 `pwd`：
+首次启动请先设置：
 
 ```bash
-cp pwd.example pwd
-# 编辑 pwd，填入你的强密码（建议 >= 16 位）
+export UI_PASSWORD="your-strong-password"
 ```
 
 > 提示：`REQUIRED_API_KEY` 用于访问 `/v1/*` API（给 Claude Code/Cursor 等使用），与后台登录密码可相同也可不同（推荐不同）。
@@ -135,7 +166,7 @@ cp pwd.example pwd
 
 访问: `http://localhost:8045/login.html`
 
-输入 `pwd` 文件中的密码登录
+输入 `UI_PASSWORD` 中配置的密码登录
 
 #### 步骤 2: 进入 OAuth 授权页面
 

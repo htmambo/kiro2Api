@@ -9,6 +9,7 @@ import * as fs from 'fs';
 import { promises as pfs } from 'fs';
 import { INPUT_SYSTEM_PROMPT_FILE, MODEL_PROVIDER } from '../utils/common.js';
 import { createLogger } from '../lib/logger.js';
+import { applyEnvironmentOverrides, normalizeAndValidateConfig } from './runtime-config.js';
 
 export let CONFIG = {}; // 导出全局 CONFIG 供其他模块使用
 export let PROMPT_LOG_FILENAME = ''; // 导出提示词日志文件名
@@ -18,7 +19,7 @@ const logger = createLogger('config:manager');
 
 // 默认配置常量
 const DEFAULT_CONFIG = {
-    REQUIRED_API_KEY: "123456",
+    REQUIRED_API_KEY: "",
     SERVER_PORT: 8088,
     HOST: '0.0.0.0',
     MODEL_PROVIDER: MODEL_PROVIDER.KIRO_API,
@@ -50,6 +51,11 @@ const DEFAULT_CONFIG = {
     CRON_REFRESH_TOKEN: true,
     MAX_ERROR_COUNT: 5,
     ENABLE_THINKING_BY_DEFAULT: true,
+    OPEN_SERVER_URL: false,
+    CORS_ALLOWED_ORIGINS: [],
+    CORS_ALLOWED_HEADERS: ['Content-Type', 'Authorization', 'x-api-key', 'Model-Provider'],
+    CORS_ALLOWED_METHODS: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    CORS_ALLOW_CREDENTIALS: false,
     // SQLite 模式配置
     USE_SQLITE_POOL: false,
     SQLITE_DB_PATH: "data/kiro2api.db",
@@ -111,12 +117,19 @@ function normalizeConfiguredProviders(config) {
  */
 export async function initializeConfig(args = process.argv.slice(2), configFilePath = 'configs/config.json') {
     let currentConfig = {};
-    let configFileExists = false;
+
+    if (!fs.existsSync('configs')) {
+        fs.mkdirSync('configs', { recursive: true });
+        logger.info('Created configs directory');
+    }
+    if (!fs.existsSync('configs/kiro')) {
+        fs.mkdirSync('configs/kiro', { recursive: true });
+        logger.info('Created configs/kiro directory');
+    }
 
     try {
         const configData = fs.readFileSync(configFilePath, 'utf8');
         currentConfig = JSON.parse(configData);
-        configFileExists = true;
         logger.info('Loaded configuration from config.json');
     } catch (error) {
         if (error.code === 'ENOENT') {
@@ -154,17 +167,12 @@ export async function initializeConfig(args = process.argv.slice(2), configFileP
         }
     }
 
-    // 确保 configs/kiro 目录存在
-    if (!fs.existsSync('configs')) {
-        fs.mkdirSync('configs', { recursive: true });
-        logger.info('Created configs directory');
-    }
-    if (!fs.existsSync('configs/kiro')) {
-        fs.mkdirSync('configs/kiro', { recursive: true });
-        logger.info('Created configs/kiro directory');
+    currentConfig = applyEnvironmentOverrides(currentConfig, process.env, logger);
+
+    if (currentConfig.OPEN_SERVER_URL === undefined) {
+        currentConfig.OPEN_SERVER_URL = DEFAULT_CONFIG.OPEN_SERVER_URL;
     }
 
-    currentConfig.OPEN_SERVER_URL  = true;
     // 解析命令行参数
     for (let i = 0; i < args.length; i++) {
         if (args[i] === '--api-key') {
@@ -256,9 +264,12 @@ export async function initializeConfig(args = process.argv.slice(2), configFileP
             }
         } else if (args[i] === '--disableopenserverurl') {
             currentConfig.OPEN_SERVER_URL  = false;
+        } else if (args[i] === '--open-server-url') {
+            currentConfig.OPEN_SERVER_URL = true;
         }
     }
 
+    currentConfig = normalizeAndValidateConfig(currentConfig, logger);
     normalizeConfiguredProviders(currentConfig);
     
     if (!currentConfig.SYSTEM_PROMPT_FILE_PATH) {

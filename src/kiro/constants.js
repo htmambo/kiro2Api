@@ -6,6 +6,8 @@
  * @module kiro/constants
  */
 
+import { DEFAULT_SUMMARIZATION_MODEL } from './model-config.js';
+
 /**
  * Kiro IDE 版本号（用于 User-Agent 等）
  *
@@ -19,21 +21,6 @@ export const KIRO_IDE_VERSION = '0.7.45';
  * @type {string}
  */
 export const DEFAULT_PROVIDER_TYPE = 'claude-kiro-oauth';
-
-/**
- * 支持的 Kiro 模型列表
- *
- * @type {Array<string>}
- */
-export const KIRO_MODELS = [
-    'claude-opus-4-5',
-    'claude-opus-4-5-20251101',
-    'claude-haiku-4-5',
-    'claude-sonnet-4-5',
-    'claude-sonnet-4-5-20250929',
-    'claude-sonnet-4-20250514',
-    'claude-3-7-sonnet-20250219'
-];
 
 /**
  * Kiro 常量集合
@@ -50,7 +37,7 @@ export const KIRO_CONSTANTS = {
   AMAZON_Q_URL:
     "https://codewhisperer.{{region}}.amazonaws.com/SendMessageStreaming",
   USAGE_LIMITS_URL: "https://q.{{region}}.amazonaws.com/getUsageLimits",
-  DEFAULT_MODEL_NAME: "claude-sonnet-4-20250514",
+  DEFAULT_BACKEND_MODEL_NAME: "claude-sonnet-4-20250514",
   AXIOS_TIMEOUT: 120000,
   REQUEST_TIMEOUT_MS: 120000, // 普通请求超时（120秒）
   STREAM_TIMEOUT_MS: 180000, // 流式请求超时（180秒）
@@ -76,7 +63,7 @@ export const KIRO_CONSTANTS = {
   AUTO_SUMMARIZE_THRESHOLD: 0.8, // 80% = 160K 时开始 pruning
   CONTEXT_FILE_LIMIT: 0.75, // 上下文文件限制为 75% 窗口（和 Kiro 一致）
   MIN_MESSAGES_TO_KEEP: 5, // 摘要时保留最近的消息数量
-  SUMMARIZATION_MODEL: "claude-sonnet-4-5-20250929", // 用于生成摘要的模型（更快更便宜）
+  SUMMARIZATION_MODEL: DEFAULT_SUMMARIZATION_MODEL, // 用于生成摘要的模型（更快更便宜）
 
   // 官方 Kiro 输出限制（extension.js:766436）- 防止 tool_result 内容过长导致 400 错误
   MAX_TOOL_OUTPUT_LENGTH: 64000, // 64K 字符，和官方 Kiro 一致

@@ -8,11 +8,10 @@
  *
  * 支持的工具格式：
  * - 格式 0: Kiro 内置工具（Builtin Tools）- { type, name, ... }
- * - 格式 1: OpenAI 风格 - { function: { name, description, parameters } }
- * - 格式 2: Kiro 原生格式 - { toolSpecification: { ... } }
- * - 格式 3: Anthropic/Claude 格式 - { name, description, input_schema }
- * - 格式 4: 带 id 和 parameters - { id, description, parameters }
- * - 格式 5: 带 id 和 schema - { id, description, schema }
+ * - 格式 1: Kiro 原生格式 - { toolSpecification: { ... } }
+ * - 格式 2: Anthropic/Claude 格式 - { name, description, input_schema }
+ * - 格式 3: 带 id 和 parameters - { id, description, parameters }
+ * - 格式 4: 带 id 和 schema - { id, description, schema }
  *
  * 依赖：
  * - ../tools.js: CC_TO_KIRO_TOOL_MAPPING, normalizeToolName, isZodSchema
@@ -131,7 +130,7 @@ export function convertToQTool(tool, compressInputSchemaFn = compressInputSchema
         return tool;  // 内置工具原样传递
     }
 
-    // 格式 1：OpenAI 风格 { function: { name, description, parameters } }
+    // 格式 1：function 包裹格式 { function: { name, description, parameters } }
     if (tool.function && typeof tool.function === 'object') {
         const schema = compressInputSchemaFn(tool.function.parameters || {});
         let desc = tool.function.description || "";

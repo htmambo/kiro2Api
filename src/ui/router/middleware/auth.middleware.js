@@ -5,6 +5,7 @@
  */
 
 import { createLogger } from '../../../lib/logger.js';
+import { readTokenStore, writeTokenStore } from '../../auth/session-store.js';
 
 const logger = createLogger('ui:middleware:auth');
 
@@ -36,9 +37,7 @@ export async function checkAuth(req) {
  * @returns {Promise<object | null>} Token 信息，无效或过期返回 null。
  */
 export async function verifyToken(token) {
-    // 从 ui-manager.js 动态导入实现，避免循环依赖
     try {
-        const { readTokenStore } = await import('../../../ui-manager.js');
         const tokenStore = await readTokenStore();
         const tokenInfo = tokenStore.tokens[token];
 
@@ -66,7 +65,6 @@ export async function verifyToken(token) {
  */
 async function deleteToken(token) {
     try {
-        const { readTokenStore, writeTokenStore } = await import('../../../ui-manager.js');
         const tokenStore = await readTokenStore();
 
         if (tokenStore.tokens[token]) {
@@ -103,9 +101,7 @@ export async function requireAuth(req, res) {
  */
 function sendUnauthorized(res, message = '未授权访问，请先登录') {
     res.writeHead(401, {
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+        'Content-Type': 'application/json'
     });
     res.end(JSON.stringify({
         error: {

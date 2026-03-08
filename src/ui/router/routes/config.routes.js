@@ -28,10 +28,4 @@ export function setupConfigRoutes(router) {
         auth: true,
         description: '重载配置文件（从磁盘重新读取）'
     });
-
-    // 更新管理员密码
-    router.addRoute('POST', '/api/admin-password', configHandlers.updateAdminPassword, {
-        auth: true,
-        description: '更新后台管理登录密码'
-    });
 }

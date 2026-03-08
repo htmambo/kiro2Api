@@ -6,9 +6,10 @@ import path from 'path';
 import { createLogger } from '../../../lib/logger.js';
 import { logErrorInDev } from '../../../utils/error-logger.js';
 
-import { KIRO_MODELS } from '../../../kiro/constants.js';
+import { MODEL_MAPPING } from "../../../kiro/model-config.js";
 import { getUsageLimits } from '../../../kiro/api-client.js';
 import { serviceInstances, getServiceAdapter } from '../../../services/manager.js';
+import { readUsageCache, writeUsageCache } from '../../usage-cache.js';
 
 const logger = createLogger('ui:handlers:usage');
 
@@ -26,7 +27,6 @@ export async function getAllUsage({ req, res, currentConfig, accountPoolManager 
 
         if (!refresh) {
             // 优先读取缓存，避免频繁请求
-            const { readUsageCache } = await import('../../../ui-manager.js');
             const cachedData = await readUsageCache();
             if (cachedData) {
                 usageResults = { ...cachedData, fromCache: true };
@@ -35,7 +35,6 @@ export async function getAllUsage({ req, res, currentConfig, accountPoolManager 
 
         if (!usageResults) {
             usageResults = await getAllProvidersUsage(currentConfig, accountPoolManager);
-            const { writeUsageCache } = await import('../../../ui-manager.js');
             await writeUsageCache(usageResults);
         }
 
@@ -95,7 +94,7 @@ export async function getAccountUsage({ req, res, currentConfig, accountPoolMana
  */
 export async function getFullModels({ res }) {
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(KIRO_MODELS));
+    res.end(JSON.stringify(Object.keys(MODEL_MAPPING)));
 }
 
 /**
@@ -503,7 +502,6 @@ function formatKiroUsage(usageData) {
  * @returns {Promise<void>}
  */
 export async function updateProviderUsageCache(providerType, usageData) {
-    const { readUsageCache, writeUsageCache } = await import('../../../ui-manager.js');
     let cache = await readUsageCache();
     if (!cache) {
         cache = {

@@ -7,7 +7,6 @@
  */
 import { extractSystemPromptFromRequestBody } from '../utils/common.js';
 import { createLogger } from '../lib/logger.js';
-import { KIRO_MODELS } from '../kiro/constants.js';
 
 const logger = createLogger('kiro:strategy');
 

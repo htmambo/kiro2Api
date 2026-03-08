@@ -12,6 +12,12 @@ import { KIRO_CONSTANTS } from './constants.js';
 
 const logger = createLogger('kiro:tools');
 
+export const KIRO_ONLY_PARAMS = [
+    'explanation', 'ignoreWarning', 'depth', 'reason',
+    'caseSensitive', 'excludePattern', 'includeIgnoredFiles',
+    'raw', 'raw_arguments', 'value'
+];
+
 /**
  * Claude Code → Kiro 工具映射表
  *
@@ -100,11 +106,15 @@ const TOOL_NAME_ALIASES = {
     Write: ['write_file', 'writefile']
 };
 
-const KIRO_TO_CC_TOOL_NAME = new Map(
-    Object.entries(CC_TO_KIRO_TOOL_MAPPING)
-        .filter(([, mapping]) => mapping.kiroTool)
-        .map(([ccName, mapping]) => [mapping.kiroTool, ccName])
-);
+const KIRO_TO_CC_TOOL_NAME = Object.entries(CC_TO_KIRO_TOOL_MAPPING)
+    .filter(([, mapping]) => mapping.kiroTool)
+    .reduce((map, [ccName, mapping]) => {
+        // 保留首个映射作为默认反向名称，避免 NotebookRead 这类特例覆盖 Read 等通用工具
+        if (!map.has(mapping.kiroTool)) {
+            map.set(mapping.kiroTool, ccName);
+        }
+        return map;
+    }, new Map());
 
 /**
  * 规范化工具名称（处理别名）
@@ -338,12 +348,6 @@ export function reverseMapToolInput(toolName, input, verboseLogging = false) {
         reverseMap[kiroParam] = ccParam;
     }
 
-    const kiroOnlyParams = [
-        'explanation', 'ignoreWarning', 'depth', 'reason',
-        'caseSensitive', 'excludePattern', 'includeIgnoredFiles',
-        'raw', 'raw_arguments', 'value'
-    ];
-
     const reversedInput = {};
 
     for (const [key, value] of Object.entries(input)) {
@@ -352,7 +356,7 @@ export function reverseMapToolInput(toolName, input, verboseLogging = false) {
             if (verboseLogging) {
                 logger.debug(`ReverseMap ${toolName}: reversed ${key} → ${reverseMap[key]}`);
             }
-        } else if (!kiroOnlyParams.includes(key)) {
+        } else if (!KIRO_ONLY_PARAMS.includes(key)) {
             reversedInput[key] = value;
         }
     }

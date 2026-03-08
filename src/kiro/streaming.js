@@ -225,6 +225,8 @@ export function parseAwsEventStreamMessage(buffer, offset = 0) {
         eventType: headers[':event-type'] || 'unknown',
         contentType: headers[':content-type'] || 'application/json',
         messageType: headers[':message-type'] || 'event',
+        exceptionType: headers[':exception-type'] || null,
+        errorCode: headers[':error-code'] || null,
         payload: payload,
         totalLength: totalLength,
         nextOffset: offset + totalLength
@@ -275,6 +277,17 @@ export function parseAwsEventStreamBuffer(buffer) {
 
         // 根据事件类型和 payload 构造事件
         try {
+            if (message.messageType === 'exception') {
+                events.push({
+                    type: 'exception',
+                    data: {
+                        exceptionType: message.exceptionType || 'UnknownException',
+                        message: message.payload || ''
+                    }
+                });
+                continue;
+            }
+
             const parsed = JSON.parse(message.payload);
 
             // 根据事件类型处理
@@ -310,6 +323,15 @@ export function parseAwsEventStreamBuffer(buffer) {
                         data: {
                             usage: parsed.usage,
                             unit: parsed.unit
+                        }
+                    });
+                }
+            } else if (message.eventType === 'contextUsageEvent') {
+                if (parsed.contextUsagePercentage !== undefined) {
+                    events.push({
+                        type: 'contextUsage',
+                        data: {
+                            contextUsagePercentage: parsed.contextUsagePercentage
                         }
                     });
                 }

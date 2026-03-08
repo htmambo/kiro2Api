@@ -95,27 +95,29 @@ export async function initApiService(config) {
  *
  * @param {Object} config - 当前请求配置
  * @param {string} [requestedModel] - 可选的模型过滤条件
- * @returns {Promise<KiroService>} API 服务适配器实例
+ * @returns {Promise<{service: KiroService, resolvedConfig: Object}>} 服务实例与解析后的请求配置
  */
 export async function getApiService(config, requestedModel = null) {
-    let serviceConfig = config;
+    let serviceConfig = { ...config };
 
     if (accountPoolManager) {
         const selectedAccountConfig = accountPoolManager.selectAccount(requestedModel, { skipUsageCount: true });
         if (selectedAccountConfig) {
             serviceConfig = deepmerge(config, selectedAccountConfig);
             // 删除池配置字段，避免被下游日志或适配器重复持有，减少敏感/冗余数据
-            // 注意：仅移除合并后的 serviceConfig 字段；原始 config 仅同步 uuid 用于日志一致性
+            // 注意：仅移除合并后的 serviceConfig 字段，避免修改调用方传入的 request config
             delete serviceConfig.accountPool;
             delete serviceConfig.providerPools;
-            config.uuid = serviceConfig.uuid;
             logger.info(`Using pooled account configuration: ${serviceConfig.uuid}${requestedModel ? ` (model: ${requestedModel})` : ''}`);
         } else {
             logger.warn(`No healthy account found${requestedModel ? ` supporting model: ${requestedModel}` : ''}. Falling back to main config.`);
         }
     }
 
-    return getServiceAdapter(serviceConfig);
+    return {
+        service: getServiceAdapter(serviceConfig),
+        resolvedConfig: serviceConfig
+    };
 }
 
 /**
@@ -148,7 +150,7 @@ export function getServiceAdapter(config) {
     if (!serviceInstances[providerKey] || !(serviceInstances[providerKey] instanceof KiroService)) {
         serviceInstances[providerKey] = new KiroService(config);
     } else {
-        serviceInstances[providerKey].config = config;
+        serviceInstances[providerKey].applyRuntimeConfig(config);
     }
     return serviceInstances[providerKey];
 }

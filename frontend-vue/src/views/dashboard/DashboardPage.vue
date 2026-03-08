@@ -338,18 +338,12 @@ onMounted(() => {
 
     <div>
       <p class="text-xs font-medium text-gray-500 uppercase tracking-wider mb-3">API 端点</p>
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <EndpointCard
-          title="OpenAI 协议"
-          path="/claude-kiro-oauth/v1/chat/completions"
-          description="兼容 OpenAI SDK，支持流式输出"
-          recommended
-          gradient="from-emerald-500 to-teal-500"
-        />
+      <div class="grid grid-cols-1 gap-4">
         <EndpointCard
           title="Claude 协议"
           path="/claude-kiro-oauth/v1/messages"
           description="原生 Claude API 格式"
+          recommended
           gradient="from-blue-500 to-indigo-500"
         />
       </div>

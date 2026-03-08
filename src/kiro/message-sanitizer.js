@@ -111,50 +111,124 @@ function reorderToolResultMessages(messages) {
 }
 
 /**
- * 确保工具调用有对应结果（官方 Kiro: ensureValidToolUsesAndResults）
- * 如果 tool_use 没有对应的 tool_result，添加失败的结果
+ * 过滤无效的 tool_use / tool_result 配对
+ *
+ * 对齐 kirors 的处理策略：
+ * 1. 过滤孤立的 tool_result
+ * 2. 移除没有对应结果的 tool_use
+ * 3. 不再伪造失败的 tool_result
+ *
  * @param {Array} messages - 消息数组
- * @returns {Array} 修复后的消息数组
+ * @returns {Object} 过滤结果
  * @private
  */
 function ensureValidToolUsesAndResults(messages) {
-    const result = [];
+    const toolUseIndexMap = new Map();
 
     for (let i = 0; i < messages.length; i++) {
         const message = messages[i];
-        result.push(message);
-
-        // 检查 assistant 消息中的 tool_use
         if (message.role === 'assistant' && Array.isArray(message.content)) {
-            const toolUses = message.content.filter(p => p.type === 'tool_use');
-
-            if (toolUses.length > 0) {
-                // 检查下一条消息是否有对应的 tool_result
-                const nextMessage = i + 1 < messages.length ? messages[i + 1] : null;
-                const hasToolResults = nextMessage &&
-                    nextMessage.role === 'user' &&
-                    Array.isArray(nextMessage.content) &&
-                    nextMessage.content.some(p => p.type === 'tool_result');
-
-                if (!hasToolResults) {
-                    // 没有 tool_result，添加失败的结果（官方: FAILED_TOOL_USE_MESSAGE）
-                    const failedToolResults = toolUses.map(tu => ({
-                        type: 'tool_result',
-                        tool_use_id: tu.id || `toolUse_${Math.random().toString(36).substr(2, 9)}`,
-                        content: 'Tool execution failed',
-                        is_error: true
-                    }));
-
-                    result.push({
-                        role: 'user',
-                        content: failedToolResults
-                    });
+            for (const part of message.content) {
+                if (part.type === 'tool_use' && part.id && !toolUseIndexMap.has(part.id)) {
+                    toolUseIndexMap.set(part.id, i);
                 }
             }
         }
     }
 
-    return result;
+    const validToolUseIds = new Set();
+    const validToolResultKeys = new Set();
+
+    for (let i = 0; i < messages.length; i++) {
+        const message = messages[i];
+        if (message.role !== 'user' || !Array.isArray(message.content)) {
+            continue;
+        }
+
+        for (let partIndex = 0; partIndex < message.content.length; partIndex++) {
+            const part = message.content[partIndex];
+            if (part.type !== 'tool_result' || !part.tool_use_id) {
+                continue;
+            }
+
+            const toolUseIndex = toolUseIndexMap.get(part.tool_use_id);
+            if (toolUseIndex === undefined || toolUseIndex >= i || validToolUseIds.has(part.tool_use_id)) {
+                continue;
+            }
+
+            validToolUseIds.add(part.tool_use_id);
+            validToolResultKeys.add(`${i}:${partIndex}`);
+        }
+    }
+
+    const hasMeaningfulParts = (parts) => {
+        return parts.some((part) => {
+            if (part.type === 'text') {
+                return Boolean(part.text && part.text.trim() !== '');
+            }
+            return true;
+        });
+    };
+
+    const filteredMessages = [];
+    let removedToolUses = 0;
+    let removedToolResults = 0;
+    let removedMessages = 0;
+
+    for (let i = 0; i < messages.length; i++) {
+        const message = messages[i];
+        if (!Array.isArray(message.content)) {
+            filteredMessages.push(message);
+            continue;
+        }
+
+        const filteredContent = message.content.filter((part, partIndex) => {
+            if (message.role === 'assistant' && part.type === 'tool_use') {
+                const keep = Boolean(part.id) && validToolUseIds.has(part.id);
+                if (!keep) {
+                    removedToolUses++;
+                }
+                return keep;
+            }
+
+            if (message.role === 'user' && part.type === 'tool_result') {
+                const keep = validToolResultKeys.has(`${i}:${partIndex}`);
+                if (!keep) {
+                    removedToolResults++;
+                }
+                return keep;
+            }
+
+            return true;
+        });
+
+        if (filteredContent.length === 0 && message.content.length > 0) {
+            removedMessages++;
+            continue;
+        }
+
+        if (!hasMeaningfulParts(filteredContent)) {
+            removedMessages++;
+            continue;
+        }
+
+        if (filteredContent.length !== message.content.length) {
+            filteredMessages.push({
+                ...message,
+                content: filteredContent
+            });
+            continue;
+        }
+
+        filteredMessages.push(message);
+    }
+
+    return {
+        messages: filteredMessages,
+        removedToolUses,
+        removedToolResults,
+        removedMessages
+    };
 }
 
 /**
@@ -256,8 +330,18 @@ export function sanitizeMessages(messages, verboseLogging = false) {
     // 确保 tool_result 紧跟在对应的 tool_use 之后
     result = reorderToolResultMessages(result);
 
-    // Step 4: 确保工具调用有对应结果（官方: ensureValidToolUsesAndResults）
-    result = ensureValidToolUsesAndResults(result);
+    // Step 4: 过滤无效的 tool_use / tool_result 配对（向 kirors 对齐）
+    const toolPairingResult = ensureValidToolUsesAndResults(result);
+    result = toolPairingResult.messages;
+    if (toolPairingResult.removedToolUses > 0) {
+        sanitizeActions.push(`removed ${toolPairingResult.removedToolUses} orphan tool_uses`);
+    }
+    if (toolPairingResult.removedToolResults > 0) {
+        sanitizeActions.push(`removed ${toolPairingResult.removedToolResults} orphan tool_results`);
+    }
+    if (toolPairingResult.removedMessages > 0) {
+        sanitizeActions.push(`removed ${toolPairingResult.removedMessages} empty tool messages`);
+    }
 
     // Step 5: 确保消息交替（官方: ensureAlternatingMessages）
     const alternating = [result[0]];

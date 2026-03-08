@@ -34,6 +34,27 @@
 
 ---
 
+## 📌 协议兼容说明
+
+自 `2026-03` 起，项目已**移除 OpenAI 协议支持**，当前仅保留 Claude 兼容接口。
+
+### 当前支持的 API 端点
+
+- `POST /v1/messages`
+- `POST /cc/v1/messages`
+- `POST /v1/messages/count_tokens`
+- `POST /cc/v1/messages/count_tokens`
+- `GET /v1/models`
+
+### 已移除的旧端点
+
+- `POST /v1/chat/completions`
+- `POST /v1/responses`
+
+如果你的客户端此前使用的是 OpenAI SDK 风格接口，请迁移到 Claude Messages API。
+
+---
+
 ## ✨ 核心特性
 
 ### 🔐 认证管理
@@ -95,6 +116,12 @@ npm install
 npm --prefix frontend-vue install
 ```
 
+如果你在 Windows / Linux / macOS 之间切换过工作目录，或前端构建报 `@rollup/rollup-<platform>` 缺失，请重新安装前端依赖：
+
+```bash
+npm --prefix frontend-vue ci
+```
+
 如果遇到 `better-sqlite3` 编译错误，可能需要安装构建工具：
 
 ```bash
@@ -140,6 +167,8 @@ REQUEST_MAX_RETRIES=8
 CRON_REFRESH_TOKEN=true
 CRON_NEAR_MINUTES=15
 MAX_ERROR_COUNT=5
+OPEN_SERVER_URL=false
+CORS_ALLOWED_ORIGINS=http://localhost:5173
 ```
 
 > ⚠️ **重要**: 请务必修改 `REQUIRED_API_KEY` 为强密码！
@@ -168,19 +197,20 @@ npm run dev:web
 npm run pm2:start
 ```
 
+> 当前默认生产入口统一为 `src/api/server.js`；`src/master.js` 保留为兼容性脚本，不是默认启动路径。
+
 #### 5. 访问管理界面
 
 开发模式访问：`http://localhost:5173/login`
 
 生产模式访问：`http://localhost:8045/login`
 
-登录密码：项目根目录的 `pwd` 文件内容（不会提交到 git）
+登录密码仅从环境变量 `UI_PASSWORD` 读取。
 
-首次启动请先创建 `pwd`：
+首次启动请先设置：
 
 ```bash
-cp pwd.example pwd
-# 编辑 pwd，填入你的强密码（建议 >= 16 位）
+export UI_PASSWORD="your-strong-password"
 ```
 
 > 提示：`REQUIRED_API_KEY` 用于访问 `/v1/*` API（给 Claude Code/Cursor 等使用），与后台登录密码可相同也可不同（推荐不同）。
@@ -225,6 +255,8 @@ cp pwd.example pwd
 3. 填写：
    - API Key: `your-secret-key`
    - Base URL: `http://localhost:8045`
+
+> 注意：请使用 Claude 兼容模式；项目已不再提供 OpenAI Chat Completions / Responses 兼容端点。
 
 ### API 调用示例
 
@@ -345,18 +377,11 @@ kiro2Api/
 
 ### 优化建议
 
-启用 Redis 缓存可以显著提升性能：
-
-```bash
-# .env
-REDIS_ENABLED=true
-REDIS_HOST=localhost
-REDIS_PORT=6379
-```
+当前版本建议优先启用 SQLite 账号池并减少无效健康检查频率；Redis 尚未作为正式运行时依赖纳入当前版本。
 
 **预期效果**:
-- 响应时间减少: **50-70%**
-- 吞吐量提升: **300-500%**
+- 响应时间减少: **20-40%**
+- 冷启动稳定性提升: **明显**
 
 ---
 
@@ -368,7 +393,7 @@ REDIS_PORT=6379
 |------|------|--------|------|
 | `SERVER_PORT` | number | `8045` | 服务端口 |
 | `HOST` | string | `"0.0.0.0"` | 监听地址 |
-| `REQUIRED_API_KEY` | string | `"123456"` | API 访问密钥 |
+| `REQUIRED_API_KEY` | string | `""` | API 访问密钥，必须显式配置 |
 | `MODEL_PROVIDER` | string | `"claude-kiro-oauth"` | 模型提供商 |
 | `LOG_LEVEL` | string | `"info"` | 日志级别 |
 
@@ -388,6 +413,8 @@ REDIS_PORT=6379
 | `REQUEST_BASE_DELAY` | number | `3000` | 重试延迟(毫秒) |
 | `CRON_REFRESH_TOKEN` | boolean | `true` | 自动刷新 Token |
 | `CRON_NEAR_MINUTES` | number | `15` | Token 刷新间隔(分钟) |
+| `OPEN_SERVER_URL` | boolean | `false` | 是否自动打开浏览器，仅本机开发建议开启 |
+| `CORS_ALLOWED_ORIGINS` | string[] | `[]` | 允许跨域访问的来源白名单 |
 | `MAX_ERROR_COUNT` | number | `5` | 最大错误次数 |
 
 ### 性能配置

@@ -7,6 +7,8 @@
 import { getNoCacheHeaders } from '../utils/response.js';
 import { parseRequestBody } from '../../../utils/request-body.js';
 import { createLogger } from '../../../lib/logger.js';
+import { validateCredentials } from '../../auth/credentials.js';
+import { generateToken, getExpiryTime, saveToken, readTokenStore, writeTokenStore } from '../../auth/session-store.js';
 
 const logger = createLogger('ui:handlers:system');
 
@@ -25,9 +27,6 @@ export async function login({ req, res }) {
             res.end(JSON.stringify({ success: false, message: '密码不能为空' }));
             return;
         }
-
-        // 动态导入 UI 管理逻辑，避免循环依赖
-        const { validateCredentials, generateToken, getExpiryTime, saveToken } = await import('../../../ui-manager.js');
 
         const isValid = await validateCredentials(password);
 
@@ -191,7 +190,6 @@ export async function eventStream({ req, res }) {
             return;
         }
 
-        const { readTokenStore, writeTokenStore } = await import('../../../ui-manager.js');
         const tokenStore = await readTokenStore();
         const tokenInfo = tokenStore.tokens?.[token];
         if (!tokenInfo) {

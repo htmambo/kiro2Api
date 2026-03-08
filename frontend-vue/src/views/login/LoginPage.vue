@@ -182,7 +182,7 @@ const handleSubmit = async (e: Event) => {
             <div class="text-center space-y-3">
               <div class="flex items-center justify-center gap-2 text-xs text-gray-600">
                 <IconSparkles class="w-4 h-4" style="color: #00d9a3" />
-                <span>支持 OpenAI & Claude 协议</span>
+                <span>支持 Claude 协议</span>
               </div>
               <p class="text-xs text-gray-700">© 2025 Kiro2API. All rights reserved.</p>
             </div>

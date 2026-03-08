@@ -222,7 +222,7 @@ function getApiKeyFingerprint(req) {
 
     // 2. 尝试从自定义头获取
     if (!token) {
-        token = req.headers?.['x-api-key'] || req.headers?.['x-goog-api-key'] || '';
+        token = req.headers?.['x-api-key'] || '';
     }
 
     // 3. 尝试从查询参数获取

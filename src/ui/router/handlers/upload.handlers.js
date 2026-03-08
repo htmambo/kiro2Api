@@ -79,14 +79,13 @@ async function attemptQuickLinkFile(filePath, accountPoolManager) {
     try {
         // 动态导入依赖，避免初始化时加载过重
         const { DEFAULT_PROVIDER_TYPE_FOR_ACCOUNTS } = await import('../../../ui-manager.js');
-        const { KIRO_MODELS } = await import('../../../kiro/constants.js');
         const { createProviderConfig, formatSystemPath } = await import('../../../utils/account-utils.js');
         const { broadcastEvent } = await import('../../events.js');
 
         // Kiro OAuth 的默认值
         const providerType = DEFAULT_PROVIDER_TYPE_FOR_ACCOUNTS;
         const credPathKey = 'KIRO_OAUTH_CREDS_FILE_PATH';
-        const defaultCheckModel = KIRO_MODELS[0];
+        const defaultCheckModel = 'claude-haiku-4.5'; // 选择一个较轻量的模型进行快速验证
         const displayName = 'Claude Kiro Account';
         const needsProjectId = false;
 

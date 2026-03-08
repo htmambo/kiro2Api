@@ -10,7 +10,8 @@ import { v4 as uuidv4 } from 'uuid';
 import * as path from 'path';
 import * as http from 'http';
 import * as https from 'https';
-import { KIRO_MODELS, KIRO_CONSTANTS } from "./constants.js";
+import { KIRO_CONSTANTS } from "./constants.js";
+import { MODEL_MAPPING } from './model-config.js';
 import { sanitizeMessageHistory, getContentText, sanitizeMessages } from './message-sanitizer.js';
 import { promises as fs } from 'fs';
 import {getMacAddressSha256, generateRandomUserAgentComponents, getOriginalMacAddressSha256} from './utils.js';
@@ -23,7 +24,6 @@ import { streamApiReal } from './streaming.js';
 
 // 导入工具转换模块
 import {
-    convertToQTool,
     convertToQToolWithMapping
 } from './converters/tool-converter.js';
 
@@ -43,7 +43,6 @@ import {
 import {
     CC_TO_KIRO_TOOL_MAPPING,
     mapToolUseParams,
-    normalizeToolName,
     mapToolNameToKiro
 } from './tools.js';
 
@@ -54,6 +53,91 @@ import {
 
 const logger = createLogger('adapter');
 
+function resolveToolResultStatus(part) {
+    const normalizedStatus = typeof part?.status === 'string' ? part.status.toLowerCase() : '';
+    if (normalizedStatus === 'error' || normalizedStatus === 'failed' || normalizedStatus === 'failure') {
+        return 'error';
+    }
+    if (part?.is_error === true) {
+        return 'error';
+    }
+    return 'success';
+}
+
+function createPlaceholderToolDefinition(name) {
+    return {
+        toolSpecification: {
+            name,
+            description: 'Tool used in conversation history',
+            inputSchema: {
+                json: {
+                    type: 'object',
+                    properties: {},
+                    required: [],
+                    additionalProperties: true
+                }
+            }
+        }
+    };
+}
+
+function collectHistoryToolNames(history) {
+    const toolNames = [];
+
+    for (const message of history) {
+        const toolUses = message.assistantResponseMessage?.toolUses;
+        if (!Array.isArray(toolUses)) {
+            continue;
+        }
+
+        for (const toolUse of toolUses) {
+            if (!toolUse?.name) {
+                continue;
+            }
+
+            const exists = toolNames.some((item) => item.toLowerCase() === toolUse.name.toLowerCase());
+            if (!exists) {
+                toolNames.push(toolUse.name);
+            }
+        }
+    }
+
+    return toolNames;
+}
+
+function appendHistoryPlaceholderTools(toolsContext, history, verboseLogging = false) {
+    const historyToolNames = collectHistoryToolNames(history);
+    if (historyToolNames.length === 0) {
+        return 0;
+    }
+
+    const existingToolNames = new Set(
+        (toolsContext.tools || [])
+            .map((tool) => tool?.toolSpecification?.name?.toLowerCase())
+            .filter(Boolean)
+    );
+
+    const placeholderTools = [];
+    for (const toolName of historyToolNames) {
+        const normalizedName = toolName.toLowerCase();
+        if (existingToolNames.has(normalizedName)) {
+            continue;
+        }
+
+        placeholderTools.push(createPlaceholderToolDefinition(toolName));
+        existingToolNames.add(normalizedName);
+    }
+
+    if (placeholderTools.length > 0) {
+        toolsContext.tools = [...(toolsContext.tools || []), ...placeholderTools];
+        if (verboseLogging) {
+            logger.info(`Added ${placeholderTools.length} placeholder tools for history references`);
+        }
+    }
+
+    return placeholderTools.length;
+}
+
 // Thinking 功能的提示词模板（通过 prompt injection 实现，参考 cifang）
 // 优化版本：在简洁和效果之间平衡（~80 tokens）
 const THINKING_PROMPT_TEMPLATE = `在回复之前，请在 <thinking>...</thinking> 标签内进行深入分析：
@@ -61,36 +145,6 @@ const THINKING_PROMPT_TEMPLATE = `在回复之前，请在 <thinking>...</thinki
 - 考虑边界情况和潜在问题
 - 确保工具参数完全符合要求
 然后提供经过充分思考的回复。`;
-
-// 完整的模型映射表 - Anthropic 官方模型 ID 到 AWS CodeWhisperer 模型 ID
-// 注意：AWS CodeWhisperer 模型 ID 使用点号分隔版本号（如 claude-opus-4.5）
-const FULL_MODEL_MAPPING = {
-    // Opus 4.5 映射（AWS使用点号格式）
-    "claude-opus-4-5": "claude-opus-4.5",
-    "claude-opus-4-5-20251101": "claude-opus-4.5",
-    "claude-opus-4-20250514": "claude-opus-4.5",
-    "claude-opus-4-0": "claude-opus-4.5",
-    // Haiku 4.5 映射（AWS使用点号格式）
-    "claude-haiku-4-5": "claude-haiku-4.5",
-    "claude-haiku-4-5-20251001": "claude-haiku-4.5",
-    // Sonnet 4.5 映射（AWS使用大写V1_0格式）
-    "claude-sonnet-4-5": "CLAUDE_SONNET_4_5_20250929_V1_0",
-    "claude-sonnet-4-5-20250929": "CLAUDE_SONNET_4_5_20250929_V1_0",
-    // Sonnet 4.0 映射（AWS使用大写V1_0格式）
-    "claude-sonnet-4-20250514": "CLAUDE_SONNET_4_20250514_V1_0",
-    "CLAUDE_SONNET_4_20250514_V1_0": "CLAUDE_SONNET_4_20250514_V1_0",
-    // Sonnet 3.7 映射（AWS使用大写V1_0格式）
-    "claude-3-7-sonnet-20250219": "CLAUDE_3_7_SONNET_20250219_V1_0"
-};
-
-/**
- * 模型名称映射表（仅保留 KIRO_MODELS 中存在的模型）
- *
- * @type {Object}
- */
-export const MODEL_MAPPING = Object.fromEntries(
-    Object.entries(FULL_MODEL_MAPPING).filter(([key]) => KIRO_MODELS.includes(key))
-);
 
 /**
  * Kiro 服务适配器
@@ -105,32 +159,50 @@ export class KiroService {
      */
     constructor(config = {}) {
         this.isInitialized = false;
-        this.config = config;
         this.credPath = path.join(process.cwd(), "configs", "kiro");
-        this.credsBase64 = config.KIRO_OAUTH_CREDS_BASE64;
-        this.useSystemProxy = config?.USE_SYSTEM_PROXY_KIRO ?? false;
-        // 详细日志开关（默认关闭，只显示简洁日志）
-        this.verboseLogging = config?.ENABLE_VERBOSE_LOGGING ?? false;
+        this.modelName = KIRO_CONSTANTS.DEFAULT_BACKEND_MODEL_NAME;
+        this.axiosInstance = null; // 延迟在异步初始化中创建
+        this.base64Creds = null;
+        this.credsFilePath = null;
+        this.applyRuntimeConfig(config);
+    }
+
+    /**
+     * 更新运行时配置，避免外部直接覆写实例状态
+     *
+     * @param {Object} config - 最新配置
+     * @returns {void}
+     */
+    applyRuntimeConfig(config = {}) {
+        const nextConfig = { ...config };
+        const nextUseSystemProxy = nextConfig?.USE_SYSTEM_PROXY_KIRO ?? false;
+        const shouldReinitializeAxios = this.axiosInstance !== null && this.useSystemProxy !== nextUseSystemProxy;
+
+        this.config = nextConfig;
+        this.credsBase64 = nextConfig.KIRO_OAUTH_CREDS_BASE64;
+        this.useSystemProxy = nextUseSystemProxy;
+        this.verboseLogging = nextConfig?.ENABLE_VERBOSE_LOGGING ?? false;
+        this.credsFilePath = nextConfig.KIRO_OAUTH_CREDS_FILE_PATH || null;
+        this.base64Creds = null;
+
         logger.info(`System proxy ${this.useSystemProxy ? 'enabled' : 'disabled'}`);
         logger.info(`Verbose logging ${this.verboseLogging ? 'enabled' : 'disabled'}`);
-        logger.info(`ENABLE_THINKING_BY_DEFAULT in config: ${config.ENABLE_THINKING_BY_DEFAULT}`);
+        logger.info(`ENABLE_THINKING_BY_DEFAULT in config: ${nextConfig.ENABLE_THINKING_BY_DEFAULT}`);
 
-        // 将 kiro-oauth-creds-base64 与 kiro-oauth-creds-file 注入配置
-        if (config.KIRO_OAUTH_CREDS_BASE64) {
+        if (nextConfig.KIRO_OAUTH_CREDS_BASE64) {
             try {
-                const decodedCreds = Buffer.from(config.KIRO_OAUTH_CREDS_BASE64, 'base64').toString('utf8');
-                const parsedCreds = JSON.parse(decodedCreds);
-                this.base64Creds = parsedCreds;
-                logger.info('Successfully decoded Base64 credentials in constructor.');
+                const decodedCreds = Buffer.from(nextConfig.KIRO_OAUTH_CREDS_BASE64, 'base64').toString('utf8');
+                this.base64Creds = JSON.parse(decodedCreds);
+                logger.info('Successfully decoded Base64 credentials in runtime config.');
             } catch (error) {
-                logger.error(`Failed to parse Base64 credentials in constructor: ${error.message}`);
+                logger.error(`Failed to parse Base64 credentials in runtime config: ${error.message}`);
             }
-        } else if (config.KIRO_OAUTH_CREDS_FILE_PATH) {
-            this.credsFilePath = config.KIRO_OAUTH_CREDS_FILE_PATH;
         }
 
-        this.modelName = KIRO_CONSTANTS.DEFAULT_MODEL_NAME;
-        this.axiosInstance = null; // 延迟在异步初始化中创建
+        if (shouldReinitializeAxios) {
+            this.isInitialized = false;
+            this.axiosInstance = null;
+        }
     }
  
     /**
@@ -564,7 +636,7 @@ ${conversationData}`;
                 tools: null  // 摘要请求不需要工具
             };
 
-            const summaryModel = SUMMARIZATION_CONFIG.SUMMARIZATION_MODEL || 'claude-sonnet-4-5-20250929';
+            const summaryModel = SUMMARIZATION_CONFIG.SUMMARIZATION_MODEL;
 
             // ⚠️ 修复：增加超时时间到 60 秒（流式请求需要更多时间处理大量内容）
             // 之前 10 秒太短，导致摘要全部超时失败
@@ -1179,46 +1251,6 @@ ${conversationData}`;
                 }            }
         }
 
-        // ⚠️ 关键修复：收集保留的工具名称，用于过滤历史消息中的 tool_use 和 tool_result
-        const keptToolNames = new Set();
-        if (filteredTools !== null) {
-            // 收集裁剪后保留的工具名称
-            const maxTools = Math.min(filteredTools.length, MAX_TOOL_COUNT);
-            for (let i = 0; i < maxTools; i++) {
-                const tool = filteredTools[i];
-                const name = normalizeToolName(tool.name || (tool.function && tool.function.name));
-                if (name) {
-                    keptToolNames.add(name);
-                }
-            }
-        } else if (tools && Array.isArray(tools)) {
-            const maxTools = Math.min(tools.length, MAX_TOOL_COUNT);
-            for (let i = 0; i < maxTools; i++) {
-                const tool = tools[i];
-                const name = normalizeToolName(tool.name || (tool.function && tool.function.name));
-                if (name) {
-                    keptToolNames.add(name);
-                }
-            }
-        }
-
-        // 建立 toolUseId → toolName 的映射，用于过滤 tool_result
-        const toolUseIdToName = new Map();
-        for (const message of processedMessages) {
-            if (message.role === 'assistant' && Array.isArray(message.content)) {
-                for (const part of message.content) {
-                    if (part.type === 'tool_use' && part.id && part.name) {
-                        toolUseIdToName.set(part.id, normalizeToolName(part.name));
-                    }
-                }
-            }
-        }
-
-        // 日志输出工具裁剪信息
-        if (tools && tools.length > MAX_TOOL_COUNT) {
-            logger.info(`Tool trimming info: kept ${keptToolNames.size} tools, mapped ${toolUseIdToName.size} toolUseIds`);
-        }
-
         const history = [];
         let startIndex = 0;
 
@@ -1267,15 +1299,6 @@ ${conversationData}`;
                         if (part.type === 'text') {
                             userInputMessage.content += part.text;
                         } else if (part.type === 'tool_result') {
-                            // ⚠️ 关键修复：过滤掉引用被裁剪工具的 tool_result
-                            const toolName = toolUseIdToName.get(part.tool_use_id);
-                            if (keptToolNames.size > 0 && toolName && !keptToolNames.has(toolName)) {
-                                if (this.verboseLogging) {
-                                    logger.info(`Filtering out tool_result for trimmed tool: ${toolName} (toolUseId: ${part.tool_use_id})`);
-                                }
-                                continue; // 跳过这个 tool_result
-                            }
-
                             // 官方 Kiro 优化：截断过长的工具输出，防止 400 错误
                             let toolContent = getContentText(part.content);
                             if (toolContent.length > KIRO_CONSTANTS.MAX_TOOL_OUTPUT_LENGTH) {
@@ -1285,7 +1308,7 @@ ${conversationData}`;
                             }
                             toolResults.push({
                                 content: [{ text: toolContent }],
-                                status: 'success',
+                                status: resolveToolResultStatus(part),
                                 toolUseId: part.tool_use_id
                             });
                         } else if (part.type === 'image') {
@@ -1345,15 +1368,6 @@ ${conversationData}`;
                         if (part.type === 'text') {
                             assistantResponseMessage.content += part.text;
                         } else if (part.type === 'tool_use') {
-                            // ⚠️ 关键修复：过滤掉被裁剪的工具
-                            const normalizedToolName = normalizeToolName(part.name);
-                            if (keptToolNames.size > 0 && !keptToolNames.has(normalizedToolName)) {
-                                if (this.verboseLogging) {
-                                    logger.info(`Filtering out tool_use for trimmed tool: ${part.name}`);
-                                }
-                                continue; // 跳过这个 tool_use
-                            }
-
                             // 应用参数映射（CC → Kiro）
                             const mappedInput = mapToolUseParams(part.name, part.input, this.verboseLogging || part.name === 'Task');
                             toolUses.push({
@@ -1409,14 +1423,6 @@ ${conversationData}`;
                     if (part.type === 'text') {
                         assistantResponseMessage.content += part.text;
                     } else if (part.type === 'tool_use') {
-                        // ⚠️ 关键修复：过滤掉被裁剪的工具
-                        const normalizedToolName = normalizeToolName(part.name);
-                        if (keptToolNames.size > 0 && !keptToolNames.has(normalizedToolName)) {
-                            if (this.verboseLogging) {
-                                logger.info(`Filtering out tool_use for trimmed tool: ${part.name}`);
-                            }
-                            continue;
-                        }
                         // 应用参数映射（CC → Kiro）
                         const mappedInput = mapToolUseParams(part.name, part.input, this.verboseLogging || part.name === 'Task');
                         assistantResponseMessage.toolUses.push({
@@ -1453,15 +1459,6 @@ ${conversationData}`;
                     if (part.type === 'text') {
                         currentContent += part.text;
                     } else if (part.type === 'tool_result') {
-                        // ⚠️ 关键修复：过滤掉引用被裁剪工具的 tool_result
-                        const toolName = toolUseIdToName.get(part.tool_use_id);
-                        if (keptToolNames.size > 0 && toolName && !keptToolNames.has(toolName)) {
-                            if (this.verboseLogging) {
-                                logger.info(`Filtering out tool_result for trimmed tool: ${toolName} (toolUseId: ${part.tool_use_id})`);
-                            }
-                            continue;
-                        }
-
                         // 官方 Kiro 优化：截断过长的工具输出，防止 400 错误
                         let toolContent = getContentText(part.content);
                         if (toolContent.length > KIRO_CONSTANTS.MAX_TOOL_OUTPUT_LENGTH) {
@@ -1471,18 +1468,10 @@ ${conversationData}`;
                         }
                         currentToolResults.push({
                             content: [{ text: toolContent }],
-                            status: 'success',
+                            status: resolveToolResultStatus(part),
                             toolUseId: part.tool_use_id
                         });
                     } else if (part.type === 'tool_use') {
-                        // ⚠️ 关键修复：过滤掉被裁剪的工具
-                        const normalizedToolName = normalizeToolName(part.name);
-                        if (keptToolNames.size > 0 && !keptToolNames.has(normalizedToolName)) {
-                            if (this.verboseLogging) {
-                                logger.info(`Filtering out tool_use for trimmed tool: ${part.name}`);
-                            }
-                            continue;
-                        }
                         // 应用参数映射（CC → Kiro）
                         const mappedInput = mapToolUseParams(part.name, part.input, this.verboseLogging || part.name === 'Task');
                         currentToolUses.push({
@@ -1544,6 +1533,10 @@ ${conversationData}`;
                 logger.info(`currentContent truncated to ${currentContent.length} chars`);
             }
         }
+
+        // ⚠️ 关键修复：先清理 history/current 的 tool 配对，再补齐缺失的历史工具声明
+        sanitizeMessageHistory(history, currentToolResults);
+        appendHistoryPlaceholderTools(toolsContext, history, this.verboseLogging);
 
         const request = {
             conversationState: {
@@ -1620,10 +1613,6 @@ ${conversationData}`;
             request.profileArn = this.profileArn;
         }
 
-        // ⚠️ 关键修复：清理消息历史，确保符合 Kiro API 规则
-        // 官方 Kiro 扩展的 message-history-sanitizer 会验证并修复消息
-        sanitizeMessageHistory(history, currentToolResults);
-
         // 性能优化：移除每次请求都执行的 JSON.stringify 调试日志
         // 这些操作对大请求来说非常慢，会显著增加首字响应时间
         // 如需调试，可临时取消注释以下代码块
@@ -1655,23 +1644,6 @@ ${conversationData}`;
      * @param {Array} currentToolResults - 当前消息的 toolResults
      */
     
-
-    /**
-     * List available models
-     */
-    /**
-     * 获取可用模型列表
-     *
-     * @returns {Promise<Array<string>>} 模型列表
-     */
-    async listModels() {
-        const models = KIRO_MODELS.map(id => ({
-            name: id
-        }));
-        
-        return { models: models };
-    }
-
     /**
      * Checks if the given expiresAt timestamp is within 10 minutes from now.
      * @returns {boolean} - True if expiresAt is less than 10 minutes from now, false otherwise.

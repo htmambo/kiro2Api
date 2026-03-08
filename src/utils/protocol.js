@@ -13,11 +13,7 @@
  * @type {Object}
  */
 export const MODEL_PROTOCOL_PREFIX = {
-    OPENAI: 'openai',
-    OPENAI_RESPONSES: 'openaiResponses',
     CLAUDE: 'claude',
-    GEMINI: 'gemini',
-    OLLAMA: 'ollama',
 };
 
 /**

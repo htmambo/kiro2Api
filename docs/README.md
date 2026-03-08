@@ -2,6 +2,10 @@
 
 本目录包含对 Kiro2Api 项目的深度技术分析文档，涵盖架构、代理机制、数据流转、存储方案等核心技术细节。
 
+> ⚠️ 说明：`docs/Analysis/**` 与 `docs/Task/Archive/**` 中的部分文档是历史快照，
+> 可能描述了已经移除的 OpenAI 协议支持。请以仓库根目录 `README.md`、`docs/Usage/USER_GUIDE.md`
+> 以及当前 `src/` 实现为准。
+
 ---
 
 ## 📚 文档列表

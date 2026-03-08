@@ -38,12 +38,8 @@ export async function handleAPIRequests(method, path, req, res, currentConfig, a
             await handleContentGenerationRequest(req, res, apiService, ENDPOINT_TYPE.CLAUDE_MESSAGE, currentConfig, promptLogFilename, poolManager, currentConfig.uuid);
             return true;
         }
-        if (path === '/v1/chat/completions') {
-            await handleContentGenerationRequest(req, res, apiService, ENDPOINT_TYPE.OPENAI_CHAT, currentConfig, promptLogFilename, poolManager, currentConfig.uuid);
-            return true;
-        }
-        if (path === '/v1/responses') {
-            await handleContentGenerationRequest(req, res, apiService, ENDPOINT_TYPE.OPENAI_RESPONSES, currentConfig, promptLogFilename, poolManager, currentConfig.uuid);
+        if (path === '/cc/v1/messages') {
+            await handleContentGenerationRequest(req, res, apiService, ENDPOINT_TYPE.CLAUDE_CODE_MESSAGE, currentConfig, promptLogFilename, poolManager, currentConfig.uuid);
             return true;
         }
     }

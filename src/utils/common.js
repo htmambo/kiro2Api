@@ -11,10 +11,13 @@ import * as http from 'http'; // 用于 IncomingMessage 和 ServerResponse 类�
 import { KiroService } from '../kiro/adapter.js'; // KiroService 适配器
 import { generateContent, generateContentStream } from '../kiro/api-client.js';
 import { KiroStrategy } from '../kiro/strategy.js';
-import { KIRO_MODELS } from '../kiro/constants.js';
+import { resolveRequestModel } from '../kiro/model-config.js';
+import {
+    hasClaudeWebSearchTool,
+    resolveClaudeWebSearchResponse
+} from '../kiro/websearch-response.js';
 import os from 'os';
 import { createLogger } from '../lib/logger.js';
-import { convertData, getOpenAIStreamChunkStop } from './convert.js';
 import { getProtocolPrefix, MODEL_PROTOCOL_PREFIX } from './protocol.js';
 import { getRequestBody as getRequestBodyFromModule } from './request-body.js';
 
@@ -78,10 +81,8 @@ export function getCpuUsagePercent() {
  * @type {Object}
  */
 export const ENDPOINT_TYPE = {
-    OPENAI_CHAT: 'openai_chat',
-    OPENAI_RESPONSES: 'openai_responses',
     CLAUDE_MESSAGE: 'claude_message',
-    OPENAI_MODEL_LIST: 'openai_model_list',
+    CLAUDE_CODE_MESSAGE: 'claude_code_message',
 };
 
 export const FETCH_SYSTEM_PROMPT_FILE = path.join(process.cwd(), 'configs', 'fetch_system_prompt.txt');
@@ -179,6 +180,59 @@ export async function handleUnifiedResponse(res, responsePayload, isStream) {
     }
 }
 
+const BUFFERED_STREAM_PING_INTERVAL_MS = 25_000;
+
+function writeSseChunks(res, chunks, addEvent) {
+    for (const chunk of chunks) {
+        if (addEvent) {
+            res.write(`event: ${chunk.type}\n`);
+        }
+
+        res.write(`data: ${JSON.stringify(chunk)}\n\n`);
+    }
+}
+
+export function reconcileBufferedMessageStartUsage(chunks) {
+    if (!Array.isArray(chunks) || chunks.length === 0) {
+        return chunks;
+    }
+
+    let resolvedInputTokens = null;
+    for (let index = chunks.length - 1; index >= 0; index -= 1) {
+        const chunk = chunks[index];
+        if (chunk?.type !== 'message_delta') {
+            continue;
+        }
+
+        const candidate = Number(chunk?.usage?.input_tokens);
+        if (Number.isFinite(candidate) && candidate >= 0) {
+            resolvedInputTokens = candidate;
+            break;
+        }
+    }
+
+    if (!Number.isFinite(resolvedInputTokens)) {
+        return chunks;
+    }
+
+    return chunks.map((chunk) => {
+        if (chunk?.type !== 'message_start' || !chunk.message) {
+            return chunk;
+        }
+
+        return {
+            ...chunk,
+            message: {
+                ...chunk.message,
+                usage: {
+                    ...(chunk.message.usage || {}),
+                    input_tokens: resolvedInputTokens
+                }
+            }
+        };
+    });
+}
+
 /**
  * 判断是否可使用账号池
  *
@@ -256,25 +310,41 @@ function _countAvailablePoolItems(config, poolManager) {
  * @param {string} pooluuid - 当前账号 UUID
  * @returns {Promise<void>}
  */
-export async function handleStreamRequest(res, service, model, requestBody, fromProvider, toProvider, PROMPT_LOG_MODE, PROMPT_LOG_FILENAME, poolManager, pooluuid) {
+export async function handleStreamRequest(res, service, model, requestBody, fromProvider, toProvider, PROMPT_LOG_MODE, PROMPT_LOG_FILENAME, poolManager, pooluuid, options = {}) {
     let fullResponseText = '';
     let fullResponseJson = '';
     let fullOldResponseJson = '';
     let responseClosed = false;
-
-    await handleUnifiedResponse(res, '', true);
+    let shouldKeepResponseOpenForRetry = false;
+    const bufferUntilComplete = options.bufferUntilComplete === true;
+    const pingIntervalMs = Number.isFinite(options.pingIntervalMs) && options.pingIntervalMs > 0
+        ? options.pingIntervalMs
+        : BUFFERED_STREAM_PING_INTERVAL_MS;
 
     // fs.writeFile('request'+Date.now()+'.json', JSON.stringify(requestBody));
     // 服务返回的流为后端协议格式（toProvider）
     requestBody.model = model;
-    const needsConversion = getProtocolPrefix(fromProvider) !== getProtocolPrefix(toProvider);
-    const addEvent = getProtocolPrefix(fromProvider) === MODEL_PROTOCOL_PREFIX.CLAUDE || getProtocolPrefix(fromProvider) === MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES;
-    const openStop = getProtocolPrefix(fromProvider) === MODEL_PROTOCOL_PREFIX.OPENAI ;
+    const addEvent = true;
 
     let streamStarted = false;
+    let streamResponseInitialized = false;
     let nativeStream;
+    const bufferedNativeChunks = [];
+
+    const initializeStreamResponseIfNeeded = async () => {
+        if (streamResponseInitialized) {
+            return;
+        }
+
+        await handleUnifiedResponse(res, '', true);
+        streamResponseInitialized = true;
+        streamStarted = true;
+    };
 
     try {
+        if (!bufferUntilComplete) {
+            await initializeStreamResponseIfNeeded();
+        }
         nativeStream = await generateContentStream(service, model, requestBody);
     } catch (initialError) {
         // 如果在生成流时就失败（尚未输出数据），交由上层重试
@@ -283,41 +353,86 @@ export async function handleStreamRequest(res, service, model, requestBody, from
     }
 
     try {
-        streamStarted = true;
-        for await (const nativeChunk of nativeStream) {
-        // 提取文本用于日志记录
-            const chunkText = extractResponseText(nativeChunk, toProvider);
-            if (chunkText && !Array.isArray(chunkText)) {
-                fullResponseText += chunkText;
-            }
+        if (bufferUntilComplete) {
+            const iterator = nativeStream[Symbol.asyncIterator]();
+            let pendingIteration = iterator.next().then(
+                (result) => ({ kind: 'result', result }),
+                (error) => ({ kind: 'error', error })
+            );
 
-            // 按需将流式块转换为客户端协议格式（fromProvider）
-            const chunkToSend = needsConversion
-                ? convertData(nativeChunk, 'streamChunk', toProvider, fromProvider, model)
-                : nativeChunk;
-
-            if (!chunkToSend) {
-                continue;
-            }
-
-            // 处理 chunkToSend 可能是数组或对象的情况
-            const chunksToSend = Array.isArray(chunkToSend) ? chunkToSend : [chunkToSend];
-
-            for (const chunk of chunksToSend) {
-                if (addEvent) {
-                    // 调试记录事件类型
-                    res.write(`event: ${chunk.type}\n`);
-                    // 调试输出事件日志
+            while (true) {
+                let pingTimer = null;
+                const nextOrPing = await Promise.race([
+                    pendingIteration,
+                    new Promise((resolve) => {
+                        pingTimer = setTimeout(() => resolve({ kind: 'ping' }), pingIntervalMs);
+                    })
+                ]);
+                if (pingTimer) {
+                    clearTimeout(pingTimer);
                 }
 
-                // 调试记录事件数据
-                res.write(`data: ${JSON.stringify(chunk)}\n\n`);
-                // 调试输出数据日志
+                if (nextOrPing.kind === 'ping') {
+                    await initializeStreamResponseIfNeeded();
+                    writeSseChunks(res, [{ type: 'ping' }], addEvent);
+                    continue;
+                }
+
+                if (nextOrPing.kind === 'error') {
+                    throw nextOrPing.error;
+                }
+
+                const { value: nativeChunk, done } = nextOrPing.result;
+                if (done) {
+                    break;
+                }
+
+                const chunkText = extractResponseText(nativeChunk, toProvider);
+                if (chunkText && !Array.isArray(chunkText)) {
+                    fullResponseText += chunkText;
+                }
+
+                bufferedNativeChunks.push(nativeChunk);
+                pendingIteration = iterator.next().then(
+                    (result) => ({ kind: 'result', result }),
+                    (error) => ({ kind: 'error', error })
+                );
+            }
+        } else {
+            for await (const nativeChunk of nativeStream) {
+                // 提取文本用于日志记录
+                const chunkText = extractResponseText(nativeChunk, toProvider);
+                if (chunkText && !Array.isArray(chunkText)) {
+                    fullResponseText += chunkText;
+                }
+
+                const chunkToSend = nativeChunk;
+
+                if (!chunkToSend) {
+                    continue;
+                }
+
+                // 处理 chunkToSend 可能是数组或对象的情况
+                const chunksToSend = Array.isArray(chunkToSend) ? chunkToSend : [chunkToSend];
+
+                writeSseChunks(res, chunksToSend, addEvent);
             }
         }
-        if (openStop && needsConversion) {
-            res.write(`data: ${JSON.stringify(getOpenAIStreamChunkStop(model))}\n\n`);
-            // 调试输出结束块
+
+        if (bufferUntilComplete) {
+            const reconciledChunks = reconcileBufferedMessageStartUsage(bufferedNativeChunks);
+            await initializeStreamResponseIfNeeded();
+
+            for (const nativeChunk of reconciledChunks) {
+                const chunkToSend = nativeChunk;
+
+                if (!chunkToSend) {
+                    continue;
+                }
+
+                const chunksToSend = Array.isArray(chunkToSend) ? chunkToSend : [chunkToSend];
+                writeSseChunks(res, chunksToSend, addEvent);
+            }
         }
 
         // 流式请求成功完成，统计使用次数，错误次数重置为 0
@@ -326,7 +441,7 @@ export async function handleStreamRequest(res, service, model, requestBody, from
             _markPoolHealthy(toProvider, poolManager, pooluuid);
         }
 
-    }  catch (error) {
+        }  catch (error) {
         logger.error(`[Server] Error during stream processing: ${error.stack}`);
 
         // 如果 stream 已开始传输数据，则无法重试，直接返回错误
@@ -349,14 +464,31 @@ export async function handleStreamRequest(res, service, model, requestBody, from
             responseClosed = true;
         } else {
             // 流还没开始，可以重试，向上抛出错误
+            shouldKeepResponseOpenForRetry = true;
             throw error;
         }
     } finally {
-        if (!responseClosed) {
+        if (!responseClosed && !shouldKeepResponseOpenForRetry) {
             res.end();
         }
         logger.verbose(fullResponseText);
     }
+}
+
+async function handleDirectClaudeWebSearchRequest(res, requestBody) {
+    const { streamEvents, unaryResponse } = await resolveClaudeWebSearchResponse(requestBody);
+
+    if (requestBody.stream === true) {
+        await handleUnifiedResponse(res, '', true);
+        for (const event of streamEvents) {
+            res.write(`event: ${event.type}\n`);
+            res.write(`data: ${JSON.stringify(event)}\n\n`);
+        }
+        res.end();
+        return;
+    }
+
+    await handleUnifiedResponse(res, JSON.stringify(unaryResponse), false);
 }
 
 
@@ -383,15 +515,8 @@ export async function handleUnaryRequest(res, service, model, requestBody, fromP
         const nativeResponse = await generateContent(service, model, requestBody);
         const responseText = extractResponseText(nativeResponse, toProvider);
 
-        // 按需将响应转换为客户端协议格式（fromProvider）
-        let clientResponse = nativeResponse;
-        const needsConversion = getProtocolPrefix(fromProvider) !== getProtocolPrefix(toProvider);
-        if (needsConversion) {
-            clientResponse = convertData(nativeResponse, 'response', toProvider, fromProvider, model);
-        }
-
         // 调试输出响应内容
-        await handleUnifiedResponse(res, JSON.stringify(clientResponse), false);
+        await handleUnifiedResponse(res, JSON.stringify(nativeResponse), false);
         responseWritten = true;
         logger.verbose(responseText);
 
@@ -442,9 +567,8 @@ export async function handleContentGenerationRequest(req, res, service, endpoint
     }
 
     const clientProviderMap = {
-        [ENDPOINT_TYPE.OPENAI_CHAT]: MODEL_PROTOCOL_PREFIX.OPENAI,
-        [ENDPOINT_TYPE.OPENAI_RESPONSES]: MODEL_PROTOCOL_PREFIX.OPENAI_RESPONSES,
         [ENDPOINT_TYPE.CLAUDE_MESSAGE]: MODEL_PROTOCOL_PREFIX.CLAUDE,
+        [ENDPOINT_TYPE.CLAUDE_CODE_MESSAGE]: MODEL_PROTOCOL_PREFIX.CLAUDE,
     };
 
     const fromProvider = clientProviderMap[endpointType];
@@ -456,28 +580,9 @@ export async function handleContentGenerationRequest(req, res, service, endpoint
     }
 
     // 2. 提取模型并判断是否为流式请求
-    let model = originalRequestBody.model;
-    /**
-     * 这里需要一个转换列表，将 OpenAI 的模型名称转换为 Claude 对应的模型名称
-     * 例如：
-     * gpt-5.2-codex -> 'claude-opus-4-5'
-     * gpt-5.2 -> 'claude-opus-4-5'
-     * gpt-5.1 -> 'claude-sonnet-4-5'
-     * gpt-5.1-codex -> 'claude-sonnet-4-5'
-     * 其它都转换成 claude-sonnet-4-5
-     */
-    const modelMapping = {
-        'gpt-5.2-codex': 'claude-opus-4-5',
-        'gpt-5.2': 'claude-opus-4-5',
-        'gpt-5.1': 'claude-sonnet-4-5',
-        'gpt-5.1-codex': 'claude-sonnet-4-5',
-    };
-    let mappedModel = modelMapping[model] ?? model;
-    if (!KIRO_MODELS.includes(mappedModel)) {
-        mappedModel = 'claude-sonnet-4-5';
-    }
-    model = mappedModel;
+    let model = resolveRequestModel(originalRequestBody.model);
     const isStream = originalRequestBody.stream === true;
+    const isClaudeCodeEndpoint = endpointType === ENDPOINT_TYPE.CLAUDE_CODE_MESSAGE;
 
     if (!model) {
         throw new Error("Could not determine the model from the request.");
@@ -486,23 +591,25 @@ export async function handleContentGenerationRequest(req, res, service, endpoint
 
     // 1. 按需将请求体从客户端格式转换为后端格式
     let processedRequestBody = originalRequestBody;
-    if (fromProvider !== MODEL_PROTOCOL_PREFIX.CLAUDE) {
-        logger.warn(`Converting request from ${fromProvider} to ${toProvider}`);
-        processedRequestBody = convertData(originalRequestBody, 'request', fromProvider, toProvider);
-        // 如果 processedRequestBody 中有 model，则需要更新为转换后的 model
-        if (processedRequestBody.model) {
-            processedRequestBody.model = model;
-        }
-        logger.warn(`Converted request: ${JSON.stringify(processedRequestBody)}`);
-    } else {
-        logger.log(`Request format matches backend provider. No conversion needed.`);
-    }
+    logger.log(`Request format matches backend provider. No conversion needed.`);
 
     // 2.5. 如果使用了号池，根据模型重新选择提供商
     // 注意：这里使用 skipUsageCount: true，因为初次选择时已经增加了 usageCount
     if (_canUsePool(CONFIG, providerPoolManager)) {
         const { getApiService } = await import('../services/manager.js');
-        service = await getApiService(CONFIG, model);
+        // getApiService returns an object containing both the adapter and
+        // the configuration used to resolve it. Previously we were
+        // assigning the whole result to `service`, which meant the local
+        // variable became `{ service: KiroService, resolvedConfig: {..} }`
+        // and later code (e.g. generateContent) failed when it expected
+        // to call `service.initialize()`.
+        const apiResult = await getApiService(CONFIG, model);
+        service = apiResult.service;
+        // if the resolved configuration included a uuid from the pool,
+        // keep it in sync for logging/retry purposes
+        if (apiResult.resolvedConfig && apiResult.resolvedConfig.uuid) {
+            pooluuid = apiResult.resolvedConfig.uuid;
+        }
         logger.info(`Re-selected service adapter based on model: ${model}`);
     }
 
@@ -513,6 +620,14 @@ export async function handleContentGenerationRequest(req, res, service, endpoint
     // 4. 记录传入的提示词（在可能完成协议转换之后）
     const promptText = extractPromptText(processedRequestBody, toProvider);
     logger.verbose(promptText);
+
+    // 4.5. 对齐 kirors：Claude 纯 builtin web_search 请求直接短路处理
+    // 仅在 Claude 原生协议下命中，避免影响其它请求链路。
+    if (fromProvider === MODEL_PROTOCOL_PREFIX.CLAUDE && hasClaudeWebSearchTool(processedRequestBody)) {
+        logger.info('Detected builtin Claude web_search request, handling locally with kirors-compatible response');
+        await handleDirectClaudeWebSearchRequest(res, processedRequestBody);
+        return;
+    }
 
     // 5. 添加重试逻辑：如果使用了号池，当请求失败时自动切换到下一个健康的 provider
     // 限制最多重试 3 次，避免把所有 provider 都试一遍
@@ -526,7 +641,24 @@ export async function handleContentGenerationRequest(req, res, service, endpoint
         try {
             // 调用流式/一元处理器，并传递 provider 信息
             if (isStream) {
-                await handleStreamRequest(res, service, model, processedRequestBody, fromProvider, toProvider, CONFIG.PROMPT_LOG_MODE, PROMPT_LOG_FILENAME, providerPoolManager, pooluuid);
+                await handleStreamRequest(
+                    res,
+                    service,
+                    model,
+                    processedRequestBody,
+                    fromProvider,
+                    toProvider,
+                    CONFIG.PROMPT_LOG_MODE,
+                    PROMPT_LOG_FILENAME,
+                    providerPoolManager,
+                    pooluuid,
+                    {
+                        bufferUntilComplete: isClaudeCodeEndpoint,
+                        pingIntervalMs: isClaudeCodeEndpoint
+                            ? CONFIG.CLAUDE_CODE_STREAM_PING_INTERVAL_MS
+                            : undefined
+                    }
+                );
             } else {
                 await handleUnaryRequest(res, service, model, processedRequestBody, fromProvider, toProvider, CONFIG.PROMPT_LOG_MODE, PROMPT_LOG_FILENAME, providerPoolManager, pooluuid);
             }
@@ -562,8 +694,11 @@ export async function handleContentGenerationRequest(req, res, service, endpoint
                 logger.info('[Pool Retry] Selecting next healthy account/provider...');
                 const { getApiService } = await import('../services/manager.js');
                 const newConfig = { ...CONFIG };
-                service = await getApiService(newConfig, model);
-                pooluuid = newConfig.uuid;
+                const apiResult = await getApiService(newConfig, model);
+                service = apiResult.service;
+                if (apiResult.resolvedConfig && apiResult.resolvedConfig.uuid) {
+                    pooluuid = apiResult.resolvedConfig.uuid;
+                }
                 logger.info(`[Pool Retry] Switched to: ${pooluuid}`);
             } else {
                 // 没有重试机会了，抛出最后的错误

@@ -12,20 +12,139 @@ import { v4 as uuidv4 } from 'uuid';
 import { streamApiReal } from './streaming.js';
 import { executeKiroRequest } from './request-executor.js';
 import {
-  reverseMapToolInput,
   parseBracketToolCalls,
   deduplicateToolCalls,
   mapToolNameToCC,
+  reverseMapToolInput,
 } from "./tools.js";
-import { executeWebSearch, formatSearchResults } from './search.js';
-import { MODEL_MAPPING } from './adapter.js';
+import { executeWebSearch } from './search.js';
+import { MODEL_MAPPING } from './model-config.js';
 import { refreshAccessTokenIfNeeded, initializeAuth } from './auth.js';
 import { KIRO_CONSTANTS } from './constants.js';
-import { unescapeHTML } from './utils.js';
+import { repairJson, unescapeHTML } from './utils.js';
 import { createLogger } from '../lib/logger.js';
 import { estimateInputTokens, countTextTokens } from "./utils/token-counter.js";
+import {
+    buildClaudeWebSearchResultBlocks,
+    generateClaudeWebSearchSummary
+} from './websearch-response.js';
+import {
+    buildInlineClientToolUseStreamBlocks,
+    buildServerSideWebSearchStreamBlocks,
+    createClaudeStreamBlockState,
+    createInlineClientToolUseStreamState
+} from './stream-block-manager.js';
+import { createThinkingStreamParser } from './thinking-stream-parser.js';
 
 const logger = createLogger('kiro:api-client');
+
+function getToolCallIdentifier(toolCall) {
+    return toolCall?.id || toolCall?.toolUseId || `tool_${uuidv4()}`;
+}
+
+function getToolCallName(toolCall) {
+    return toolCall?.function?.name || toolCall?.name || '';
+}
+
+function parseToolCallArguments(toolCall) {
+    const rawInput = toolCall?.function?.arguments ?? toolCall?.input ?? {};
+    if (typeof rawInput === 'string') {
+        try {
+            return JSON.parse(rawInput);
+        } catch (error) {
+            const trimmedInput = rawInput.trim();
+            if (trimmedInput.startsWith('{') || trimmedInput.startsWith('[')) {
+                try {
+                    return JSON.parse(repairJson(rawInput));
+                } catch (repairError) {
+                    // 保持与当前调用方兼容：修复失败时返回原始字符串，由上层决定如何降级
+                }
+            }
+            return rawInput;
+        }
+    }
+    return rawInput;
+}
+
+function normalizeToolCallForClaudeOutput(toolCall) {
+    const toolName = getToolCallName(toolCall);
+    const claudeToolName = mapToolNameToCC(toolName);
+    let inputObject = parseToolCallArguments(toolCall);
+
+    if (typeof inputObject === 'string') {
+        logger.warn(`Invalid JSON for tool call arguments (${toolName}):`,
+            inputObject.substring(0, 100));
+        inputObject = {};
+    } else {
+        inputObject = reverseMapToolInput(claudeToolName, inputObject);
+    }
+
+    return {
+        toolId: getToolCallIdentifier(toolCall),
+        toolName: claudeToolName,
+        inputObject
+    };
+}
+
+export function isServerSideWebSearchToolCall(toolCall) {
+    const toolName = getToolCallName(toolCall);
+    return toolName === 'WebSearch' || toolName === 'webSearch' || toolName === 'web_search';
+}
+
+export function extractServerSideWebSearchQuery(toolCall) {
+    const parsedInput = parseToolCallArguments(toolCall);
+    if (typeof parsedInput === 'string') {
+        return parsedInput.trim();
+    }
+
+    return parsedInput?.query || parsedInput?.value || '';
+}
+
+export async function resolveServerSideWebSearchToolCalls(
+    toolCalls,
+    verboseLogging = false,
+    searchExecutor = executeWebSearch
+) {
+    const serverSideExecutions = [];
+    const clientToolCalls = [];
+
+    for (const toolCall of toolCalls || []) {
+        if (!isServerSideWebSearchToolCall(toolCall)) {
+            clientToolCalls.push(toolCall);
+            continue;
+        }
+
+        const query = extractServerSideWebSearchQuery(toolCall);
+        if (!query) {
+            clientToolCalls.push(toolCall);
+            continue;
+        }
+
+        if (verboseLogging) {
+            logger.info(`Executing server-side WebSearch for query: ${query}`);
+        }
+
+        const searchResult = await searchExecutor(query, verboseLogging);
+        serverSideExecutions.push({
+            toolUseId: getToolCallIdentifier(toolCall),
+            query,
+            searchResult,
+            resultBlocks: buildClaudeWebSearchResultBlocks(searchResult),
+            summaryText: generateClaudeWebSearchSummary(query, searchResult)
+        });
+    }
+
+    return {
+        serverSideExecutions,
+        clientToolCalls
+    };
+}
+
+export {
+    buildServerSideWebSearchStreamBlocks,
+    buildInlineClientToolUseStreamBlocks,
+    createClaudeStreamBlockState
+};
 
 /**
  * 解析事件流数据块（SSE 格式）
@@ -34,12 +153,14 @@ const logger = createLogger('kiro:api-client');
  * @param {Buffer|string} rawData - 原始数据块
  * @returns {Object} 解析后的事件对象 { type, data }
  */
-function parseEventStreamChunk(rawData) {
+export function parseEventStreamChunk(rawData) {
     const rawStr = Buffer.isBuffer(rawData) ? rawData.toString('utf8') : String(rawData);
     let fullContent = '';
     const toolCalls = [];
     let currentToolCall = null;
     const seenToolUseIds = new Set();
+    let contextInputTokens = null;
+    let stopReasonOverride = null;
 
     // 按行分割并解析
     const lines = rawStr.split('\n');
@@ -90,6 +211,21 @@ function parseEventStreamChunk(rawData) {
                         toolCalls.push(currentToolCall);
                         currentToolCall = null;
                     }
+                } else if (eventType === 'contextUsage') {
+                    const usagePercentage = Number(
+                        parsed.contextUsagePercentage ?? parsed.context_usage_percentage
+                    );
+                    if (Number.isFinite(usagePercentage) && usagePercentage >= 0) {
+                        contextInputTokens = Math.floor((usagePercentage * 200000) / 100);
+                        if (usagePercentage >= 100) {
+                            stopReasonOverride = 'model_context_window_exceeded';
+                        }
+                    }
+                } else if (eventType === 'exception') {
+                    const exceptionType = parsed.exceptionType ?? parsed.exception_type;
+                    if (exceptionType === 'ContentLengthExceededException') {
+                        stopReasonOverride = 'max_tokens';
+                    }
                 }
             } catch (e) {
                 logger.warn('Failed to parse event data:', e.message);
@@ -112,7 +248,9 @@ function parseEventStreamChunk(rawData) {
     return {
         type: 'chunk',
         content: fullContent,
-        toolCalls: toolCalls
+        toolCalls: toolCalls,
+        contextInputTokens,
+        stopReasonOverride
     };
 }
 
@@ -310,7 +448,7 @@ export async function callApi(
  * @returns {Object} 处理后的响应数据
  */
 
-function processApiResponse(response) {
+export function processApiResponse(response) {
     const rawResponseText = Buffer.isBuffer(response.data) ? response.data.toString('utf8') : String(response.data);
     //logger.info(`Raw response length: ${rawResponseText.length}`);
     if (rawResponseText.includes("[Called")) {
@@ -339,7 +477,10 @@ function processApiResponse(response) {
     // We re-clean here with all unique tool calls to be certain.
     if (uniqueToolCalls.length > 0) {
         for (const tc of uniqueToolCalls) {
-            const funcName = tc.function.name;
+            const funcName = getToolCallName(tc);
+            if (!funcName) {
+                continue;
+            }
             const escapedName = funcName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
             const pattern = new RegExp(`\\[Called\\s+${escapedName}\\s+with\\s+args:\\s*\\{[^}]*(?:\\{[^}]*\\}[^}]*)*\\}\\]`, 'gs');
             fullResponseText = fullResponseText.replace(pattern, '');
@@ -349,7 +490,12 @@ function processApiResponse(response) {
 
     //logger.info(`Final response text after tool call cleanup: ${fullResponseText}`);
     //logger.info(`Final tool calls after deduplication: ${JSON.stringify(uniqueToolCalls)}`);
-    return { responseText: fullResponseText, toolCalls: uniqueToolCalls };
+    return {
+        responseText: fullResponseText,
+        toolCalls: uniqueToolCalls,
+        contextInputTokens: parsedFromEvents.contextInputTokens,
+        stopReasonOverride: parsedFromEvents.stopReasonOverride
+    };
 }
 
 /**
@@ -392,8 +538,29 @@ export async function generateContent(service, model, requestBody) {
     const response = await callApi(service, '', finalModel, requestBody);
 
     try {
-        const { responseText, toolCalls } = processApiResponse(response);
-        return buildClaudeResponse(responseText, false, 'assistant', model, toolCalls, inputTokens);
+        const {
+            responseText,
+            toolCalls,
+            contextInputTokens,
+            stopReasonOverride
+        } = processApiResponse(response);
+        const { serverSideExecutions, clientToolCalls } = await resolveServerSideWebSearchToolCalls(
+            toolCalls,
+            service.verboseLogging
+        );
+        return buildClaudeResponse(
+            responseText,
+            false,
+            'assistant',
+            model,
+            clientToolCalls,
+            inputTokens,
+            {
+                serverWebSearchExecutions: serverSideExecutions,
+                inputTokensOverride: contextInputTokens,
+                forcedStopReason: stopReasonOverride
+            }
+        );
     } catch (error) {
         logger.error('Error in generateContent:', error);
         throw new Error(`Error processing response: ${error.message}`);
@@ -442,34 +609,53 @@ export async function* generateContentStream(service, model, requestBody) {
     const messageId = `${uuidv4()}`;
 
     try {
-        // 1. 先发送 message_start 事件
-        yield {
+        let outputTokens = 0;
+        let resolvedInputTokens = inputTokens;
+        let stopReasonOverride = null;
+        const completedClientToolCalls = [];
+        const serverSideExecutions = [];
+        const pendingToolCalls = new Map();
+        let hasClientToolUse = false;
+        const streamBlockState = createClaudeStreamBlockState();
+        const thinkingParser = createThinkingStreamParser({
+            enableThinking,
+            streamBlockState
+        });
+        const codeReferences = [];  // 用于累积代码引用
+
+        let messageStarted = false;
+
+        const buildMessageStartEvent = () => ({
             type: "message_start",
             message: {
                 id: messageId,
                 type: "message",
                 role: "assistant",
                 model: model,
-                usage: { input_tokens: inputTokens, output_tokens: 0 },
+                usage: { input_tokens: resolvedInputTokens, output_tokens: 0 },
                 content: []
             }
+        });
+
+        const emitMessageStartIfNeeded = async function* () {
+            if (messageStarted) {
+                return;
+            }
+
+            messageStarted = true;
+            yield buildMessageStartEvent();
         };
 
-        let totalContent = '';
-        let outputTokens = 0;
-        const toolCalls = [];
-        let currentToolCall = null;  // 用于累积结构化工具调用
-        const seenToolUseIds = new Set();  // ⚠️ CRITICAL: 追踪所有见过的 toolUseId（参考官方 Kiro 客户端）
-        let thinkingContent = '';  // 用于累积thinking内容
-        let thinkingBlockIndex = null;  // thinking块的索引
-        let textBlockStarted = false;  // 标记text块是否已开始
-        const codeReferences = [];  // 用于累积代码引用
+        const emitEvents = async function* (events) {
+            if (!events || events.length === 0) {
+                return;
+            }
 
-        // Thinking 解析状态（用于 prompt injection 模式）
-        let contentBuffer = '';  // 用于缓冲内容以解析 <thinking> 标签
-        let insideThinkingTag = false;  // 是否在 <thinking> 标签内
-        let thinkingTagClosed = false;  // <thinking> 标签是否已关闭
-        let thinkingBlockClosed = false;  // thinking 块是否已关闭（用于避免重复关闭）
+            yield* emitMessageStartIfNeeded();
+            for (const chunk of events || []) {
+                yield chunk;
+            }
+        };
 
         // 2-3. 流式接收并发送每个事件
         for await (const event of streamApiReal(service, '', finalModel, requestBody)) {
@@ -477,260 +663,96 @@ export async function* generateContentStream(service, model, requestBody) {
             // logger.info(`Event received: type=${event.type}`);
 
             if (event.type === 'thinking') {
-                // 处理原生thinking块（API直接返回的，目前Kiro不支持）
-                if (thinkingBlockIndex === null) {
-                    // 第一次收到thinking，发送content_block_start
-                    thinkingBlockIndex = 0;  // thinking总是第一个块
-                    yield {
-                        type: "content_block_start",
-                        index: thinkingBlockIndex,
-                        content_block: { type: "thinking", thinking: "" }
-                    };
-                }
-
-                thinkingContent += event.data.thinking;
-
-                // 发送thinking delta
-                yield {
-                    type: "content_block_delta",
-                    index: thinkingBlockIndex,
-                    delta: { type: "thinking_delta", thinking: event.data.thinking }
-                };
+                yield* emitEvents(thinkingParser.processNativeThinkingDelta(event.data.thinking));
             } else if (event.type === 'content' && event.content) {
                 // Kiro 优化：HTML 转义处理
                 const unescapedContent = unescapeHTML(event.content);
-
-                // 如果启用了 thinking prompt injection，需要解析 <thinking> 标签
-                if (enableThinking) {
-                    contentBuffer += unescapedContent;
-
-                    // 处理 content buffer，解析 <thinking> 标签
-                    while (true) {
-                        if (!insideThinkingTag) {
-                            // 当前不在 thinking 标签内，查找 <thinking> 开始标签
-                            const thinkingStartIdx = contentBuffer.indexOf('<thinking>');
-
-                            if (thinkingStartIdx === -1) {
-                                // 没有找到完整的 <thinking> 标签
-                                // ⚠️ 优化：快速判断是否可能有 thinking 标签
-                                // 1. 如果 buffer 不以 < 开头且长度 > 0，肯定没有 thinking → 立即输出
-                                // 2. 如果 buffer 以 < 开头但不是 <thinking>... 前缀，也立即输出
-                                // 3. 如果是 <thinking> 的前缀（如 "<t", "<think"），等待更多数据
-
-                                let canEmitImmediately = false;
-                                if (contentBuffer.length > 0 && !contentBuffer.startsWith('<')) {
-                                    // 不以 < 开头，肯定没有 thinking
-                                    canEmitImmediately = true;
-                                } else if (contentBuffer.startsWith('<') && contentBuffer.length >= 10) {
-                                    // 以 < 开头且长度足够判断（<thinking> 是 10 字符）
-                                    // 如果不是 <thinking> 的前缀，可以输出
-                                    if (!('<thinking>'.startsWith(contentBuffer.slice(0, 10)))) {
-                                        canEmitImmediately = true;
-                                    }
-                                }
-
-                                const shouldEmit = thinkingTagClosed || canEmitImmediately ||
-                                    (thinkingBlockIndex === null && contentBuffer.length > 15);
-
-                                if (shouldEmit && contentBuffer.length > 0) {
-                                    // 计算保留字符数
-                                    // - 如果确定没有 thinking，只保留 1 字符
-                                    // - 如果 thinking 已结束，保留 15 字符防止新 thinking 块
-                                    const keepChars = (canEmitImmediately || thinkingBlockIndex === null) ? 1 : 15;
-                                    const textToEmit = contentBuffer.length > keepChars
-                                        ? contentBuffer.slice(0, -keepChars)
-                                        : (canEmitImmediately ? contentBuffer : '');
-
-                                    if (textToEmit) {
-                                        contentBuffer = canEmitImmediately && contentBuffer.length <= keepChars
-                                            ? ''
-                                            : contentBuffer.slice(-keepChars);
-                                        // 发送 text 内容
-                                        if (!textBlockStarted) {
-                                            const textBlockIndex = thinkingContent ? 1 : 0;
-                                            yield {
-                                                type: "content_block_start",
-                                                index: textBlockIndex,
-                                                content_block: { type: "text", text: "" }
-                                            };
-                                            textBlockStarted = true;
-                                        }
-
-                                        totalContent += textToEmit;
-                                        const textBlockIndex = thinkingContent ? 1 : 0;
-                                        yield {
-                                            type: "content_block_delta",
-                                            index: textBlockIndex,
-                                            delta: { type: "text_delta", text: textToEmit }
-                                        };
-                                    }
-                                }
-                                break; // 退出循环，等待更多数据
-                            }
-
-                            // 找到 <thinking> 开始标签
-                            // 先发送标签之前的文本内容
-                            if (thinkingStartIdx > 0) {
-                                const textBeforeThinking = contentBuffer.slice(0, thinkingStartIdx);
-
-                                if (textBeforeThinking.trim()) {
-                                    // 发送 text 内容
-                                    if (!textBlockStarted) {
-                                        const textBlockIndex = thinkingContent ? 1 : 0;
-                                        yield {
-                                            type: "content_block_start",
-                                            index: textBlockIndex,
-                                            content_block: { type: "text", text: "" }
-                                        };
-                                        textBlockStarted = true;
-                                    }
-
-                                    totalContent += textBeforeThinking;
-                                    const textBlockIndex = thinkingContent ? 1 : 0;
-                                    yield {
-                                        type: "content_block_delta",
-                                        index: textBlockIndex,
-                                        delta: { type: "text_delta", text: textBeforeThinking }
-                                    };
-                                }
-                            }
-
-                            // 移除已处理的内容和 <thinking> 标签
-                            contentBuffer = contentBuffer.slice(thinkingStartIdx + 10); // 10 = "<thinking>".length
-                            insideThinkingTag = true;
-
-                            // 开始 thinking 块
-                            if (thinkingBlockIndex === null) {
-                                thinkingBlockIndex = 0;
-                                yield {
-                                    type: "content_block_start",
-                                    index: thinkingBlockIndex,
-                                    content_block: { type: "thinking", thinking: "" }
-                                };
-                            }
-                        } else {
-                            // 当前在 thinking 标签内，查找 </thinking> 结束标签
-                            const thinkingEndIdx = contentBuffer.indexOf('</thinking>');
-
-                            if (thinkingEndIdx === -1) {
-                                // 没有找到结束标签，发送当前缓冲的 thinking 内容
-                                // 保留最后 15 个字符以防标签被分割
-                                if (contentBuffer.length > 15) {
-                                    const thinkingToEmit = contentBuffer.slice(0, -15);
-                                    contentBuffer = contentBuffer.slice(-15);
-
-                                    if (thinkingToEmit) {
-                                        thinkingContent += thinkingToEmit;
-                                        yield {
-                                            type: "content_block_delta",
-                                            index: thinkingBlockIndex,
-                                            delta: { type: "thinking_delta", thinking: thinkingToEmit }
-                                        };
-                                    }
-                                }
-                                break; // 退出循环，等待更多数据
-                            }
-
-                            // 找到 </thinking> 结束标签
-                            // 发送标签之前的 thinking 内容
-                            if (thinkingEndIdx > 0) {
-                                const thinkingBeforeEnd = contentBuffer.slice(0, thinkingEndIdx);
-                                thinkingContent += thinkingBeforeEnd;
-                                yield {
-                                    type: "content_block_delta",
-                                    index: thinkingBlockIndex,
-                                    delta: { type: "thinking_delta", thinking: thinkingBeforeEnd }
-                                };
-                            }
-
-                            // 结束 thinking 块
-                            yield { type: "content_block_stop", index: thinkingBlockIndex };
-                            thinkingBlockClosed = true;
-
-                            // 移除已处理的内容和 </thinking> 标签
-                            contentBuffer = contentBuffer.slice(thinkingEndIdx + 11); // 11 = "</thinking>".length
-                            insideThinkingTag = false;
-                            thinkingTagClosed = true;
-                        }
-                    }
-                } else {
-                    // 不启用 thinking，直接发送内容
-                    // 如果之前有thinking块但还没结束，先结束它
-                    if (thinkingBlockIndex !== null && thinkingContent && !textBlockStarted) {
-                        yield { type: "content_block_stop", index: thinkingBlockIndex };
-                    }
-
-                    // 第一次收到content时，发送text块的content_block_start
-                    if (!textBlockStarted) {
-                        const textBlockIndex = thinkingContent ? 1 : 0;
-                        yield {
-                            type: "content_block_start",
-                            index: textBlockIndex,
-                            content_block: { type: "text", text: "" }
-                        };
-                        textBlockStarted = true;
-                    }
-
-                    totalContent += event.content;
-
-                    const textBlockIndex = thinkingContent ? 1 : 0;
-                    yield {
-                        type: "content_block_delta",
-                        index: textBlockIndex,
-                        delta: { type: "text_delta", text: event.content }
-                    };
-                }
+                yield* emitEvents(thinkingParser.processContentChunk(unescapedContent));
             } else if (event.type === 'toolUse') {
                 // 工具调用事件（完美复刻官方 Kiro extension.js:708085-708123）
                 const tc = event.toolUse;
 
                 if (tc && tc.toolUseId) {
-                    // ⚠️ 完美复刻官方逻辑（extension.js:708090）：
-                    // if (!toolCalls.has(toolUseId)) { 添加 id/name } else { 只处理 input }
+                    const isServerSideTool = isServerSideWebSearchToolCall({ name: tc.name });
+                    let pendingToolState = pendingToolCalls.get(tc.toolUseId);
 
-                    if (!seenToolUseIds.has(tc.toolUseId)) {
-                        // 第一次遇到这个 toolUseId
-                        seenToolUseIds.add(tc.toolUseId);
-
-                        // 如果有未完成的工具调用，先保存它
-                        if (currentToolCall) {
-                            try {
-                                currentToolCall.input = JSON.parse(currentToolCall.input);
-                            } catch (e) { }
-                            toolCalls.push(currentToolCall);
-                        }
-
-                        // 创建新的 currentToolCall（设置 id/name）
-                        currentToolCall = {
-                            toolUseId: tc.toolUseId,
-                            name: mapToolNameToCC(tc.name || 'unknown'),
-                            input: ''
-                        };
-                    }
-
-                    // ⚠️ 关键：每次都累积 input（无论是否第一次）
-                    if (currentToolCall && tc.input) {
-                        currentToolCall.input += tc.input;
-                    }
-
-                    // 如果有 stop 标志，保存 currentToolCall
-                    if (tc.stop && currentToolCall) {
-                        try {
-                            currentToolCall.input = JSON.parse(currentToolCall.input);
-                        } catch (e) {
-                            // JSON 解析失败，保留原始字符串
-                        }
-
-                        // ⭐ 服务端执行 webSearch 工具
-                        if (currentToolCall.name === 'webSearch') {
-                            if (serviceverboseLogging) {
-                                logger.info('Detected webSearch tool call, executing on server...');
+                    if (!pendingToolState) {
+                        pendingToolState = isServerSideTool
+                            ? {
+                                kind: 'server-web-search',
+                                toolCall: {
+                                    toolUseId: tc.toolUseId,
+                                    name: mapToolNameToCC(tc.name || 'unknown'),
+                                    input: ''
+                                }
                             }
-                            currentToolCall.serverSideExecute = true;  // 标记为服务端执行
+                            : {
+                                kind: 'client-tool',
+                                streamState: createInlineClientToolUseStreamState(
+                                    {
+                                        toolUseId: tc.toolUseId,
+                                        name: tc.name || 'unknown'
+                                    },
+                                    streamBlockState.getNextBlockIndex()
+                                )
+                            };
+                        pendingToolCalls.set(tc.toolUseId, pendingToolState);
+                    }
+
+                    if (pendingToolState.kind === 'server-web-search') {
+                        if (tc.input) {
+                            pendingToolState.toolCall.input += tc.input;
                         }
 
-                        toolCalls.push(currentToolCall);
-                        currentToolCall = null;
+                        if (tc.stop) {
+                            yield* emitEvents(thinkingParser.flushBufferedPlainTextBeforeToolUse());
+                            yield* emitEvents(streamBlockState.closeTextBlock());
+
+                            const existingToolCall = pendingToolState.toolCall;
+                            const { serverSideExecutions: resolvedExecutions } = await resolveServerSideWebSearchToolCalls(
+                                [existingToolCall],
+                                service.verboseLogging
+                            );
+                            if (resolvedExecutions.length > 0) {
+                                const streamBlocks = buildServerSideWebSearchStreamBlocks(
+                                    resolvedExecutions,
+                                    streamBlockState.getNextBlockIndex()
+                                );
+                                serverSideExecutions.push(...resolvedExecutions);
+                                streamBlockState.setNextBlockIndex(streamBlocks.nextIndex);
+                                streamBlockState.appendText(streamBlocks.emittedSummaryText);
+                                yield* emitEvents(streamBlocks.events);
+                            }
+
+                            pendingToolCalls.delete(tc.toolUseId);
+                        }
+                    } else {
+                        const { streamState } = pendingToolState;
+
+                        if (tc.input || !pendingToolState.started) {
+                            if (!pendingToolState.started) {
+                                yield* emitEvents(thinkingParser.flushBufferedPlainTextBeforeToolUse());
+                                yield* emitEvents(streamBlockState.closeTextBlock());
+                                yield* emitEvents(streamState.startEvents());
+                                streamBlockState.setNextBlockIndex(streamState.index + 1);
+                                pendingToolState.started = true;
+                                hasClientToolUse = true;
+                            }
+
+                            if (tc.input) {
+                                yield* emitEvents(streamState.appendInputChunk(tc.input));
+                            }
+                        }
+
+                        if (tc.stop) {
+                            const finalizedToolCall = streamState.finalizeEmittedToolCall();
+                            if (finalizedToolCall) {
+                                completedClientToolCalls.push(finalizedToolCall);
+                            }
+
+                            yield* emitEvents(streamState.stopEvents());
+                            pendingToolCalls.delete(tc.toolUseId);
+                        }
                     }
                 }
             } else if (event.type === 'metering') {
@@ -740,6 +762,18 @@ export async function* generateContentStream(service, model, requestBody) {
                     // Kiro 返回的是 credit usage，需要转换为 token
                     const estimatedTokens = Math.ceil(meterData.usage * 1000);
                     outputTokens = estimatedTokens;
+                }
+            } else if (event.type === 'contextUsage') {
+                const usagePercentage = Number(event.data?.contextUsagePercentage);
+                if (Number.isFinite(usagePercentage) && usagePercentage >= 0) {
+                    resolvedInputTokens = Math.floor((usagePercentage * 200000) / 100);
+                    if (usagePercentage >= 100) {
+                        stopReasonOverride = 'model_context_window_exceeded';
+                    }
+                }
+            } else if (event.type === 'exception') {
+                if (event.data?.exceptionType === 'ContentLengthExceededException') {
+                    stopReasonOverride = 'max_tokens';
                 }
             } else if (event.type === 'codeReference') {
                 // ⭐ 代码引用追踪事件（官方 Kiro 特性）
@@ -755,195 +789,88 @@ export async function* generateContentStream(service, model, requestBody) {
         }
 
         // 处理未完成的工具调用（如果流提前结束）
-        if (currentToolCall) {
-            try {
-                currentToolCall.input = JSON.parse(currentToolCall.input);
-            } catch (e) { }
-            toolCalls.push(currentToolCall);
-            currentToolCall = null;
+        if (pendingToolCalls.size > 0) {
+            for (const pendingToolCall of pendingToolCalls.values()) {
+                yield* emitEvents(thinkingParser.flushBufferedPlainTextBeforeToolUse());
+                if (pendingToolCall.kind === 'server-web-search') {
+                    const toolCall = pendingToolCall.toolCall;
+                    const { serverSideExecutions: resolvedExecutions } = await resolveServerSideWebSearchToolCalls(
+                        [toolCall],
+                        service.verboseLogging
+                    );
+                    if (resolvedExecutions.length > 0) {
+                        yield* emitEvents(streamBlockState.closeTextBlock());
+                        const streamBlocks = buildServerSideWebSearchStreamBlocks(
+                            resolvedExecutions,
+                            streamBlockState.getNextBlockIndex()
+                        );
+                        serverSideExecutions.push(...resolvedExecutions);
+                        streamBlockState.setNextBlockIndex(streamBlocks.nextIndex);
+                        streamBlockState.appendText(streamBlocks.emittedSummaryText);
+                        yield* emitEvents(streamBlocks.events);
+                    }
+                } else {
+                    const finalizedToolCall = pendingToolCall.streamState.finalizeEmittedToolCall();
+                    if (finalizedToolCall) {
+                        completedClientToolCalls.push(finalizedToolCall);
+                    }
+                    yield* emitEvents(pendingToolCall.streamState.stopEvents());
+                    hasClientToolUse = true;
+                }
+            }
+            pendingToolCalls.clear();
         }
 
         // 处理 thinking 模式下剩余的 content buffer
-        if (enableThinking && contentBuffer.length > 0) {
-            if (insideThinkingTag) {
-                // 如果还在 thinking 标签内，发送剩余内容作为 thinking
-                thinkingContent += contentBuffer;
-                yield {
-                    type: "content_block_delta",
-                    index: thinkingBlockIndex,
-                    delta: { type: "thinking_delta", thinking: contentBuffer }
-                };
-                // 结束 thinking 块
-                yield { type: "content_block_stop", index: thinkingBlockIndex };
-                thinkingBlockClosed = true;
-            } else {
-                // 不在 thinking 标签内，发送剩余内容作为 text
-                if (contentBuffer.trim()) {
-                    if (!textBlockStarted) {
-                        const textBlockIndex = thinkingContent ? 1 : 0;
-                        yield {
-                            type: "content_block_start",
-                            index: textBlockIndex,
-                            content_block: { type: "text", text: "" }
-                        };
-                        textBlockStarted = true;
-                    }
-
-                    totalContent += contentBuffer;
-                    const textBlockIndex = thinkingContent ? 1 : 0;
-                    yield {
-                        type: "content_block_delta",
-                        index: textBlockIndex,
-                        delta: { type: "text_delta", text: contentBuffer }
-                    };
-                }
-            }
-            contentBuffer = '';
-        }
+        yield* emitEvents(thinkingParser.flushRemainingBuffer());
 
         // 检查文本内容中的 bracket 格式工具调用
-        const bracketToolCalls = parseBracketToolCalls(totalContent);
+        const bracketToolCalls = parseBracketToolCalls(streamBlockState.getTotalContent());
         if (bracketToolCalls && bracketToolCalls.length > 0) {
             for (const btc of bracketToolCalls) {
-                toolCalls.push({
+                const synthesizedToolCall = {
                     toolUseId: btc.id || `tool_${uuidv4()}`,
                     name: btc.function.name,
                     input: JSON.parse(btc.function.arguments || '{}')
-                });
+                };
+                yield* emitEvents(streamBlockState.closeTextBlock());
+                const inlineToolUseResult = buildInlineClientToolUseStreamBlocks(
+                    synthesizedToolCall,
+                    streamBlockState.getNextBlockIndex()
+                );
+                if (inlineToolUseResult.emittedToolCall) {
+                    completedClientToolCalls.push(inlineToolUseResult.emittedToolCall);
+                    streamBlockState.setNextBlockIndex(inlineToolUseResult.nextIndex);
+                    yield* emitEvents(inlineToolUseResult.events);
+                }
             }
         }
 
-        // 3.5. 如果thinking块还没结束，先结束它
-        if (thinkingBlockIndex !== null && thinkingContent && !textBlockStarted && !thinkingBlockClosed) {
-            yield { type: "content_block_stop", index: thinkingBlockIndex };
-            thinkingBlockClosed = true;
+        // 3.5. 如果只有 thinking 没有 text/tool，则对齐 kirors：补一个空格 text block，并将 stop_reason 设为 max_tokens
+        yield* emitEvents(thinkingParser.closeThinkingBlockIfNeeded());
+        const pureThinkingOnly =
+            enableThinking &&
+            thinkingParser.hasThinkingBlock() &&
+            !streamBlockState.getTotalContent() &&
+            completedClientToolCalls.length === 0 &&
+            serverSideExecutions.length === 0;
+        if (pureThinkingOnly) {
+            yield* emitEvents(streamBlockState.emitTextDelta(' '));
         }
 
         // 4. 发送 content_block_stop 事件（text块，如果有的话）
-        if (textBlockStarted) {
-            const textBlockIndex = thinkingContent ? 1 : 0;
-            yield { type: "content_block_stop", index: textBlockIndex };
-        }
+        yield* emitEvents(streamBlockState.closeTextBlock());
 
-        // ⭐ 4.5. 处理服务端执行的工具（webSearch）
-        // 如果有 webSearch 工具调用，执行搜索并将结果作为额外内容返回
-        const serverSideTools = toolCalls.filter(tc => tc.serverSideExecute);
-        const clientSideTools = toolCalls.filter(tc => !tc.serverSideExecute);
-
-        if (serverSideTools.length > 0) {
-            if (service.verboseLogging) {
-                logger.info(`WebSearch Processing ${serverSideTools.length} server-side tool calls...`);
-            }
-
-            let searchResultsContent = '';
-            for (const tc of serverSideTools) {
-                if (tc.name === 'webSearch') {
-                    const query = tc.input?.query || tc.input;
-                    if (query) {
-                        // 执行搜索
-                        const searchResult = await executeWebSearch(query, service.verboseLogging);
-                        const searchResultText = formatSearchResults(searchResult);
-                        searchResultsContent += `\n\n---\n**Web Search Results for "${query}":**\n${searchResultText}`;
-                    }
-                }
-            }
-
-            // 如果有搜索结果，发送为额外的文本内容
-            if (searchResultsContent) {
-                const searchBlockIndex = (thinkingContent ? 1 : 0) + (textBlockStarted ? 1 : 0);
-
-                // 发送搜索结果文本块
-                yield {
-                    type: "content_block_start",
-                    index: searchBlockIndex,
-                    content_block: { type: "text", text: "" }
-                };
-
-                yield {
-                    type: "content_block_delta",
-                    index: searchBlockIndex,
-                    delta: { type: "text_delta", text: searchResultsContent }
-                };
-
-                yield { type: "content_block_stop", index: searchBlockIndex };
-
-                totalContent += searchResultsContent;
-                if (service.verboseLogging) {
-                    logger.info('Search results added to response');
-                }
-            }
-        }
-
-        // 5. 处理工具调用（如果有，只处理客户端执行的工具）
-        if (clientSideTools.length > 0) {
-            // 计算起始索引：thinking块(0或无) + text块(0或1) + 搜索结果块(如果有)
-            let startIndex = 0;
-            if (thinkingContent) startIndex++;  // thinking块占用index 0
-            if (textBlockStarted) startIndex++;  // text块占用下一个index
-            if (serverSideTools.length > 0) startIndex++;  // 搜索结果块
-
-            for (let i = 0; i < clientSideTools.length; i++) {
-                const tc = clientSideTools[i];
-                const blockIndex = startIndex + i;
-
-                // ⚠️ 关键：反向映射参数名（Kiro → CC）
-                // Kiro 返回的参数使用 Kiro 的参数名（如 path, explanation）
-                // 需要转换回 CC 的参数名（如 file_path）并过滤 CC 不支持的参数
-                let toolInput = tc.input || {};
-                if (typeof toolInput === 'string') {
-                    try {
-                        toolInput = JSON.parse(toolInput);
-                    } catch (e) {
-                        // ⚠️ 修复：不完整的工具调用应该被跳过
-                        // 打印详细日志帮助调试
-                        logger.warn(`Failed to parse tool input as JSON for ${tc.name}:`, toolInput.substring(0, 100));
-                        logger.warn(`Skipping incomplete tool call: ${tc.name} (toolUseId: ${tc.toolUseId})`);
-                        // 跳过这个工具调用，不要发送空参数
-                        continue;
-                    }
-                }
-
-                // 检查必需参数是否存在（针对 Write 工具）
-                if (tc.name === 'Write' || tc.name === 'write_file') {
-                    const hasFilePath = toolInput.file_path || toolInput.path;
-                    const hasContent = toolInput.content !== undefined;
-                    if (!hasFilePath || !hasContent) {
-                        logger.warn(`Incomplete Write tool call - missing required params. file_path: ${!!hasFilePath}, content: ${!!hasContent}`);
-                        logger.warn(`Skipping incomplete Write tool call (toolUseId: ${tc.toolUseId})`);
-                        continue;
-                    }
-                }
-
-                yield {
-                    type: "content_block_start",
-                    index: blockIndex,
-                    content_block: {
-                        type: "tool_use",
-                        id: tc.toolUseId || `tool_${uuidv4()}`,
-                        name: mapToolNameToCC(tc.name),
-                        input: {}
-                    }
-                };
-
-                const reversedInput = reverseMapToolInput(tc.name, toolInput);
-                const inputJson = JSON.stringify(reversedInput);
-
-                yield {
-                    type: "content_block_delta",
-                    index: blockIndex,
-                    delta: {
-                        type: "input_json_delta",
-                        partial_json: inputJson
-                    }
-                };
-
-                yield { type: "content_block_stop", index: blockIndex };
+        if (completedClientToolCalls.length > 0) {
+            for (const tc of completedClientToolCalls) {
+                outputTokens += countTextTokens(JSON.stringify(tc.input || {}));
             }
         }
 
         // 6. 发送代码引用信息（如果有）
         // ⭐ Kiro 特性：追踪 AI 生成代码的来源，符合开源许可证要求
         if (codeReferences.length > 0) {
+            yield* emitMessageStartIfNeeded();
             yield {
                 type: "code_references",
                 references: codeReferences.map(ref => ({
@@ -957,19 +884,43 @@ export async function* generateContentStream(service, model, requestBody) {
 
         // 7. 发送 message_delta 事件
         // 在流结束后统一计算 output tokens，避免在流式循环中阻塞事件循环
-        outputTokens = countTextTokens(totalContent);
+        outputTokens = countTextTokens(streamBlockState.getTotalContent());
+        const thinkingContent = thinkingParser.getThinkingContent();
         if (thinkingContent) {
             outputTokens += countTextTokens(thinkingContent);
         }
-        for (const tc of clientSideTools) {
-            outputTokens += countTextTokens(JSON.stringify(tc.input || {}));
+        for (const execution of serverSideExecutions) {
+            outputTokens += countTextTokens(
+                `${execution.summaryText || ''}${JSON.stringify(execution.resultBlocks || [])}`
+            );
         }
 
-        yield {
+        const stopReason = pureThinkingOnly
+            ? "max_tokens"
+            : stopReasonOverride ||
+                (hasClientToolUse || completedClientToolCalls.length > 0
+                    ? "tool_use"
+                    : "end_turn");
+
+        yield* emitMessageStartIfNeeded();
+
+        const messageDelta = {
             type: "message_delta",
-            delta: { stop_reason: clientSideTools.length > 0 ? "tool_use" : "end_turn" },
-            usage: { output_tokens: outputTokens }
+            delta: {
+                stop_reason: stopReason,
+                stop_sequence: null
+            },
+            usage: {
+                input_tokens: resolvedInputTokens,
+                output_tokens: outputTokens
+            }
         };
+        if (serverSideExecutions.length > 0) {
+            messageDelta.usage.server_tool_use = {
+                web_search_requests: serverSideExecutions.length
+            };
+        }
+        yield messageDelta;
 
         // 8. 发送 message_stop 事件
         yield { type: "message_stop" };
@@ -1018,12 +969,16 @@ export async function* generateContentStream(service, model, requestBody) {
  * @param {number} [inputTokens=0] - 输入 token 数
  * @returns {Object} Claude 风格响应对象
  */
-export function buildClaudeResponse(content, isStream = false, role = 'assistant', model, toolCalls = null, inputTokens = 0) {
+export function buildClaudeResponse(content, isStream = false, role = 'assistant', model, toolCalls = null, inputTokens = 0, options = {}) {
     const messageId = `${uuidv4()}`;
+    const serverWebSearchExecutions = options.serverWebSearchExecutions || [];
+    const effectiveInputTokens = options.inputTokensOverride ?? inputTokens;
+    const forcedStopReason = options.forcedStopReason || null;
 
     if (isStream) {
         // 流式响应：返回事件数组
         const events = [];
+        let nextBlockIndex = 0;
 
         // 1. message_start event
         events.push({
@@ -1034,7 +989,7 @@ export function buildClaudeResponse(content, isStream = false, role = 'assistant
                 role: role,
                 model: model,
                 usage: {
-                    input_tokens: inputTokens,
+                    input_tokens: effectiveInputTokens,
                     output_tokens: 0
                 },
                 content: []
@@ -1045,7 +1000,7 @@ export function buildClaudeResponse(content, isStream = false, role = 'assistant
         let stopReason = "end_turn";
 
         if (content) {
-            const contentBlockIndex = (toolCalls && toolCalls.length > 0) ? toolCalls.length : 0;
+            const contentBlockIndex = nextBlockIndex++;
 
             // 2. content_block_start for text
             events.push({
@@ -1080,54 +1035,31 @@ export function buildClaudeResponse(content, isStream = false, role = 'assistant
             }
         }
 
+        if (serverWebSearchExecutions.length > 0) {
+            const streamBlocks = buildServerSideWebSearchStreamBlocks(
+                serverWebSearchExecutions,
+                nextBlockIndex
+            );
+            events.push(...streamBlocks.events);
+            nextBlockIndex = streamBlocks.nextIndex;
+            totalOutputTokens += countTextTokens(streamBlocks.emittedSummaryText);
+            for (const execution of serverWebSearchExecutions) {
+                totalOutputTokens += countTextTokens(JSON.stringify(execution.resultBlocks || []));
+            }
+        }
+
         if (toolCalls && toolCalls.length > 0) {
-            toolCalls.forEach((tc, index) => {
-                let inputObject;
-                try {
-                    inputObject = tc.function.arguments;
-                    if (typeof inputObject === 'string') {
-                        inputObject = JSON.parse(inputObject);
-                    }
-                } catch (e) {
-                    logger.warn(`Invalid JSON for tool call arguments (${tc.function.name}):`,
-                        typeof tc.function.arguments === 'string' ? tc.function.arguments.substring(0, 100) : tc.function.arguments);
-                    inputObject = {};
-                }
-
-                const inputJson = JSON.stringify(inputObject);
-
-                // 2. content_block_start for each tool_use
-                events.push({
-                    type: "content_block_start",
-                    index: index,
-                    content_block: {
-                        type: "tool_use",
-                        id: tc.id,
-                        name: mapToolNameToCC(tc.function.name),
-                        input: {}
-                    }
-                });
-
-                // 3. content_block_delta for each tool_use
-                events.push({
-                    type: "content_block_delta",
-                    index: index,
-                    delta: {
-                        type: "input_json_delta",
-                        partial_json: inputJson
-                    }
-                });
-
-                // 4. content_block_stop for each tool_use
-                events.push({
-                    type: "content_block_stop",
-                    index: index
-                });
-
-                totalOutputTokens += countTextTokens(JSON.stringify(inputObject));
+            toolCalls.forEach((tc) => {
+                const inlineToolUseResult = buildInlineClientToolUseStreamBlocks(tc, nextBlockIndex);
+                events.push(...inlineToolUseResult.events);
+                nextBlockIndex = inlineToolUseResult.nextIndex;
+                const normalizedInput = inlineToolUseResult.emittedToolCall?.input || {};
+                totalOutputTokens += countTextTokens(JSON.stringify(normalizedInput));
             });
             stopReason = "tool_use";
         }
+
+        stopReason = forcedStopReason || stopReason;
 
         // 5. message_delta with appropriate stop reason
         events.push({
@@ -1136,7 +1068,17 @@ export function buildClaudeResponse(content, isStream = false, role = 'assistant
                 stop_reason: stopReason,
                 stop_sequence: null,
             },
-            usage: { output_tokens: totalOutputTokens }
+            usage: {
+                input_tokens: effectiveInputTokens,
+                output_tokens: totalOutputTokens,
+                ...(serverWebSearchExecutions.length > 0
+                    ? {
+                        server_tool_use: {
+                            web_search_requests: serverWebSearchExecutions.length
+                        }
+                    }
+                    : {})
+            }
         });
 
         // 6. message_stop event
@@ -1151,36 +1093,52 @@ export function buildClaudeResponse(content, isStream = false, role = 'assistant
         let stopReason = "end_turn";
         let outputTokens = 0;
 
-        if (toolCalls && toolCalls.length > 0) {
-            for (const tc of toolCalls) {
-                let inputObject;
-                try {
-                    inputObject = tc.function.arguments;
-                    if (typeof inputObject === 'string') {
-                        inputObject = JSON.parse(inputObject);
-                    }
-                } catch (e) {
-                    logger.warn(`Invalid JSON for tool call arguments (${tc.function.name}):`,
-                        typeof tc.function.arguments === 'string' ? tc.function.arguments.substring(0, 100) : tc.function.arguments);
-                    inputObject = {};
-                }
-
-                contentArray.push({
-                    type: "tool_use",
-                    id: tc.id,
-                    name: mapToolNameToCC(tc.function.name),
-                    input: inputObject
-                });
-                outputTokens += countTextTokens(JSON.stringify(inputObject));
-            }
-            stopReason = "tool_use";
-        } else if (content) {
+        if (content) {
             contentArray.push({
                 type: "text",
                 text: content
             });
             outputTokens += countTextTokens(content);
         }
+
+        for (const execution of serverWebSearchExecutions) {
+            contentArray.push({
+                type: 'server_tool_use',
+                id: execution.toolUseId,
+                name: 'web_search',
+                input: { query: execution.query }
+            });
+            contentArray.push({
+                type: 'web_search_tool_result',
+                content: execution.resultBlocks
+            });
+            outputTokens += countTextTokens(JSON.stringify(execution.resultBlocks || []));
+
+            if (execution.summaryText) {
+                contentArray.push({
+                    type: 'text',
+                    text: execution.summaryText
+                });
+                outputTokens += countTextTokens(execution.summaryText);
+            }
+        }
+
+        if (toolCalls && toolCalls.length > 0) {
+            for (const tc of toolCalls) {
+                const { toolId, toolName, inputObject } = normalizeToolCallForClaudeOutput(tc);
+
+                contentArray.push({
+                    type: "tool_use",
+                    id: toolId,
+                    name: toolName,
+                    input: inputObject
+                });
+                outputTokens += countTextTokens(JSON.stringify(inputObject));
+            }
+            stopReason = "tool_use";
+        }
+
+        stopReason = forcedStopReason || stopReason;
 
         return {
             id: messageId,
@@ -1190,7 +1148,7 @@ export function buildClaudeResponse(content, isStream = false, role = 'assistant
             stop_reason: stopReason,
             stop_sequence: null,
             usage: {
-                input_tokens: inputTokens,
+                input_tokens: effectiveInputTokens,
                 output_tokens: outputTokens
             },
             content: contentArray

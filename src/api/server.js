@@ -15,6 +15,7 @@ import { initializeAPIManagement } from './manager.js';
 import { createRequestHandler } from './request-handler.js';
 import { initLogger, createLogger } from '../lib/logger.js';
 import { attachViteDevProxy } from '../ui/vite-dev-proxy.js';
+import { isWeakApiKey } from '../config/runtime-config.js';
 
 import 'dotenv/config'; // 加载 dotenv 环境变量
 import { getAccountPoolManager } from '../services/manager.js';
@@ -24,16 +25,6 @@ const logLevel = process.env.LOG_LEVEL || 'info';
 initLogger({ level: logLevel });
 
 const logger = createLogger('server');
-
-/**
- * 判断 API Key 是否属于弱口令
- *
- * @param {string} value - 待检查的 API Key
- * @returns {boolean} 是否为弱口令
- */
-function isInsecureDefaultApiKey(value) {
-    return value === '123456' || value === 'password' || value === 'admin';
-}
 
 /**
  * 对敏感配置做日志脱敏，避免误泄露
@@ -63,7 +54,7 @@ async function startServer() {
 
     // 生产环境禁止使用弱默认 API Key（可用 ALLOW_WEAK_API_KEY=true 覆盖）
     // 为什么：默认/弱密钥一旦被部署到公网，风险极高，宁可启动失败也不要默默放过
-    if (process.env.NODE_ENV === 'production' && isInsecureDefaultApiKey(CONFIG.REQUIRED_API_KEY)) {
+    if (process.env.NODE_ENV === 'production' && isWeakApiKey(CONFIG.REQUIRED_API_KEY)) {
         if (process.env.ALLOW_WEAK_API_KEY !== 'true') {
             logger.error('Refusing to start with insecure REQUIRED_API_KEY in production. Please set a strong REQUIRED_API_KEY.');
             process.exit(1);
@@ -96,11 +87,15 @@ async function startServer() {
         logger.info(`------------------------------------------`);
         logger.info(`Unified API Server running on http://${CONFIG.HOST}:${CONFIG.SERVER_PORT}`);
         logger.info(`  Claude-compatible: /v1/messages`);
+        logger.info(`  Claude Code-compatible: /cc/v1/messages`);
         logger.info(`  Health check: /health`);
         logger.info(`  UI Management Console: http://${CONFIG.HOST}:${CONFIG.SERVER_PORT}/`);
 
         // 自动打开浏览器进入 UI（仅本地地址）
-        if (CONFIG.OPEN_SERVER_URL) {
+        const shouldOpenBrowser = CONFIG.OPEN_SERVER_URL === true
+            && ['127.0.0.1', 'localhost', '::1'].includes(String(CONFIG.HOST).trim());
+
+        if (shouldOpenBrowser) {
             try {
                 const open = (await import('open')).default;
                 setTimeout(() => {
@@ -115,6 +110,8 @@ async function startServer() {
             } catch (err) {
                 logger.info(`Login page available at: http://${CONFIG.HOST}:${CONFIG.SERVER_PORT}/login`);
             }
+        } else if (CONFIG.OPEN_SERVER_URL) {
+            logger.warn('OPEN_SERVER_URL 已启用，但当前 HOST 不是本地回环地址，已跳过自动打开浏览器。');
         } else {
             logger.info(`Login page available at: http://${CONFIG.HOST}:${CONFIG.SERVER_PORT}/login`);
         }
