@@ -7,7 +7,11 @@
  * @module server
  */
 
+import 'dotenv/config'; // 加载 dotenv 环境变量 — 必须最先加载
+
 import * as http from 'http';
+import { promises as fs } from 'fs';
+import path from 'path';
 import { initializeConfig, CONFIG } from '../config/manager.js';
 import { initApiService } from '../services/manager.js';
 import { initializeUIManagement } from '../ui-manager.js';
@@ -16,8 +20,6 @@ import { createRequestHandler } from './request-handler.js';
 import { initLogger, createLogger } from '../lib/logger.js';
 import { attachViteDevProxy } from '../ui/vite-dev-proxy.js';
 import { validateServerConfig } from '../config/validation.js';
-
-import 'dotenv/config'; // 加载 dotenv 环境变量
 import { getAccountPoolManager } from '../services/manager.js';
 
 // 从环境变量读取日志级别
@@ -78,6 +80,23 @@ async function startServer() {
             process.exit(1);
         }
         logger.warn('Starting with insecure REQUIRED_API_KEY because ALLOW_WEAK_API_KEY=true is set.');
+    }
+
+    // 生产环境检查前端构建产物
+    if (process.env.NODE_ENV === 'production') {
+        const distPath = path.resolve(process.cwd(), 'frontend-vue/dist');
+        try {
+            await fs.access(path.join(distPath, 'index.html'));
+        } catch {
+            logger.error('');
+            logger.error('前端构建产物不存在，无法启动生产模式');
+            logger.error(`期望路径: ${distPath}`);
+            logger.error('');
+            logger.error('请先构建前端：');
+            logger.error('  cd frontend-vue && npm install && npm run build && cd ..');
+            logger.error('');
+            process.exit(1);
+        }
     }
     
     // Initialize API services

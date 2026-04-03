@@ -15,7 +15,7 @@ import path from 'path';
  * @returns {Promise<boolean>} 如果文件被成功提供则返回 true。
  */
 export async function serveStaticFiles(pathParam, res) {
-    const staticRoot = path.resolve(process.cwd(), 'static');
+    const staticRoot = path.resolve(process.cwd(), 'frontend-vue/dist');
     // 处理不同类型的路径
     let relativePath;
     if (pathParam === '/' || pathParam === '/index.html') {

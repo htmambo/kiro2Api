@@ -25,7 +25,7 @@
     "nodemon": "^3.1.4"
   },
   "scripts": {
-    "start": "node --max-old-space-size=120 src/api/server.js",
+    "start": "NODE_ENV=production node --max-old-space-size=120 src/api/server.js",
     "dev": "concurrently \"npm:dev:api\" \"npm:dev:web\"",
     "dev:api": "VITE_DEV_SERVER_URL=http://localhost:5173 nodemon",
     "dev:web": "npm --prefix frontend-vue run dev",
