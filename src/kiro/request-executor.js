@@ -16,7 +16,10 @@ import {
     isThinkingEnabled
 } from './request-utils.js';
 
-function isSocketError(error) {
+/**
+ * 检测是否为 socket 级别错误（连接重置、超时等）
+ */
+export function isSocketError(error) {
     return !error.response && (
         error.code === 'ECONNRESET' ||
         error.code === 'ETIMEDOUT' ||

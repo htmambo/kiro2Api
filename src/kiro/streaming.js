@@ -8,6 +8,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { initializeAuth } from './auth.js';
 import { KIRO_CONSTANTS } from './constants.js';
 import { createLogger } from '../lib/logger.js';
+import { isSocketError } from './request-executor.js';
 
 const logger = createLogger('streaming');
 
@@ -549,18 +550,8 @@ export async function* streamApiReal(service, method, model, body, isRetry = fal
             stream.destroy();
         }
 
-        // ⚠️ Socket 错误处理（流式 API）
-        const isSocketError = !error.response && (
-            error.code === 'ECONNRESET' ||
-            error.code === 'ETIMEDOUT' ||
-            error.code === 'ENOTFOUND' ||
-            error.code === 'UND_ERR_SOCKET' ||
-            error.code === 'UND_ERR_CONNECT_TIMEOUT' ||
-            error.message?.includes('socket') ||
-            error.message?.includes('ECONNRESET')
-        );
-
-        if (isSocketError && retryCount < maxRetries) {
+        // Socket error handling (delegated to shared util)
+        if (isSocketError(error) && retryCount < maxRetries) {
             logger.warn(`Socket error detected: ${error.code || error.message}`);
             logger.warn(
                 `Resetting connection pool and retrying... (attempt ${retryCount + 1}/${maxRetries})`
@@ -574,7 +565,7 @@ export async function* streamApiReal(service, method, model, body, isRetry = fal
 
             yield* streamApiReal(service, method, model, body, isRetry, retryCount + 1);
             return;
-        } else if (isSocketError) {
+        } else if (isSocketError(error)) {
             logger.error('Socket error after max retries:', { error: error.code || error.message });
             throw new Error(`Stream connection failed: ${error.message}. Please check your network or try restarting the service.`);
         }

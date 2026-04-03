@@ -1,4 +1,5 @@
 import { createLogger } from '../lib/logger.js';
+import { timingSafeCompare } from './security.js';
 
 const logger = createLogger('utils:auth');
 
@@ -8,12 +9,12 @@ export function isAuthorized(req, requestUrl, REQUIRED_API_KEY) {
 
     if (authHeader && authHeader.startsWith('Bearer ')) {
         const token = authHeader.substring(7);
-        if (token === REQUIRED_API_KEY) {
+        if (timingSafeCompare(token, REQUIRED_API_KEY)) {
             return true;
         }
     }
 
-    if (claudeApiKey === REQUIRED_API_KEY) {
+    if (timingSafeCompare(claudeApiKey || '', REQUIRED_API_KEY)) {
         return true;
     }
 

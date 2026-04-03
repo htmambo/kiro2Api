@@ -216,9 +216,15 @@ export async function doRefreshToken(service) {
         }
 
         if (response.data && response.data.accessToken) {
+            const oldRefreshToken = service.refreshToken;
             service.accessToken = response.data.accessToken;
             service.refreshToken = response.data.refreshToken || service.refreshToken;
             service.profileArn = response.data.profileArn || service.profileArn;
+
+            // Prune debounce map: remove old key if refresh token rotated
+            if (oldRefreshToken && oldRefreshToken !== service.refreshToken) {
+                refreshTokenDebounceMap.delete(oldRefreshToken);
+            }
 
             const expiresIn = response.data.expiresIn;
             let expiresAt;

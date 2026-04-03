@@ -7,7 +7,6 @@
  * @module request-handler
  */
 
-import deepmerge from 'deepmerge';
 import { isAuthorized } from '../utils/auth-utils.js';
 import { handleUIApiRequests, serveStaticFiles } from '../ui-manager.js';
 import { proxyViteRequest, shouldProxyToVitePath } from '../ui/vite-dev-proxy.js';
@@ -97,7 +96,7 @@ export function createRequestHandler(config, accountPoolManager) {
     return async function requestHandler(req, res) {
         try {
             // 为什么深拷贝：请求级配置可能被动态修改，避免并发请求相互污染
-            const currentConfig = deepmerge({}, config);
+            const currentConfig = { ...config };
             const host = req.headers.host || 'localhost';
             const requestUrl = new URL(req.url, `http://${host}`);
             let path = requestUrl.pathname;
@@ -131,7 +130,13 @@ export function createRequestHandler(config, accountPoolManager) {
 
         // 处理 CORS 预检请求
         if (method === 'OPTIONS') {
-            res.setHeader('Access-Control-Allow-Origin', '*');
+            const origin = req.headers.origin;
+            const allowedOrigins = currentConfig.CORS_ALLOWED_ORIGINS
+                ? currentConfig.CORS_ALLOWED_ORIGINS.split(',').map(s => s.trim()).filter(Boolean)
+                : [];
+            if (allowedOrigins.length === 0 || (origin && allowedOrigins.includes(origin))) {
+                res.setHeader('Access-Control-Allow-Origin', allowedOrigins.length === 0 ? '*' : origin);
+            }
             res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
             res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-goog-api-key, Model-Provider');
             res.writeHead(204);

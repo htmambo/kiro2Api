@@ -13,6 +13,7 @@ import { parseBracketToolCalls, deduplicateToolCalls } from './tools.js';
 import { executeWebSearch, formatSearchResults } from './search.js';
 import { MODEL_MAPPING } from './adapter.js';
 import { refreshAccessTokenIfNeeded, initializeAuth } from './auth.js';
+import { isSocketError } from './request-executor.js';
 import { KIRO_CONSTANTS } from './constants.js';
 import { unescapeHTML } from './utils.js';
 import { createLogger } from '../lib/logger.js';
@@ -201,19 +202,8 @@ export async function callApi(service, method, model, body, isRetry = false, ret
 
         return response;
     } catch (error) {
-        // ⚠️ Socket 错误处理（UND_ERR_SOCKET, ECONNRESET 等）
-        // 这些错误通常是连接池中的连接失效导致的
-        const isSocketError = !error.response && (
-            error.code === 'ECONNRESET' ||
-            error.code === 'ETIMEDOUT' ||
-            error.code === 'ENOTFOUND' ||
-            error.code === 'UND_ERR_SOCKET' ||
-            error.code === 'UND_ERR_CONNECT_TIMEOUT' ||
-            error.message?.includes('socket') ||
-            error.message?.includes('ECONNRESET')
-        );
-
-        if (isSocketError && retryCount < maxRetries) {
+        // Socket error handling (delegated to shared util)
+        if (isSocketError(error) && retryCount < maxRetries) {
             logger.info(`Socket error detected: ${error.code || error.message}`);
             logger.info(`Resetting connection pool and retrying... (attempt ${retryCount + 1}/${maxRetries})`);
 
@@ -225,7 +215,7 @@ export async function callApi(service, method, model, body, isRetry = false, ret
             await new Promise(resolve => setTimeout(resolve, delay));
 
             return callApi(service, method, model, body, isRetry, retryCount + 1);
-        } else if (isSocketError) {
+        } else if (isSocketError(error)) {
             logger.error('Socket error after max retries:', error.code || error.message);
             throw new Error(`Connection failed: ${error.message}. Please check your network or try restarting the service.`);
         }
@@ -753,7 +743,7 @@ export async function* generateContentStream(service, model, requestBody) {
 
                         // ⭐ 服务端执行 webSearch 工具
                         if (currentToolCall.name === 'webSearch') {
-                            if (serviceverboseLogging) {
+                            if (service.verboseLogging) {
                                 logger.info('Detected webSearch tool call, executing on server...');
                             }
                             currentToolCall.serverSideExecute = true;  // 标记为服务端执行

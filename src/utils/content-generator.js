@@ -13,6 +13,9 @@ import { canUsePool, countAvailablePoolItems, markPoolHealthy, markPoolUnhealthy
 
 const logger = createLogger('utils:content-generator');
 
+// Stateless strategy — reuse a single instance across all requests
+const kiroStrategy = new KiroStrategy();
+
 export async function handleContentGenerationRequest(req, res, service, endpointType, CONFIG, PROMPT_LOG_FILENAME, providerPoolManager, pooluuid) {
     const originalRequestBody = await getRequestBodyFromModule(req);
     if (!originalRequestBody) {
@@ -27,7 +30,7 @@ export async function handleContentGenerationRequest(req, res, service, endpoint
 
     const fromProvider = clientProviderMap[endpointType];
     const toProvider = CONFIG.MODEL_PROVIDER;
-    logger.warn(`fromProvider: ${fromProvider}, toProvider: ${toProvider}`);
+    logger.debug(`fromProvider: ${fromProvider}, toProvider: ${toProvider}`);
 
     if (!fromProvider) {
         throw new Error(`Unsupported endpoint type for content generation: ${endpointType}`);
@@ -50,7 +53,7 @@ export async function handleContentGenerationRequest(req, res, service, endpoint
     if (!model) {
         throw new Error("Could not determine the model from the request.");
     }
-    logger.warn(`Model: ${model}, Stream: ${isStream}`);
+    logger.debug(`Model: ${model}, Stream: ${isStream}`);
 
     let processedRequestBody = originalRequestBody;
     if (fromProvider !== MODEL_PROTOCOL_PREFIX.CLAUDE) {
@@ -59,7 +62,7 @@ export async function handleContentGenerationRequest(req, res, service, endpoint
         if (processedRequestBody.model) {
             processedRequestBody.model = model;
         }
-        logger.warn(`Converted request: ${JSON.stringify(processedRequestBody)}`);
+        logger.debug(`Converted request: ${JSON.stringify(processedRequestBody)}`);
     } else {
         logger.log(`Request format matches backend provider. No conversion needed.`);
     }
@@ -254,13 +257,11 @@ export async function handleUnaryRequest(res, service, model, requestBody, fromP
 }
 
 export function extractResponseText(response, provider) {
-    const strategy = new KiroStrategy();
-    return strategy.extractResponseText(response);
+    return kiroStrategy.extractResponseText(response);
 }
 
 async function applySystemPromptFromFile(config, requestBody, toProvider) {
-    const strategy = new KiroStrategy();
-    return strategy.applySystemPromptFromFile(config, requestBody);
+    return kiroStrategy.applySystemPromptFromFile(config, requestBody);
 }
 
 async function manageSystemPrompt(requestBody, provider) {
