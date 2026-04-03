@@ -12,7 +12,8 @@ import { streamApiReal } from './streaming.js';
 import { parseBracketToolCalls, deduplicateToolCalls } from './tools.js';
 import { executeWebSearch, formatSearchResults } from './search.js';
 import { MODEL_MAPPING } from './adapter.js';
-import { KIRO_CONSTANTS, refreshAccessTokenIfNeeded, initializeAuth } from './auth.js';
+import { refreshAccessTokenIfNeeded, initializeAuth } from './auth.js';
+import { KIRO_CONSTANTS } from './constants.js';
 import { unescapeHTML } from './utils.js';
 import { createLogger } from '../lib/logger.js';
 

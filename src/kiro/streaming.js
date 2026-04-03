@@ -5,7 +5,8 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
-import { KIRO_CONSTANTS, initializeAuth } from './auth.js';
+import { initializeAuth } from './auth.js';
+import { KIRO_CONSTANTS } from './constants.js';
 import { createLogger } from '../lib/logger.js';
 
 const logger = createLogger('streaming');

@@ -152,7 +152,7 @@ export class AccountPoolFacade extends EventEmitter {
             globalConfig: config,
             modelProvider: config.MODEL_PROVIDER,
             maxErrorCount: config.MAX_ERROR_COUNT ?? 3,
-            accountPoolFilePath: config.ACCOUNT_POOL_FILE_PATH || 'configs/account_pool.json'
+            accountPoolFilePath: config.ACCOUNT_POOL_FILE_PATH || 'configs/runtime/account_pool.json'
         });
 
         return new AccountPoolFacade({ mode: 'json', manager, config });

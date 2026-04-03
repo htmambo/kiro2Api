@@ -46,7 +46,7 @@ export class AccountPoolManager {
         // 保存与防抖
         this.accountPoolFilePath = options.accountPoolFilePath ||
             this.globalConfig.ACCOUNT_POOL_FILE_PATH ||
-            'configs/account_pool.json';
+            'configs/runtime/account_pool.json';
         this.saveDebounceTime = options.saveDebounceTime || 1000;
         this.saveTimer = null;
 
@@ -77,6 +77,18 @@ export class AccountPoolManager {
             this.accountPool.accounts = accountPool.accounts || [];
             this.logger.info(`Loaded account pool from ${filePath}`);
         } catch (error) {
+            if (error.code === 'ENOENT') {
+                const directory = path.dirname(filePath);
+                if (!fs.existsSync(directory)) {
+                    fs.mkdirSync(directory, { recursive: true });
+                }
+
+                fs.writeFileSync(filePath, JSON.stringify({ accounts: [] }, null, 2), 'utf8');
+                this.accountPool.accounts = [];
+                this.logger.info(`Account pool file not found. Created empty pool at ${filePath}`);
+                return;
+            }
+
             this.logger.error(`Failed to load account pool from ${filePath}: ${error.message}`);
         }
     }

@@ -7,6 +7,7 @@
  */
 import * as fs from 'fs';
 import { promises as pfs } from 'fs';
+import * as path from 'path';
 import { INPUT_SYSTEM_PROMPT_FILE, MODEL_PROVIDER } from '../utils/constants.js';
 import { createLogger } from '../lib/logger.js';
 
@@ -103,6 +104,20 @@ function normalizeConfiguredProviders(config) {
     config.MODEL_PROVIDER = dedupedProviders[0];
 }
 
+function ensureConfigDirectories(configFilePath) {
+    const configDirectory = path.dirname(configFilePath);
+
+    if (!fs.existsSync(configDirectory)) {
+        fs.mkdirSync(configDirectory, { recursive: true });
+        logger.info(`Created ${configDirectory} directory`);
+    }
+
+    if (!fs.existsSync('configs/kiro')) {
+        fs.mkdirSync('configs/kiro', { recursive: true });
+        logger.info('Created configs/kiro directory');
+    }
+}
+
 /**
  * 从 config.json 与命令行参数初始化配置
  *
@@ -111,6 +126,8 @@ function normalizeConfiguredProviders(config) {
  */
 export async function initializeConfig(args = process.argv.slice(2), configFilePath = 'configs/runtime/config.json') {
     let currentConfig = {};
+
+    ensureConfigDirectories(configFilePath);
 
     try {
         const configData = fs.readFileSync(configFilePath, 'utf8');
@@ -150,16 +167,6 @@ export async function initializeConfig(args = process.argv.slice(2), configFileP
             currentConfig = { ...DEFAULT_CONFIG };
             logger.info('Using default configuration.');
         }
-    }
-
-    // 确保 configs/kiro 目录存在
-    if (!fs.existsSync('configs')) {
-        fs.mkdirSync('configs', { recursive: true });
-        logger.info('Created configs directory');
-    }
-    if (!fs.existsSync('configs/kiro')) {
-        fs.mkdirSync('configs/kiro', { recursive: true });
-        logger.info('Created configs/kiro directory');
     }
 
     currentConfig.OPEN_SERVER_URL  = true;

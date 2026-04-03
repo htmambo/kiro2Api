@@ -23,7 +23,7 @@
   "KIRO_STREAM_TIMEOUT_MS": 180000,
   "CRON_NEAR_MINUTES": 15,
   "CRON_REFRESH_TOKEN": true,
-  "ACCOUNT_POOL_FILE_PATH": "./configs/account_pool.json",
+  "ACCOUNT_POOL_FILE_PATH": "./configs/runtime/account_pool.json",
   "MAX_ERROR_COUNT": 5,
   "ENABLE_THINKING_BY_DEFAULT": true,
   "REDIS_ENABLED": false,
